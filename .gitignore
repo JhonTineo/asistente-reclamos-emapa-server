@@ -1,0 +1,35 @@
+# Entorno virtual de Python
+.venv/
+venv/
+env/
+
+# Variables de entorno (contienen claves, tokens, etc.)
+.env
+*.env
+
+# Configuración sensible
+conf.env
+
+# Archivos compilados de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribución / empaquetado
+*.egg-info/
+*.egg
+dist/
+build/
+*.whl
+
+# Archivos del editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
