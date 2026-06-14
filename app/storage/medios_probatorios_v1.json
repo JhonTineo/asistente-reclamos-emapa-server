@@ -1,0 +1,34 @@
+{
+  "medios_probatorios": [
+    {
+      "id": "saldo_actual",
+      "nombre": "Saldo actual",
+      "descripcion": "Estado actual de la cuenta del suministro"
+    },
+    {
+      "id": "tarjeta_lectura",
+      "nombre": "Tarjeta de lectura",
+      "descripcion": "Histórico de lecturas del medidor"
+    },
+    {
+      "id": "record_facturacion",
+      "nombre": "Record de facturación",
+      "descripcion": "Histórico de facturaciones del suministro"
+    },
+    {
+      "id": "corte_reapertura",
+      "nombre": "Corte y reapertura",
+      "descripcion": "Histórico de cierres y reaperturas del servicio"
+    },
+    {
+      "id": "inspeccion_externa",
+      "nombre": "Inspección externa",
+      "descripcion": "Resultado de inspección externa del inmueble"
+    },
+    {
+      "id": "inspeccion_interna",
+      "nombre": "Inspección interna",
+      "descripcion": "Resultado de inspección interna del inmueble"
+    }
+  ]
+}

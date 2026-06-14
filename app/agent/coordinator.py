@@ -1,115 +1,161 @@
+import json
 import time
 import logging
 import asyncio
-from app.schemas.investigacion import (
-    TareaInforme,
-    Hallazgo,
-)
-from app.agent.clasificador import ClasificadorAgent
-from app.agent.planificador import PlanificadorAgent
-from app.agent.investigador import InvestigadorAgent
-from app.agent.unificador import UnificadorAgent
+from pathlib import Path
+from app.agent.analista_medio import AnalistaMedioAgent
+from app.tools.emapa_client import consultar_medio_probatorio
 
 logger = logging.getLogger("agent.coordinator")
 
+MEDIOS_PATH = Path(__file__).parent.parent / "storage" / "medios_probatorios_v1.json"
 
-async def ejecutar_investigacion_completa(
-    suministro_id: str,
-    detalle: str,
-    modelo: str | None = None,
+
+def _cargar_medios() -> list[dict]:
+    return json.loads(MEDIOS_PATH.read_text(encoding="utf-8"))["medios_probatorios"]
+
+
+def _obtener_params_para_medio(medio_id: str, codsuc: str, codcliente: str, codreclamo: str, anio: str) -> dict:
+    params = {"codsuc": codsuc}
+
+    if medio_id in ("saldo_actual", "tarjeta_lectura", "corte_reapertura"):
+        params["codcliente"] = codcliente
+    elif medio_id == "record_facturacion":
+        params["codcliente"] = codcliente
+        params["anio"] = anio
+    elif medio_id in ("inspeccion_externa", "inspeccion_interna"):
+        params["codcliente"] = codcliente
+
+    return params
+
+
+async def _analisis_medio_sync(
+    medio_id: str,
+    medio_nombre: str,
+    datos: str,
+    clasificacion: str,
+    modelo: str | None,
 ) -> dict:
+    """Ejecuta el análisis de un medio en thread separado para no bloquear."""
+    return await asyncio.to_thread(
+        _ejecutar_analisis_medio,
+        medio_id,
+        medio_nombre,
+        datos,
+        clasificacion,
+        modelo,
+    )
+
+
+def _ejecutar_analisis_medio(
+    medio_id: str,
+    medio_nombre: str,
+    datos: str,
+    clasificacion: str,
+    modelo: str | None,
+) -> dict:
+    """Ejecuta el análisis real del medio (bloqueante)."""
+    analista = AnalistaMedioAgent(model=modelo)
+    return analista.analizar(
+        medio_id=medio_id,
+        medio_nombre=medio_nombre,
+        datos=datos,
+        clasificacion=clasificacion,
+    )
+
+
+async def analizar_medios(
+    codsuc: str,
+    codcliente: str,
+    codreclamo: str,
+    clasificacion: str,
+    anio: str,
+    modelo: str | None = None,
+) -> list[dict]:
     """
-    Orchestrates the complete multi-agent investigation flow:
-    1. Clasificador → classification
-    2. Planificador → plan + tasks
-    3. Investigador (parallel) → findings per task
-    4. Unificador → final explanation
+    Obtiene y analiza todos los medios probatorios en paralelo.
     """
-    t_total_inicio = time.perf_counter()
-    reclamo_id = f"rec-{suministro_id}-{int(time.time())}"
+    t_inicio_total = time.perf_counter()
+    medios = _cargar_medios()
 
-    logger.info("[COORDINATOR] Iniciando investigación completa | suministro=%s | tiempo=%.3fs",
-                suministro_id, time.perf_counter() - t_total_inicio)
+    logger.info("=" * 60)
+    logger.info("[FASE 1] INICIO - Análisis de %d medios probatorios", len(medios))
+    logger.info("[FASE 1] codsuc=%s | codcliente=%s | codreclamo=%s", codsuc, codcliente, codreclamo)
+    logger.info("[FASE 1] clasificacion=%s | anio=%s", clasificacion, anio)
+    logger.info("=" * 60)
 
-    logger.info("[COORDINATOR] FASE 1: Clasificación | suministro=%s", suministro_id)
-    t_clasif_inicio = time.perf_counter()
-    clasificador = ClasificadorAgent(model=modelo)
-    result_clasif = clasificador.run({
-        "reclamo_id": reclamo_id,
-        "suministro_id": suministro_id,
-        "detalle": detalle,
-        "modelo": modelo,
-    })
-    t_clasif = time.perf_counter() - t_clasif_inicio
-    clasificacion = result_clasif["clasificacion"]
-    logger.info("[COORDINATOR] Clasificación completada | clasificacion=%s | tiempo=%.2fs",
-                clasificacion, t_clasif)
+    async def procesar_un_medio(medio: dict, numero: int, total: int) -> dict:
+        medio_id = medio["id"]
+        medio_nombre = medio["nombre"]
+        t_medio_inicio = time.perf_counter()
 
-    logger.info("[COORDINATOR] FASE 2: Planificación | suministro=%s", suministro_id)
-    t_plan_inicio = time.perf_counter()
-    planificador = PlanificadorAgent(model=modelo)
-    result_plan = planificador.run({
-        "reclamo_id": reclamo_id,
-        "suministro_id": suministro_id,
-        "clasificacion": clasificacion,
-        "detalle": detalle,
-        "modelo": modelo,
-    })
-    t_plan = time.perf_counter() - t_plan_inicio
-    tareas = result_plan["tareas"]
-    descripcion_plan = result_plan["descripcion_planificacion"]
-    logger.info("[COORDINATOR] Planificación completada | tareas=%d | tiempo=%.2fs",
-                len(tareas), t_plan)
+        params = _obtener_params_para_medio(medio_id, codsuc, codcliente, codreclamo, anio)
 
-    logger.info("[COORDINATOR] FASE 3: Investigación paralela | suministro=%s | tareas=%d",
-                suministro_id, len(tareas))
-    t_inv_inicio = time.perf_counter()
+        logger.info("-" * 40)
+        logger.info("[MEDIO %d/%d] Iniciando: %s", numero, total, medio_nombre)
+        logger.info("[MEDIO %d/%d] Params: %s", numero, total, params)
 
-    investigador = InvestigadorAgent(model=modelo)
-    tareas_con_datos = [
-        {
-            "tarea": tarea,
-            "suministro_id": suministro_id,
-            "detalle": detalle,
-            "modelo": modelo,
+        logger.info("[MEDIO %d/%d] Consultando API EMAPA...", numero, total)
+        t_api_inicio = time.perf_counter()
+
+        result = consultar_medio_probatorio.execute(medio_id=medio_id, params=params)
+
+        t_api = time.perf_counter() - t_api_inicio
+
+        if not result.success:
+            logger.error("[MEDIO %d/%d] ERROR en API: %s (%.2fs)", numero, total, result.error, t_api)
+            return {
+                "medio_id": medio_id,
+                "medio_nombre": medio_nombre,
+                "resumen": f"Error al obtener datos: {result.error}",
+                "estado": "error",
+                "error": result.error,
+            }
+
+        logger.info("[MEDIO %d/%d] API OK | datos_recibidos=%d bytes (%.2fs)",
+                   numero, total, len(result.data or ""), t_api)
+
+        logger.info("[MEDIO %d/%d] Analizando con LLM (en thread separado)...", numero, total)
+        t_analisis_inicio = time.perf_counter()
+
+        analisis = await _analisis_medio_sync(
+            medio_id, medio_nombre, result.data or "", clasificacion, modelo
+        )
+
+        t_analisis = time.perf_counter() - t_analisis_inicio
+        t_medio = time.perf_counter() - t_medio_inicio
+
+        logger.info("[MEDIO %d/%d] COMPLETADO | tiempo_total=%.2fs (api=%.2fs, analisis=%.2fs)",
+                   numero, total, t_medio, t_api, t_analisis)
+        logger.info("[MEDIO %d/%d] Resumen: %s",
+                   numero, total, (analisis["resumen"][:100] + "...") if len(analisis["resumen"]) > 100 else analisis["resumen"])
+
+        return {
+            "medio_id": medio_id,
+            "medio_nombre": medio_nombre,
+            "resumen": analisis["resumen"],
+            "estado": "ok",
         }
-        for tarea in tareas
+
+    logger.info("[FASE 1] Lanzando analisis en paralelo de %d medios...", len(medios))
+    t_paralelo_inicio = time.perf_counter()
+
+    tareas = [
+        procesar_un_medio(medio, i + 1, len(medios))
+        for i, medio in enumerate(medios)
     ]
-    resultados_tareas: list[Hallazgo] = await asyncio.gather(*[
-        asyncio.to_thread(investigador.run, td) for td in tareas_con_datos
-    ])
-    t_inv = time.perf_counter() - t_inv_inicio
-    logger.info("[COORDINATOR] Investigación completada | hallazgos=%d | tiempo=%.2fs",
-                len(resultados_tareas), t_inv)
+    resultados = await asyncio.gather(*tareas)
 
-    logger.info("[COORDINATOR] FASE 4: Unificación | suministro=%s", suministro_id)
-    t_unif_inicio = time.perf_counter()
-    unificador = UnificadorAgent(model=modelo)
-    result_unif = unificador.run({
-        "reclamo_id": reclamo_id,
-        "suministro_id": suministro_id,
-        "clasificacion": clasificacion,
-        "detalle": detalle,
-        "resultados_tareas": list(resultados_tareas),
-        "modelo": modelo,
-    })
-    t_unif = time.perf_counter() - t_unif_inicio
-    logger.info("[COORDINATOR] Unificación completada | procede=%s | tiempo=%.2fs",
-                result_unif["procede"], t_unif)
+    t_paralelo = time.perf_counter() - t_paralelo_inicio
+    t_total = time.perf_counter() - t_inicio_total
 
-    t_total = time.perf_counter() - t_total_inicio
-    logger.info("[COORDINATOR] Investigación completa | suministro=%s | total=%.2fs | "
-                "clasif=%.2fs | plan=%.2fs | inv=%.2fs | unif=%.2fs",
-                suministro_id, t_total, t_clasif, t_plan, t_inv, t_unif)
+    logger.info("=" * 60)
+    logger.info("[FASE 1] COMPLETADA")
+    logger.info("[FASE 1] Resultados:")
+    for r in resultados:
+        estado_icon = "OK" if r["estado"] == "ok" else "ERROR"
+        logger.info("[FASE 1]   [%s] %s", estado_icon, r["medio_nombre"])
+    logger.info("[FASE 1] Tiempo total: %.2fs (analisis paralelo: %.2fs)", t_total, t_paralelo)
+    logger.info("=" * 60)
 
-    return {
-        "reclamo_id": reclamo_id,
-        "suministro_id": suministro_id,
-        "clasificacion": clasificacion,
-        "descripcion_plan": descripcion_plan,
-        "tareas": tareas,
-        "resultados_tareas": list(resultados_tareas),
-        "explicacion_unificada": result_unif["explicacion_unificada"],
-        "procede": result_unif["procede"],
-        "acciones": result_unif["acciones"],
-    }
+    return list(resultados)

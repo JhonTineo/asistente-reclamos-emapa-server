@@ -1,100 +1,77 @@
-import json
-import re
 import time
 import logging
 from langchain_core.messages import SystemMessage
 from app.core.llm import get_llm
-from app.schemas.investigacion import Hallazgo
-from app.skills.investigacion import generar_prompt_unificacion
-from app.agent.base import Agent
 
 logger = logging.getLogger("agent.unificador")
 
 
-def _extraer_json(texto: str) -> dict:
-    match = re.search(r"\{.*\}", texto, re.DOTALL)
-    if not match:
-        raise ValueError(f"No se encontró JSON en la respuesta: {texto[:200]}")
-    return json.loads(match.group())
+class UnificadorAgent:
+    def __init__(self, model: str | None = None):
+        self.model = model
+        self.llm = get_llm(model=model)
 
+    def generar_informe(self, codreclamo: str, clasificacion: str, detalle: str, resumenes: list[dict]) -> dict:
+        t_inicio = time.perf_counter()
 
-class UnificadorAgent(Agent):
-    role = "unificador"
+        logger.info("=" * 60)
+        logger.info("[FASE 2] INICIO - Generacion de Informe")
+        logger.info("[FASE 2] codreclamo=%s | clasificacion=%s", codreclamo, clasificacion)
+        logger.info("[FASE 2] Detalle: %s", detalle[:100] + "..." if len(detalle) > 100 else detalle)
+        logger.info("[FASE 2] Resumenes recibidos: %d", len(resumenes))
+        logger.info("-" * 40)
 
-    def run(self, input_data: dict) -> dict:
-        reclamo_id = input_data["reclamo_id"]
-        suministro_id = input_data["suministro_id"]
-        clasificacion = input_data["clasificacion"]
-        detalle = input_data["detalle"]
-        resultados_tareas = input_data["resultados_tareas"]
-        modelo = input_data.get("modelo")
+        for i, r in enumerate(resumenes, 1):
+            logger.info("[FASE 2] Resumen %d: %s", i, r["medio_nombre"])
+            logger.info("[FASE 2]   %s", (r["resumen"][:80] + "...") if len(r["resumen"]) > 80 else r["resumen"])
 
-        return _unificar_hallazgos_sincrono(
-            reclamo_id, suministro_id, clasificacion, detalle, resultados_tareas, modelo
+        logger.info("-" * 40)
+        logger.info("[FASE 2] Construyendo prompt para LLM...")
+
+        prompt = self._construir_prompt(codreclamo, clasificacion, detalle, resumenes)
+
+        logger.info("[FASE 2] Invocando LLM (modelo=%s)...", self.model or "default")
+        t_llm_inicio = time.perf_counter()
+
+        response = self.llm.invoke([SystemMessage(content=prompt)])
+
+        t_llm = time.perf_counter() - t_llm_inicio
+        contenido = response.content if response.content else ""
+
+        t_duracion = time.perf_counter() - t_inicio
+
+        logger.info("[FASE 2] LLM completado (%.2fs)", t_llm)
+        logger.info("[FASE 2] Informe generado (%d caracteres)", len(contenido))
+        logger.info("[FASE 2] COMPLETADA | tiempo_total=%.2fs", t_duracion)
+        logger.info("=" * 60)
+
+        return {
+            "informe": contenido,
+            "tiempo": t_duracion,
+        }
+
+    def _construir_prompt(self, codreclamo: str, clasificacion: str, detalle: str, resumenes: list[dict]) -> str:
+        resumenes_texto = "\n\n".join([
+            f"### {r['medio_nombre']}\n{r['resumen']}"
+            for r in resumenes
+        ])
+
+        return (
+            f"Eres un especialista en analisis de reclamos de EMAPA.\n\n"
+            f"Genera un informe detallado y profesional para el siguiente reclamo:\n\n"
+            f"Codigo de Reclamo: {codreclamo}\n"
+            f"Clasificacion: {clasificacion}\n"
+            f"Detalle del Reclamo: {detalle}\n\n"
+            f"=== RESUMENES DE ANALISIS DE MEDIOS PROBATORIOS ===\n"
+            f"{resumenes_texto}\n\n"
+            f"=== FORMATO DEL INFORME ===\n"
+            f"El informe debe incluir:\n"
+            f"1. RESUMEN EJECUTIVO: Breve explicacion del problema identificado (2-3 oraciones)\n"
+            f"2. ANTECEDENTES: Contexto del reclamo y lo reportado por el cliente\n"
+            f"3. ANALISIS POR MEDIO PROBATORIO: Descripcion de lo encontrado en cada medio\n"
+            f"4. HALLAZGOS: Lista de problemas o anomalias identificadas\n"
+            f"5. CONCLUSION: Evaluacion tecnica del reclamo\n"
+            f"6. RECOMENDACION: Acciones a seguir o solucion propuesta\n\n"
+            f"Responde UNICAMENTE con el informe en el formato especificado.\n"
+            f"Se profesional, objetivo y basa tus conclusiones en los datos."
         )
-
-
-def _unificar_hallazgos_sincrono(
-    reclamo_id: str,
-    suministro_id: str,
-    clasificacion: str,
-    detalle: str,
-    resultados_tareas: list[Hallazgo],
-    modelo: str | None,
-) -> dict:
-    t_inicio = time.perf_counter()
-
-    logger.info("[UNIFICADOR] Iniciando unificación | reclamo=%s | informes=%d",
-                reclamo_id, len(resultados_tareas))
-
-    prompt_base = generar_prompt_unificacion(reclamo_id, suministro_id, clasificacion, detalle)
-
-    prompt_informes = _construir_prompt_informes(resultados_tareas)
-
-    prompt_completo = (
-        f"{prompt_base}\n\n"
-        f"=== INFORMES GENERADOS ===\n"
-        f"{prompt_informes}\n\n"
-        "Responde con el JSON final."
-    )
-
-    llm = get_llm(model=modelo)
-
-    logger.info("[UNIFICADOR] Invocando LLM para unificación | reclamo=%s", reclamo_id)
-    t_llm_inicio = time.perf_counter()
-
-    response = llm.invoke([SystemMessage(content=prompt_completo)])
-
-    t_llm = time.perf_counter() - t_llm_inicio
-
-    try:
-        data_unif = _extraer_json(response.content)
-        explicacion_unificada = data_unif.get("explicacion_unificada", "")
-        procede = data_unif.get("procede", "parcialmente")
-        acciones = data_unif.get("acciones", [])
-    except Exception as e:
-        logger.warning("[UNIFICADOR] Error parseando unificación: %s", str(e))
-        explicacion_unificada = "Error al generar explicación unificada"
-        procede = "parcialmente"
-        acciones = []
-
-    t_total = time.perf_counter() - t_inicio
-    logger.info("[UNIFICADOR] Unificación completada | reclamo=%s | procede=%s | tiempo=%.2fs (llm=%.2fs)",
-                reclamo_id, procede, t_total, t_llm)
-
-    return {
-        "explicacion_unificada": explicacion_unificada,
-        "procede": procede,
-        "acciones": acciones,
-    }
-
-
-def _construir_prompt_informes(resultados_tareas: list[Hallazgo]) -> str:
-    informes_texto = "\n\n".join(
-        f"=== {h.informe_nombre} ===\n"
-        f"Medios analizados: {', '.join(h.medios_utilizados)}\n"
-        f"Hallazgos: {'; '.join(h.hallazgos)}\n"
-        f"Conclusión: {h.conclusion}"
-        for h in resultados_tareas
-    )
-    return informes_texto

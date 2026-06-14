@@ -1,17 +1,9 @@
-from app.agent.base import Agent
-from app.agent.clasificador import ClasificadorAgent, clasificar_reclamo
-from app.agent.planificador import PlanificadorAgent, planificar_investigacion
-from app.agent.investigador import InvestigadorAgent
+from app.agent.analista_medio import AnalistaMedioAgent
 from app.agent.unificador import UnificadorAgent
-from app.agent.coordinator import ejecutar_investigacion_completa
+from app.agent.coordinator import analizar_medios
 
 __all__ = [
-    "Agent",
-    "ClasificadorAgent",
-    "clasificar_reclamo",
-    "PlanificadorAgent",
-    "planificar_investigacion",
-    "InvestigadorAgent",
+    "AnalistaMedioAgent",
     "UnificadorAgent",
-    "ejecutar_investigacion_completa",
+    "analizar_medios",
 ]

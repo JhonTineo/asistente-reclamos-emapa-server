@@ -1,68 +1,45 @@
 from pydantic import BaseModel, Field
 
 
-class TareaInforme(BaseModel):
-    id: str = Field(description="ID único de la tarea (ej: inf-1)")
-    nombre: str = Field(description="Nombre del informe a generar")
-    medios_requeridos: list[str] = Field(description="Lista de medios probatorios necesarios")
-    prompt: str = Field(description="Prompt del sistema para el agente que ejecutará esta tarea")
-    entrada: dict = Field(description="Parámetros de entrada para la tarea")
-    salida: str = Field(description="Descripción del resultado esperado")
-
-
-class Hallazgo(BaseModel):
-    informe_id: str = Field(description="ID del informe que generó este hallazgo")
-    informe_nombre: str = Field(description="Nombre del informe")
-    medios_utilizados: list[str] = Field(description="Medios probatorios que fueron analizados")
-    hallazgos: list[str] = Field(description="Lista de hallazgos encontrados")
-    conclusion: str = Field(description="Conclusión del análisis de este informe")
-
-
-class PlanificarInvestigacionRequest(BaseModel):
-    suministro_id: str | None = Field(default=None, description="ID del suministro (opcional, usa reclamo_id si no se provee)")
-    reclamo_id: str
-    clasificacion: str = Field(description="Clasificación del reclamo según Anexo 1")
-    detalle: str = Field(description="Detalle original del reclamo")
+class InvestigacionRequest(BaseModel):
+    codsuc: str = Field(description="Código de sucursal")
+    codcliente: str = Field(description="Código de cliente")
+    codreclamo: str = Field(description="Código del reclamo")
+    clasificacion: str = Field(description="Clasificación del reclamo")
+    detalle: str = Field(description="Detalle del reclamo")
+    anio: str = Field(default="2026", description="Año para record de facturación")
     modelo: str | None = None
 
 
-class PlanificarInvestigacionResponse(BaseModel):
-    reclamo_id: str
-    clasificacion: str
-    descripcion_planificacion: str = Field(description="Descripción breve del plan de investigación")
-    tareas: list[TareaInforme]
+class ResumenMedio(BaseModel):
+    medio_id: str
+    medio_nombre: str
+    resumen: str
+    estado: str = "ok"
+    error: str | None = None
 
 
-class EjecutarInvestigacionRequest(BaseModel):
-    reclamo_id: str
+class InvestigacionResponse(BaseModel):
+    codreclamo: str
+    codsuc: str
+    codcliente: str
     clasificacion: str
     detalle: str
-    descripcion_planificacion: str = Field(description="Descripción del plan de investigación")
-    tareas: list[TareaInforme]
+    resumenes: list[ResumenMedio]
+    tiempo_total: float
+
+
+class InformeRequest(BaseModel):
+    codsuc: str = Field(description="Código de sucursal")
+    codcliente: str = Field(description="Código de cliente")
+    codreclamo: str = Field(description="Código del reclamo")
+    clasificacion: str = Field(description="Clasificación del reclamo")
+    detalle: str = Field(description="Detalle del reclamo")
+    resumenes: list[ResumenMedio] = Field(description="Resúmenes verificados por el usuario")
     modelo: str | None = None
 
 
-class ResultadoInvestigacion(BaseModel):
-    reclamo_id: str
-    clasificacion: str
-    descripcion_planificacion: str
-    resultados_tareas: list[Hallazgo]
-    explicacion_unificada: str = Field(description="Explicación unificada del problema que generó el reclamo")
-
-
-class InvestigacionRequest(BaseModel):
-    suministro_id: str = Field(description="ID del suministro")
-    detalle_reclamo: str = Field(description="Detalle del reclamo")
-    modelo: str | None = None
-
-
-class ResultadoInvestigacionCompleto(BaseModel):
-    reclamo_id: str
-    suministro_id: str
-    clasificacion: str
-    descripcion_plan: str = Field(description="Descripción del plan de investigación")
-    tareas: list[TareaInforme]
-    resultados_tareas: list[Hallazgo]
-    explicacion_unificada: str
-    procede: str = Field(description="si | no | parcialmente")
-    acciones: list[str]
+class InformeResponse(BaseModel):
+    codreclamo: str
+    informe: str
+    tiempo: float
