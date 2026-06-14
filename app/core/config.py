@@ -12,5 +12,8 @@ class Settings(BaseSettings):
     opencode_go_base_url: str = "https://opencode.ai/zen/go/v1"
     llm_model: str = "glm-5"
 
+    emapa_api_base_url: str = "http://localhost:8000/api/v1"
+    emapa_api_key: str = ""
+
 
 settings = Settings()

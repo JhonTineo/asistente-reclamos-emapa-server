@@ -1,0 +1,164 @@
+{
+  "Consumo medido": {
+    "categoria": "Comerciales - Relativos a la facturación",
+    "comunes": [
+      {"nombre": "Histórico de reclamos del suministro."}
+    ],
+    "medios": [
+      {"nombre": "Copia de los recibos de pago reclamados."},
+      {"nombre": "Histórico de Lecturas periodo de dos (2) años."},
+      {"nombre": "Histórico de Facturaciones periodo de dos (2) años."},
+      {"nombre": "Histórico de Pagos periodo de dos (2) años."},
+      {"nombre": "Históricos de cierres y reaperturas."},
+      {"nombre": "Inspección externa."},
+      {"nombre": "Inspección interna."}
+    ]
+  },
+  "Consumo promedio": {
+    "categoria": "Comerciales - Relativos a la facturación",
+    "comunes": [
+      {"nombre": "Histórico de reclamos del suministro."}
+    ],
+    "medios": [
+      {"nombre": "Copia de los recibos de pago reclamados."},
+      {"nombre": "Histórico de Lecturas periodo de dos (2) años."},
+      {"nombre": "Histórico de Facturaciones periodo de dos (2) años."},
+      {"nombre": "Histórico de Pagos periodo de dos (2) años."},
+      {"nombre": "Históricos de cierres y reaperturas."},
+      {"nombre": "Informe de aplicación del régimen de facturación."},
+      {"nombre": "Informe de cálculo y aplicación del promedio de facturación."}
+    ]
+  },
+  "Asignación de consumo": {
+    "categoria": "Comerciales - Relativos a la facturación",
+    "comunes": [
+      {"nombre": "Histórico de reclamos del suministro."}
+    ],
+    "medios": [
+      {"nombre": "Copia de los recibos de pago reclamados."},
+      {"nombre": "Histórico de Lecturas periodo de dos (2) años."},
+      {"nombre": "Histórico de Facturaciones periodo de dos (2) años."},
+      {"nombre": "Histórico de Pagos periodo de dos (2) años."},
+      {"nombre": "Históricos de cierres y reaperturas."},
+      {"nombre": "Informe de aplicación del régimen de facturación."},
+      {"nombre": "Informe de asignación de consumo aplicado."},
+      {"nombre": "Inspección interna."},
+      {"nombre": "Croquis del predio detallando el número y ubicación de los puntos de agua y de desagüe."},
+      {"nombre": "Descripción detallada de la fachada del inmueble."}
+    ]
+  },
+  "Consumo no facturado oportunamente": {
+    "categoria": "Comerciales - Relativos a la facturación",
+    "comunes": [
+      {"nombre": "Histórico de reclamos del suministro."}
+    ],
+    "medios": [
+      {"nombre": "Históricos de cierres y reaperturas."},
+      {"nombre": "Orden de servicio de verificación de uso indebido, cierre del servicio y la anulación del servicio."},
+      {"nombre": "Liquidación emitida por el área comercial de la Empresa."},
+      {"nombre": "Liquidación detallada del cobro por cierre o anulación de la conexión o reconexión indebida del servicio."}
+    ]
+  },
+  "Consumo no realizado por servicio cerrado": {
+    "categoria": "Comerciales - Relativos a la facturación",
+    "comunes": [
+      {"nombre": "Histórico de reclamos del suministro."}
+    ],
+    "medios": [
+      {"nombre": "Históricos de cierres y reaperturas."},
+      {"nombre": "Meses adeudados."},
+      {"nombre": "Conceptos facturados luego del cierre."}
+    ]
+  },
+  "Consumo atribuible a usuario anterior del suministro": {
+    "categoria": "Comerciales - Relativos a la facturación",
+    "comunes": [
+      {"nombre": "Histórico de reclamos del suministro."}
+    ],
+    "medios": [
+      {"nombre": "Históricos de cierres y reaperturas."},
+      {"nombre": "Documento que acredite la responsabilidad de otra persona respecto del pago de los meses reclamados."},
+      {"nombre": "Meses adeudados."},
+      {"nombre": "Acciones adoptadas por la Empresa Prestadora para su pago oportuno."}
+    ]
+  },
+  "Consumo atribuible a otro suministro (confusión o cruce de suministros)": {
+    "categoria": "Comerciales - Relativos a la facturación",
+    "comunes": [
+      {"nombre": "Histórico de reclamos del suministro."}
+    ],
+    "medios": [
+      {"nombre": "Inspección externa."},
+      {"nombre": "Histórico de Lecturas periodo de dos (2) años."},
+      {"nombre": "Histórico de Facturaciones periodo de dos (2) años."},
+      {"nombre": "Histórico de Pagos periodo de dos (2) años."}
+    ]
+  },
+  "Consumo atribuible a otro suministro": {
+    "categoria": "Comerciales - Relativos a la facturación",
+    "comunes": [
+      {"nombre": "Histórico de reclamos del suministro."}
+    ],
+    "medios": [
+      {"nombre": "Inspección externa."},
+      {"nombre": "Histórico de Lecturas periodo de dos (2) años."},
+      {"nombre": "Histórico de Facturaciones periodo de dos (2) años."},
+      {"nombre": "Histórico de Pagos periodo de dos (2) años."}
+    ]
+  },
+  "Confusión o cruce de suministros": {
+    "categoria": "Comerciales - Relativos a la facturación",
+    "comunes": [
+      {"nombre": "Histórico de reclamos del suministro."}
+    ],
+    "medios": [
+      {"nombre": "Inspección externa."},
+      {"nombre": "Histórico de Lecturas periodo de dos (2) años."},
+      {"nombre": "Histórico de Facturaciones periodo de dos (2) años."},
+      {"nombre": "Histórico de Pagos periodo de dos (2) años."}
+    ]
+  },
+  "Pago no procesado": {
+    "categoria": "Comerciales - Relativos a la facturación",
+    "comunes": [
+      {"nombre": "Histórico de reclamos del suministro."}
+    ],
+    "medios": [
+      {"nombre": "Copia simple del recibo de pago cancelado."},
+      {"nombre": "Copia simple del nuevo recibo."}
+    ]
+  },
+  "Tipo de tarifa": {
+    "categoria": "Comerciales - Relativos a la facturación",
+    "comunes": [
+      {"nombre": "Histórico de reclamos del suministro."}
+    ],
+    "medios": [
+      {"nombre": "Copia de los recibos de pago reclamados."},
+      {"nombre": "Tipo y número de unidades de uso sobre las cuales ha venido siendo facturada la conexión en los seis (6) periodos anteriores al mes o meses reclamados."},
+      {"nombre": "Inspección interna."}
+    ]
+  },
+  "Conceptos emitidos": {
+    "categoria": "Comerciales - Relativos a la facturación",
+    "comunes": [
+      {"nombre": "Histórico de reclamos del suministro."}
+    ],
+    "medios": [
+      {"nombre": "Copia de los recibos de pago reclamados."},
+      {"nombre": "Históricos de cierres y reaperturas."},
+      {"nombre": "Avisos de cobranza con montos de cobranza."},
+      {"nombre": "Documentación que sustente el cobro por los conceptos emitidos."}
+    ]
+  },
+  "Número de unidades de uso": {
+    "categoria": "Comerciales - Relativos a la facturación",
+    "comunes": [
+      {"nombre": "Histórico de reclamos del suministro."}
+    ],
+    "medios": [
+      {"nombre": "Informe del área correspondiente de la Empresa Prestadora."},
+      {"nombre": "Croquis de la vivienda que incluya el sistema de agua potable y alcantarillado."}
+    ]
+  }
+}
