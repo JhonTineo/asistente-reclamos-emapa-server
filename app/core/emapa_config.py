@@ -27,4 +27,8 @@ EMAPA_ENDPOINTS = {
         "path": "/api-micromedicion/reclamos/get-inspeccion-interna/{codsuc}/{codcliente}",
         "method": "GET",
     },
+    "buscar_reclamo": {
+        "path": "/api-reclamos/reclamo/obtener/detalle/{codsede}/{codsuc}/{codreclamo}/{codcliente}",
+        "method": "GET",
+    },
 }

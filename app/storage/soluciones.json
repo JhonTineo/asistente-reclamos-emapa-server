@@ -1,0 +1,74 @@
+{
+  "responsabilidad_empresa": [
+    {
+      "causa": "error de lectura",
+      "accion": "Ajuste de factura según la lectura real del medidor"
+    },
+    {
+      "causa": "medidor defectuoso",
+      "accion": "Cambio de medidor sin costo para el cliente"
+    },
+    {
+      "causa": "medidor detenido",
+      "accion": "Instalación de nuevo medidor y ajuste de facturación"
+    },
+    {
+      "causa": "facturación incorrecta",
+      "accion": "Rectificación de factura y devolución de lo cobrado en exceso"
+    },
+    {
+      "causa": "no se realizó lectura",
+      "accion": "Facturación por promedio de los últimos 6 meses consumos reales"
+    },
+    {
+      "causa": "consumo no facturado oportunamente",
+      "accion": "Emisión de factura complementaria con宽松 de pago"
+    },
+    {
+      "causa": "aplicación incorrecta de promedio",
+      "accion": "Recalculo del promedio y ajuste de facturación"
+    },
+    {
+      "causa": " ошибка en el sistema",
+      "accion": "Corrección del sistema y regularización del cargo"
+    }
+  ],
+  "responsabilidad_cliente": [
+    {
+      "causa": "fuga invisible",
+      "accion": "Reparación de fuga en el domicilio en plazo de 30 días"
+    },
+    {
+      "causa": "fuga visible",
+      "accion": "Reparación de fuga y asumir consumo generado"
+    },
+    {
+      "causa": "conexión irregular",
+      "accion": "Regularización de la conexión en plazo de 15 días"
+    },
+    {
+      "causa": "manipulación de medidor",
+      "accion": "Denuncia y asume consumo facturado"
+    },
+    {
+      "causa": "consumo excesivo",
+      "accion": "Asumir el consumo facturado"
+    },
+    {
+      "causa": "medidor obstruido",
+      "accion": "Retirar obstrucción y asumir costo de rearranque"
+    }
+  ],
+  "compartido": [
+    {
+      "causa": "fuga parcialmente visible",
+      "accion_empresa": "Revisión y certificación del medidor",
+      "accion_cliente": "Reparación de fuga en plazo de 15 días"
+    },
+    {
+      "causa": "medidor con anomalías",
+      "accion_empresa": "Cambio de medidor",
+      "accion_cliente": "Reparación de conexiones internas"
+    }
+  ]
+}

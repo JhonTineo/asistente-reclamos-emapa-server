@@ -1,5 +1,6 @@
 import time
 import logging
+import json
 from fastapi import APIRouter
 from app.schemas.investigacion import (
     InvestigacionRequest,
@@ -7,16 +8,25 @@ from app.schemas.investigacion import (
     ResumenMedio,
     InformeRequest,
     InformeResponse,
+    ConciliacionRequest,
+    ConciliacionResponse,
+    ResolucionRequest,
+    ResolucionResponse,
+    BuscarReclamoRequest,
+    BuscarReclamoResponse,
 )
 from app.agent.coordinator import analizar_medios
 from app.agent.unificador import UnificadorAgent
+from app.agent.conciliador import ConciliadorAgent
+from app.agent.resolucion import ResolucionAgent
+from app.tools.emapa_client import consultar_emapa
 
 logger = logging.getLogger("api.investigacion")
 
-router = APIRouter(prefix="/investigacion", tags=["investigacion"])
+router = APIRouter(prefix="", tags=["investigacion"])
 
 
-@router.post("/iniciar", response_model=InvestigacionResponse)
+@router.post("/investigacion/iniciar", response_model=InvestigacionResponse)
 async def iniciar_investigacion(request: InvestigacionRequest) -> InvestigacionResponse:
     """
     Obtiene y analiza todos los medios probatorios en paralelo.
@@ -25,11 +35,11 @@ async def iniciar_investigacion(request: InvestigacionRequest) -> InvestigacionR
     t_inicio = time.perf_counter()
 
     logger.info("=" * 60)
-    logger.info("[API /iniciar] Solicitud recibida")
-    logger.info("[API /iniciar] codsuc=%s | codcliente=%s | codreclamo=%s",
+    logger.info("[API /investigacion/iniciar] Solicitud recibida")
+    logger.info("[API /investigacion/iniciar] codsuc=%s | codcliente=%s | codreclamo=%s",
                 request.codsuc, request.codcliente, request.codreclamo)
-    logger.info("[API /iniciar] clasificacion=%s | anio=%s", request.clasificacion, request.anio)
-    logger.info("[API /iniciar] detalle=%s", request.detalle[:100] + "..." if len(request.detalle) > 100 else request.detalle)
+    logger.info("[API /investigacion/iniciar] clasificacion=%s | anio=%s", request.clasificacion, request.anio)
+    logger.info("[API /investigacion/iniciar] detalle=%s", request.detalle[:100] + "..." if len(request.detalle) > 100 else request.detalle)
 
     resumenes = await analizar_medios(
         codsuc=request.codsuc,
@@ -41,14 +51,9 @@ async def iniciar_investigacion(request: InvestigacionRequest) -> InvestigacionR
     )
 
     tiempo_total = time.perf_counter() - t_inicio
-
     resumenes_response = [ResumenMedio(**r) for r in resumenes]
 
-    logger.info("[API /iniciar] Enviando respuesta al cliente...")
-    logger.info("[API /iniciar] Resumenes enviados: %d", len(resumenes_response))
-    for r in resumenes_response:
-        logger.info("[API /iniciar]   - %s: %s", r.medio_nombre, r.estado)
-    logger.info("[API /iniciar] COMPLETADO | tiempo_total=%.2fs", tiempo_total)
+    logger.info("[API /investigacion/iniciar] COMPLETADO | tiempo_total=%.2fs", tiempo_total)
     logger.info("=" * 60)
 
     return InvestigacionResponse(
@@ -62,7 +67,7 @@ async def iniciar_investigacion(request: InvestigacionRequest) -> InvestigacionR
     )
 
 
-@router.post("/informe", response_model=InformeResponse)
+@router.post("/investigacion/informe", response_model=InformeResponse)
 async def generar_informe(request: InformeRequest) -> InformeResponse:
     """
     Genera el informe final a partir de los resumenes verificados por el usuario.
@@ -70,14 +75,8 @@ async def generar_informe(request: InformeRequest) -> InformeResponse:
     t_inicio = time.perf_counter()
 
     logger.info("=" * 60)
-    logger.info("[API /informe] Solicitud recibida")
-    logger.info("[API /informe] codreclamo=%s | clasificacion=%s", request.codreclamo, request.clasificacion)
-    logger.info("[API /informe] Resumenes verificados por usuario: %d", len(request.resumenes))
-
-    for i, r in enumerate(request.resumenes, 1):
-        logger.info("[API /informe]   %d. %s: %s", i, r.medio_nombre, r.estado)
-        if r.resumen:
-            logger.info("[API /informe]      Resumen: %s", (r.resumen[:60] + "...") if len(r.resumen) > 60 else r.resumen)
+    logger.info("[API /investigacion/informe] Solicitud recibida")
+    logger.info("[API /investigacion/informe] codreclamo=%s", request.codreclamo)
 
     unificador = UnificadorAgent(model=request.modelo)
     resultado = unificador.generar_informe(
@@ -89,8 +88,7 @@ async def generar_informe(request: InformeRequest) -> InformeResponse:
 
     tiempo = time.perf_counter() - t_inicio
 
-    logger.info("[API /informe] Informe generado (%d caracteres)", len(resultado["informe"]))
-    logger.info("[API /informe] COMPLETADO | tiempo=%.2fs", tiempo)
+    logger.info("[API /investigacion/informe] COMPLETADO | tiempo=%.2fs", tiempo)
     logger.info("=" * 60)
 
     return InformeResponse(
@@ -98,3 +96,117 @@ async def generar_informe(request: InformeRequest) -> InformeResponse:
         informe=resultado["informe"],
         tiempo=tiempo,
     )
+
+
+@router.post("/conciliacion/propuesta", response_model=ConciliacionResponse)
+async def generar_propuesta(request: ConciliacionRequest) -> ConciliacionResponse:
+    """
+    Genera la propuesta de conciliación a partir del informe de atención.
+    """
+    t_inicio = time.perf_counter()
+
+    logger.info("=" * 60)
+    logger.info("[API /conciliacion/propuesta] Solicitud recibida")
+    logger.info("[API /conciliacion/propuesta] codreclamo=%s | clasificacion=%s",
+                request.codreclamo, request.clasificacion)
+    logger.info("[API /conciliacion/propuesta] Longitud informe: %d caracteres", len(request.informe_atencion))
+
+    conciliador = ConciliadorAgent(model=request.modelo)
+    resultado = conciliador.generar_propuesta(
+        codreclamo=request.codreclamo,
+        clasificacion=request.clasificacion,
+        informe_atencion=request.informe_atencion,
+    )
+
+    tiempo = time.perf_counter() - t_inicio
+
+    logger.info("[API /conciliacion/propuesta] COMPLETADO | tiempo=%.2fs", tiempo)
+    logger.info("=" * 60)
+
+    return ConciliacionResponse(
+        codreclamo=request.codreclamo,
+        propuesta=resultado["propuesta"],
+        tiempo=tiempo,
+    )
+
+
+@router.post("/resolucion", response_model=ResolucionResponse)
+async def generar_resolucion(request: ResolucionRequest) -> ResolucionResponse:
+    """
+    Genera la resolución final del reclamo (fundada o infundada).
+    El modelo determina automáticamente si es fundada o infundada.
+    """
+    t_inicio = time.perf_counter()
+
+    logger.info("=" * 60)
+    logger.info("[API /resolucion] Solicitud recibida")
+    logger.info("[API /resolucion] codreclamo=%s", request.codreclamo)
+
+    resolucion_agent = ResolucionAgent(model=request.modelo)
+    resultado = resolucion_agent.generar_resolucion(
+        codreclamo=request.codreclamo,
+        informe_atencion=request.informe_atencion,
+        propuesta_conciliacion=request.propuesta_conciliacion,
+        observaciones=request.observaciones,
+    )
+
+    tiempo = time.perf_counter() - t_inicio
+
+    logger.info("[API /resolucion] COMPLETADO | tipo=%s | tiempo=%.2fs", resultado["tipo"], tiempo)
+    logger.info("=" * 60)
+
+    return ResolucionResponse(
+        codreclamo=request.codreclamo,
+        tipo=resultado["tipo"],
+        resolucion=resultado["resolucion"],
+        tiempo=tiempo,
+    )
+
+
+@router.get("/reclamo/{codsede}/{codsuc}/{codreclamo}/{codcliente}", response_model=BuscarReclamoResponse)
+async def buscar_reclamo(codsede: str, codsuc: str, codreclamo: str, codcliente: str) -> BuscarReclamoResponse:
+    """
+    Busca los datos de un reclamo en el sistema de EMAPA.
+    """
+    t_inicio = time.perf_counter()
+
+    logger.info("=" * 60)
+    logger.info("[API /reclamo] Buscando reclamo")
+    logger.info("[API /reclamo] codsede=%s | codsuc=%s | codcliente=%s | codreclamo=%s",
+                codsede, codsuc, codcliente, codreclamo)
+
+    result = consultar_emapa(
+        endpoint_key="buscar_reclamo",
+        params={"codsede": codsede, "codsuc": codsuc, "codreclamo": codreclamo, "codcliente": codcliente}
+    )
+
+    tiempo = time.perf_counter() - t_inicio
+
+    if result.success:
+        try:
+            datos = json.loads(result.data) if result.data else None
+            logger.info("[API /reclamo] OK | tiempo=%.2fs", tiempo)
+            logger.info("=" * 60)
+            return BuscarReclamoResponse(
+                codreclamo=codreclamo,
+                datos=datos,
+                tiempo=tiempo,
+            )
+        except json.JSONDecodeError as e:
+            logger.error("[API /reclamo] Error al parsear respuesta: %s", str(e))
+            logger.info("=" * 60)
+            return BuscarReclamoResponse(
+                codreclamo=codreclamo,
+                datos=None,
+                error=f"Error al parsear respuesta: {str(e)}",
+                tiempo=tiempo,
+            )
+    else:
+        logger.error("[API /reclamo] Error: %s", result.error)
+        logger.info("=" * 60)
+        return BuscarReclamoResponse(
+            codreclamo=codreclamo,
+            datos=None,
+            error=result.error,
+            tiempo=tiempo,
+        )
