@@ -66,7 +66,7 @@ def index_pdf(pdf_path: str, model_name: str = "all-MiniLM-L6-v2") -> None:
     articles = split_articles(text)
 
     embedder = SentenceTransformer(model_name)
-    q = QdrantStore(dim=embedder.get_sentence_embedding_dimension())
+    q = QdrantStore(dim=embedder.get_embedding_dimension())
     q.create_collection()
 
     points = []
