@@ -10,8 +10,10 @@ logger = logging.getLogger(__name__)
 
 def get_client() -> QdrantClient:
     return QdrantClient(
-        url=os.getenv("QDRANT_URL", "http://localhost:6333"),
-        api_key=os.getenv("QDRANT_API_KEY")
+        url=os.getenv(
+            "QDRANT_URL",
+            "http://127.0.0.1:6335"
+        )
     )
 
 
@@ -87,3 +89,10 @@ class QdrantStore:
             }
             for r in results
         ]
+    def _get_client():
+        return QdrantClient(
+            url=os.getenv(
+                "QDRANT_URL",
+                "http://127.0.0.1:6335"
+            )
+        )
