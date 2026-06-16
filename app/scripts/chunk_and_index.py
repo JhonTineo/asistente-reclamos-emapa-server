@@ -7,12 +7,12 @@ from sentence_transformers import SentenceTransformer
 
 from app.tools.vector_db import QdrantStore
 
-from pdf_parser import (
+from app.scripts.pdf_parser import (
     extract_text_multicolumn,
     split_articles
 )
 
-from legal_chunker import (
+from app.scripts.legal_chunker import (
     split_numerals
 )
 
@@ -40,7 +40,7 @@ def build_index(pdf_path):
     )
 
     qdrant = QdrantStore(
-        dim=embedder.get_sentence_embedding_dimension()
+        dim=embedder.get_embedding_dimension()
     )
 
     qdrant.create_collection()
@@ -111,8 +111,19 @@ if __name__ == "__main__":
         level=logging.INFO
     )
 
+    BASE_DIR = os.path.dirname(
+    os.path.dirname(__file__)
+    )
+
+    pdf_path = os.path.join(
+        BASE_DIR,
+        "storage",
+        "files",
+        "*.pdf"
+    )
+
     pdfs = glob.glob(
-        "./storage/files/*.pdf"
+        pdf_path
     )
 
     for pdf in pdfs:
