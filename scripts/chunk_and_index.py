@@ -54,10 +54,12 @@ def chunk_text(text: str, chunk_size: int = 10000, overlap: int = 200) -> List[s
         end = min(start + chunk_size, L)
         chunk = text[start:end]
         chunks.append(chunk.strip())
-        start = end - overlap
-        if start < 0:
-            start = 0
+        if overlap <= 0 or start == 0:
+            start += chunk_size - max(overlap, 1)
+        else:
+            start = end - overlap
     return [c for c in chunks if c]
+
 
 
 def index_pdf(pdf_path: str, model_name: str = "all-MiniLM-L6-v2") -> None:
