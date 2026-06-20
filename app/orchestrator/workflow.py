@@ -10,6 +10,10 @@ from app.agents.dictaminador import (
     DictaminadorAgent
 )
 
+from app.agents.resumen_tecnico import (
+    ResumenTecnicoAgent
+)
+
 
 class ReclamoWorkflow:
 
@@ -21,6 +25,10 @@ class ReclamoWorkflow:
 
         self.normativo = (
             NormativoAgent()
+        )
+
+        self.resumen_tecnico = (
+            ResumenTecnicoAgent()
         )
 
         self.dictaminador = (
@@ -39,6 +47,12 @@ class ReclamoWorkflow:
             )
         )
 
+        resumen_tecnico = (
+            self.resumen_tecnico.run(
+                contexto_emapa
+            )
+        )
+
         articulos = (
             self.normativo.run(
                 detalle,
@@ -50,12 +64,14 @@ class ReclamoWorkflow:
             self.dictaminador.run(
                 detalle,
                 contexto_emapa,
-                articulos
+                articulos,
+                resumen_tecnico
             )
         )
 
         return {
             "analisis": analisis,
             "articulos": articulos,
+            "resumen_tecnico": resumen_tecnico,
             "dictamen": dictamen
         }

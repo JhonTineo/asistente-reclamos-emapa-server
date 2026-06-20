@@ -1,8 +1,10 @@
 import time
 import logging
+import socket
 
 import httpx
 import os
+from urllib.parse import urlsplit, urlunsplit
 
 from langchain_ollama import ChatOllama
 
@@ -44,16 +46,49 @@ def _crear_http_client() -> httpx.Client:
 _http_client = _crear_http_client()
 
 
+def _resolver_ollama_base_url() -> str:
+    """
+    Resuelve la URL base de Ollama para modo local y contenedor.
+    Si el host configurado no tiene resolución DNS (p.ej. "ollama" fuera de Docker),
+    intenta fallback a localhost para desarrollo local.
+    """
+    base_url = os.getenv("OLLAMA_BASE_URL", settings.ollama_base_url)
+    parsed = urlsplit(base_url)
+
+    hostname = parsed.hostname
+    if not hostname:
+        return base_url
+
+    try:
+        socket.getaddrinfo(hostname, parsed.port or 80)
+        return base_url
+    except socket.gaierror:
+        if hostname != "ollama":
+            return base_url
+
+        fallback_netloc = "127.0.0.1"
+        if parsed.port:
+            fallback_netloc = f"127.0.0.1:{parsed.port}"
+
+        fallback_url = urlunsplit((parsed.scheme or "http", fallback_netloc, parsed.path, parsed.query, parsed.fragment))
+        logger.warning(
+            "OLLAMA_BASE_URL=%s no resolvible en este entorno. Usando fallback local %s",
+            base_url,
+            fallback_url,
+        )
+        return fallback_url
+
+
 def get_llm(model: str | None = None):
     return ChatOllama(
         model=model or os.getenv("OLLAMA_GENERATOR_MODEL", settings.ollama_generator_model),
-        base_url=os.getenv("OLLAMA_BASE_URL", settings.ollama_base_url),
+        base_url=_resolver_ollama_base_url(),
         temperature=0,
     )
 
 
 def listar_modelos() -> list[str]:
-    ollama_url = os.getenv("OLLAMA_BASE_URL", settings.ollama_base_url).rstrip("/")
+    ollama_url = _resolver_ollama_base_url().rstrip("/")
     endpoint = f"{ollama_url}/api/tags"
 
     try:

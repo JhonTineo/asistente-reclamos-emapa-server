@@ -74,7 +74,8 @@ class DictaminadorAgent:
         self,
         detalle,
         evidencias,
-        articulos
+        articulos,
+        resumen_servicio
     ):
 
         texto_articulos = "\n\n".join(
@@ -108,7 +109,8 @@ Texto:
             {
                 "detalle": detalle,
                 "evidencias": texto_evidencias,
-                "articulos": texto_articulos
+                "articulos": texto_articulos,
+                "resumen_servicio": resumen_servicio,
             }
         )
 
