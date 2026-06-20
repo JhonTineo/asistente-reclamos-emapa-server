@@ -137,12 +137,12 @@ class ConsultarHistoricoReclamosTool(Tool):
 
 class ConsultarLecturasTool(Tool):
     name = "consultar_lecturas"
-    description = "Obtiene el histórico de lecturas de un suministro para los últimos 2 años."
+    description = "Obtiene el histórico de lecturas de un suministro para el último año."
 
     def execute(self, codsuc: str, codcliente: str, **kwargs) -> ToolResult:
         try:
             response = obtener_tarjeta_lectura(codsuc, codcliente)
-            return ToolResult(success=True, data=json.dumps(response, indent=2, ensure_ascii=False))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -150,12 +150,12 @@ class ConsultarLecturasTool(Tool):
 
 class ConsultarFacturacionesTool(Tool):
     name = "consultar_facturaciones"
-    description = "Obtiene el histórico de facturaciones de un suministro para los últimos 2 años."
+    description = "Obtiene el histórico de facturaciones de un suministro para los últimos 1 años."
 
     def execute(self, codsuc: str, codcliente: str, anio: str, **kwargs) -> ToolResult:
         try:
             response = obtener_record_facturacion(codsuc, codcliente, anio)
-            return ToolResult(success=True, data=json.dumps(response, indent=2, ensure_ascii=False))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -163,12 +163,12 @@ class ConsultarFacturacionesTool(Tool):
 
 class ConsultarPagosTool(Tool):
     name = "consultar_pagos"
-    description = "Obtiene el histórico de pagos de un suministro para los últimos 2 años."
+    description = "Obtiene el histórico de pagos de un suministro para el último año."
 
     def execute(self, codsuc: str, codcliente: str, **kwargs) -> ToolResult:
         try:
             response = obtener_saldo_actual(codsuc, codcliente)
-            return ToolResult(success=True, data=json.dumps(response, indent=2, ensure_ascii=False))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -181,7 +181,7 @@ class ConsultarMovimientosTool(Tool):
     def execute(self, codsuc: str, codcliente: str, **kwargs) -> ToolResult:
         try:
             response = obtener_corte_reapertura(codsuc, codcliente)
-            return ToolResult(success=True, data=json.dumps(response, indent=2, ensure_ascii=False))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -194,7 +194,7 @@ class ConsultarInspeccionExtTool(Tool):
     def execute(self, codsuc: str, codcliente: str, **kwargs) -> ToolResult:
         try:
             response = obtener_inspeccion_externa(codsuc, codcliente)
-            return ToolResult(success=True, data=json.dumps(response, indent=2, ensure_ascii=False))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -207,7 +207,7 @@ class ConsultarInspeccionIntTool(Tool):
     def execute(self, codsuc: str, codcliente: str, **kwargs) -> ToolResult:
         try:
             response = obtener_inspeccion_interna(codsuc, codcliente)
-            return ToolResult(success=True, data=json.dumps(response, indent=2, ensure_ascii=False))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -221,7 +221,7 @@ class ConsultarRecibosTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/recibos")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -235,7 +235,7 @@ class ConsultarInformeRegimenTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/informes/regimen")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -249,7 +249,7 @@ class ConsultarInformePromedioTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/informes/promedio")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -263,7 +263,7 @@ class ConsultarInformeAsignacionTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/informes/asignacion")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -277,7 +277,7 @@ class ConsultarOrdenServicioTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/ordenes/servicio")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -291,7 +291,7 @@ class ConsultarLiquidacionTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/liquidaciones")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -305,7 +305,7 @@ class ConsultarMesesAdeudadosTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/deuda/meses")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -319,7 +319,7 @@ class ConsultarConceptosFacturadosTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/conceptos/facturados")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -333,7 +333,7 @@ class ConsultarResponsabilidadTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/documentos/responsabilidad")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -347,7 +347,7 @@ class ConsultarAccionesCobranzaTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/cobranza/acciones")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -361,7 +361,7 @@ class ConsultarUnidadesUsoTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/unidades/uso")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -375,7 +375,7 @@ class ConsultarCroquisTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/croquis")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -389,7 +389,7 @@ class ConsultarAvisosCobranzaTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/avisos/cobranza")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -403,7 +403,7 @@ class ConsultarDocumentacionCobroTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/documentos/cobro")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -417,7 +417,7 @@ class ConsultarInformeTecnicoTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/informes/tecnico")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))

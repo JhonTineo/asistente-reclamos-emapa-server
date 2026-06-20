@@ -20,6 +20,7 @@ Debes analizar:
 1. Reclamo.
 2. Evidencias.
 3. Artículos normativos.
+4. Resumen analítico de servicio anual brindado por EMAPA.
 
 No utilices conocimiento externo.
 
@@ -53,6 +54,10 @@ EVIDENCIAS
 ARTICULOS
 
 {articulos}
+
+RESUMEN ANALÍTICO DE SERVICIO ANUAL BRINDADO POR EMAPA
+
+{resumen_servicio}
 """
         )
     ]
