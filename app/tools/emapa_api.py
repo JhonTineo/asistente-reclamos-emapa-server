@@ -1,25 +1,135 @@
 import json
 import logging
+from typing import Any
+
 from app.tools.base import Tool, ToolResult
 from app.tools.registry import ToolRegistry
 from app.core.config import settings
+from app.core.http import http_get_json
 
 logger = logging.getLogger("tools.emapa_api")
+
+
+EMAPA_ENDPOINTS = {
+    "saldo_actual": {
+        "path": "/api-caja/cobranza/obtener-saldo-detalle-x-cliente/{codsuc}/{codcliente}",
+        "method": "GET",
+    },
+    "tarjeta_lectura": {
+        "path": "/api-micromedicion/customer-reading/get-customer-card/info/{codsuc}/{codcliente}",
+        "method": "GET",
+    },
+    "record_facturacion": {
+        "path": "/api-consulta/facturacion/obtener-record-facturacion-x-cliente-anio/{codsuc}/{codcliente}/{anio}",
+        "method": "GET",
+    },
+    "corte_reapertura": {
+        "path": "/api-consulta/catastro/obtener-corte-reapertura-x-cliente/{codsuc}/{codcliente}",
+        "method": "GET",
+    },
+    "inspeccion_externa": {
+        "path": "/api-micromedicion/reclamos/get-inspeccion-externa/{codsuc}/{codcliente}",
+        "method": "GET",
+    },
+    "inspeccion_interna": {
+        "path": "/api-micromedicion/reclamos/get-inspeccion-interna/{codsuc}/{codcliente}",
+        "method": "GET",
+    },
+    "buscar_reclamo": {
+        "path": "/api-reclamos/reclamo/obtener/detalle/{codsede}/{codsuc}/{codreclamo}/{codcliente}",
+        "method": "GET",
+    },
+}
 
 
 def _get_url(path: str) -> str:
     return f"{settings.emapa_api_base_url}{path}"
 
 
+def _get_headers() -> dict[str, str]:
+    headers = {"Accept": "application/json"}
+    if settings.emapa_access_token:
+        headers["Authorization"] = f"Bearer {settings.emapa_access_token}"
+    return headers
+
+
+def _request(path: str) -> dict[str, Any]:
+    url = _get_url(path)
+    return http_get_json(
+        url=url,
+        headers=_get_headers(),
+        timeout=float(settings.timeout_seconds),
+        retries=int(settings.max_retries),
+    )
+
+
+def buscar_reclamo_emapa(codsede: str, codsuc: str, codreclamo: str, codcliente: str) -> dict[str, Any]:
+    endpoint = EMAPA_ENDPOINTS["buscar_reclamo"]["path"].format(
+        codsede=codsede,
+        codsuc=codsuc,
+        codreclamo=codreclamo,
+        codcliente=codcliente,
+    )
+    return _request(endpoint)
+
+
+def obtener_saldo_actual(codsuc: str, codcliente: str) -> dict[str, Any]:
+    endpoint = EMAPA_ENDPOINTS["saldo_actual"]["path"].format(
+        codsuc=codsuc,
+        codcliente=codcliente,
+    )
+    return _request(endpoint)
+
+
+def obtener_tarjeta_lectura(codsuc: str, codcliente: str) -> dict[str, Any]:
+    endpoint = EMAPA_ENDPOINTS["tarjeta_lectura"]["path"].format(
+        codsuc=codsuc,
+        codcliente=codcliente,
+    )
+    return _request(endpoint)
+
+
+def obtener_record_facturacion(codsuc: str, codcliente: str, anio: str) -> dict[str, Any]:
+    endpoint = EMAPA_ENDPOINTS["record_facturacion"]["path"].format(
+        codsuc=codsuc,
+        codcliente=codcliente,
+        anio=anio,
+    )
+    return _request(endpoint)
+
+
+def obtener_corte_reapertura(codsuc: str, codcliente: str) -> dict[str, Any]:
+    endpoint = EMAPA_ENDPOINTS["corte_reapertura"]["path"].format(
+        codsuc=codsuc,
+        codcliente=codcliente,
+    )
+    return _request(endpoint)
+
+
+def obtener_inspeccion_externa(codsuc: str, codcliente: str) -> dict[str, Any]:
+    endpoint = EMAPA_ENDPOINTS["inspeccion_externa"]["path"].format(
+        codsuc=codsuc,
+        codcliente=codcliente,
+    )
+    return _request(endpoint)
+
+
+def obtener_inspeccion_interna(codsuc: str, codcliente: str) -> dict[str, Any]:
+    endpoint = EMAPA_ENDPOINTS["inspeccion_interna"]["path"].format(
+        codsuc=codsuc,
+        codcliente=codcliente,
+    )
+    return _request(endpoint)
+
+
 class ConsultarHistoricoReclamosTool(Tool):
     name = "consultar_historico_reclamos"
     description = "Obtiene el histórico de reclamos de un suministro."
 
-    def execute(self, suministro_id: str, **kwargs) -> ToolResult:
+    def execute(self, codsede: str, codsuc: str, codreclamo: str, codcliente: str, **kwargs) -> ToolResult:
         try:
-            url = _get_url(f"/suministros/{suministro_id}/reclamos")
-            response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            response = buscar_reclamo_emapa(codsede, codsuc, codreclamo, codcliente)
+            return ToolResult(success=True, data=json.dumps(response, indent=2, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -27,13 +137,12 @@ class ConsultarHistoricoReclamosTool(Tool):
 
 class ConsultarLecturasTool(Tool):
     name = "consultar_lecturas"
-    description = "Obtiene el histórico de lecturas de un suministro para los últimos 2 años."
+    description = "Obtiene el histórico de lecturas de un suministro para el último año."
 
-    def execute(self, suministro_id: str, periodo: str = "2y", **kwargs) -> ToolResult:
+    def execute(self, codsuc: str, codcliente: str, **kwargs) -> ToolResult:
         try:
-            url = _get_url(f"/suministros/{suministro_id}/lecturas")
-            response = _mock_request(url, params={"periodo": periodo, "suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            response = obtener_tarjeta_lectura(codsuc, codcliente)
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -41,13 +150,12 @@ class ConsultarLecturasTool(Tool):
 
 class ConsultarFacturacionesTool(Tool):
     name = "consultar_facturaciones"
-    description = "Obtiene el histórico de facturaciones de un suministro para los últimos 2 años."
+    description = "Obtiene el histórico de facturaciones de un suministro para los últimos 1 años."
 
-    def execute(self, suministro_id: str, periodo: str = "2y", **kwargs) -> ToolResult:
+    def execute(self, codsuc: str, codcliente: str, anio: str, **kwargs) -> ToolResult:
         try:
-            url = _get_url(f"/suministros/{suministro_id}/facturaciones")
-            response = _mock_request(url, params={"periodo": periodo, "suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            response = obtener_record_facturacion(codsuc, codcliente, anio)
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -55,13 +163,12 @@ class ConsultarFacturacionesTool(Tool):
 
 class ConsultarPagosTool(Tool):
     name = "consultar_pagos"
-    description = "Obtiene el histórico de pagos de un suministro para los últimos 2 años."
+    description = "Obtiene el histórico de pagos de un suministro para el último año."
 
-    def execute(self, suministro_id: str, periodo: str = "2y", **kwargs) -> ToolResult:
+    def execute(self, codsuc: str, codcliente: str, **kwargs) -> ToolResult:
         try:
-            url = _get_url(f"/suministros/{suministro_id}/pagos")
-            response = _mock_request(url, params={"periodo": periodo, "suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            response = obtener_saldo_actual(codsuc, codcliente)
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -71,11 +178,10 @@ class ConsultarMovimientosTool(Tool):
     name = "consultar_movimientos"
     description = "Obtiene el histórico de cierres y reaperturas de un suministro."
 
-    def execute(self, suministro_id: str, **kwargs) -> ToolResult:
+    def execute(self, codsuc: str, codcliente: str, **kwargs) -> ToolResult:
         try:
-            url = _get_url(f"/suministros/{suministro_id}/movimientos")
-            response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            response = obtener_corte_reapertura(codsuc, codcliente)
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -85,11 +191,10 @@ class ConsultarInspeccionExtTool(Tool):
     name = "consultar_inspeccion_externa"
     description = "Obtiene el informe de inspección externa de un suministro."
 
-    def execute(self, suministro_id: str, **kwargs) -> ToolResult:
+    def execute(self, codsuc: str, codcliente: str, **kwargs) -> ToolResult:
         try:
-            url = _get_url(f"/suministros/{suministro_id}/inspecciones/externa")
-            response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            response = obtener_inspeccion_externa(codsuc, codcliente)
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -99,11 +204,10 @@ class ConsultarInspeccionIntTool(Tool):
     name = "consultar_inspeccion_interna"
     description = "Obtiene el informe de inspección interna de un suministro."
 
-    def execute(self, suministro_id: str, **kwargs) -> ToolResult:
+    def execute(self, codsuc: str, codcliente: str, **kwargs) -> ToolResult:
         try:
-            url = _get_url(f"/suministros/{suministro_id}/inspecciones/interna")
-            response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            response = obtener_inspeccion_interna(codsuc, codcliente)
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -117,7 +221,7 @@ class ConsultarRecibosTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/recibos")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -131,7 +235,7 @@ class ConsultarInformeRegimenTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/informes/regimen")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -145,7 +249,7 @@ class ConsultarInformePromedioTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/informes/promedio")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -159,7 +263,7 @@ class ConsultarInformeAsignacionTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/informes/asignacion")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -173,7 +277,7 @@ class ConsultarOrdenServicioTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/ordenes/servicio")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -187,7 +291,7 @@ class ConsultarLiquidacionTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/liquidaciones")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -201,7 +305,7 @@ class ConsultarMesesAdeudadosTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/deuda/meses")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -215,7 +319,7 @@ class ConsultarConceptosFacturadosTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/conceptos/facturados")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -229,7 +333,7 @@ class ConsultarResponsabilidadTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/documentos/responsabilidad")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -243,7 +347,7 @@ class ConsultarAccionesCobranzaTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/cobranza/acciones")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -257,7 +361,7 @@ class ConsultarUnidadesUsoTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/unidades/uso")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -271,7 +375,7 @@ class ConsultarCroquisTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/croquis")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -285,7 +389,7 @@ class ConsultarAvisosCobranzaTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/avisos/cobranza")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -299,7 +403,7 @@ class ConsultarDocumentacionCobroTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/documentos/cobro")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))
@@ -313,7 +417,7 @@ class ConsultarInformeTecnicoTool(Tool):
         try:
             url = _get_url(f"/suministros/{suministro_id}/informes/tecnico")
             response = _mock_request(url, params={"suministro_id": suministro_id})
-            return ToolResult(success=True, data=json.dumps(response, indent=2))
+            return ToolResult(success=True, data=json.dumps(response, indent=1, ensure_ascii=False))
         except Exception as e:
             logger.error("[TOOL] %s | error=%s", self.name, str(e))
             return ToolResult(success=False, error=str(e))

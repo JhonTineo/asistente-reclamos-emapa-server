@@ -3,8 +3,6 @@ Skill de investigación de reclamos.
 Genera prompts y estructura para cada tarea de informe.
 """
 
-import json
-from pathlib import Path
 from app.tools.investigacion import _obtener_informes_struct
 
 
@@ -66,9 +64,10 @@ def obtener_tareas_informe(clasificacion: str, suministro_id: str, detalle: str)
     tareas = []
     for i, inf in enumerate(informes, 1):
         tarea_id = f"inf-{i}"
+        reclamo_id = f"REC-{suministro_id}-{i}"
         nombre = inf["nombre"]
         medios_requeridos = inf["medios_requeridos"]
-        prompt = generar_prompt_informe(nombre, medios_requeridos, suministro_id, suministro_id, clasificacion, detalle)
+        prompt = generar_prompt_informe(nombre, medios_requeridos, suministro_id, reclamo_id, clasificacion, detalle)
 
         tareas.append({
             "id": tarea_id,
@@ -77,7 +76,7 @@ def obtener_tareas_informe(clasificacion: str, suministro_id: str, detalle: str)
             "prompt": prompt,
             "entrada": {
                 "suministro_id": suministro_id,
-                "reclamo_id": suministro_id,
+                "reclamo_id": reclamo_id,
                 "clasificacion": clasificacion,
                 "detalle": detalle,
             },

@@ -3,6 +3,8 @@ import logging
 import httpx
 from typing import Any
 
+from app.core.config import settings
+
 logger = logging.getLogger("core.http")
 
 
@@ -39,41 +41,101 @@ def _crear_http_client() -> httpx.Client:
 _http_client = _crear_http_client()
 
 
-async def http_get_json(url: str, params: dict[str, Any] | None = None, timeout: float = 30.0) -> dict[str, Any]:
-    t_inicio = time.perf_counter()
-    logger.info("[HTTP] GET %s | params=%s", url, params)
-    try:
-        response = _http_client.get(url, params=params, timeout=timeout)
-        response.raise_for_status()
-        data = response.json()
-        t_duracion = time.perf_counter() - t_inicio
-        logger.info("[HTTP] GET %s | status=%d | duration=%.2fs", url, response.status_code, t_duracion)
-        return data
-    except httpx.HTTPStatusError as e:
-        t_duracion = time.perf_counter() - t_inicio
-        logger.error("[HTTP] GET %s | status=%d | error=%s | duration=%.2fs", url, e.response.status_code, str(e), t_duracion)
-        raise
-    except Exception as e:
-        t_duracion = time.perf_counter() - t_inicio
-        logger.error("[HTTP] GET %s | error=%s | duration=%.2fs", url, str(e), t_duracion)
-        raise
+def _request_json(
+    method: str,
+    url: str,
+    params: dict[str, Any] | None = None,
+    json_data: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
+    timeout: float | None = None,
+    retries: int | None = None,
+) -> dict[str, Any]:
+    req_timeout = timeout if timeout is not None else float(settings.timeout_seconds)
+    req_retries = retries if retries is not None else int(settings.max_retries)
+
+    last_error: Exception | None = None
+
+    for attempt in range(1, req_retries + 2):
+        t_inicio = time.perf_counter()
+        logger.info(
+            "[HTTP] %s %s | attempt=%d/%d",
+            method,
+            url,
+            attempt,
+            req_retries + 1,
+        )
+
+        try:
+            response = _http_client.request(
+                method=method,
+                url=url,
+                params=params,
+                json=json_data,
+                headers=headers,
+                timeout=req_timeout,
+            )
+            response.raise_for_status()
+
+            t_duracion = time.perf_counter() - t_inicio
+            logger.info(
+                "[HTTP] %s %s | status=%d | duration=%.2fs",
+                method,
+                url,
+                response.status_code,
+                t_duracion,
+            )
+            return response.json()
+
+        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            last_error = exc
+            t_duracion = time.perf_counter() - t_inicio
+            logger.warning(
+                "[HTTP] %s %s | attempt=%d failed | error=%s | duration=%.2fs",
+                method,
+                url,
+                attempt,
+                str(exc),
+                t_duracion,
+            )
+
+            if attempt >= req_retries + 1:
+                break
+
+    logger.error("[HTTP] %s %s | agotados reintentos", method, url)
+    if last_error:
+        raise last_error
+    raise RuntimeError("Fallo HTTP sin detalle")
 
 
-async def http_post_json(url: str, json_data: dict[str, Any] | None = None, timeout: float = 30.0) -> dict[str, Any]:
-    t_inicio = time.perf_counter()
-    logger.info("[HTTP] POST %s", url)
-    try:
-        response = _http_client.post(url, json=json_data, timeout=timeout)
-        response.raise_for_status()
-        data = response.json()
-        t_duracion = time.perf_counter() - t_inicio
-        logger.info("[HTTP] POST %s | status=%d | duration=%.2fs", url, response.status_code, t_duracion)
-        return data
-    except httpx.HTTPStatusError as e:
-        t_duracion = time.perf_counter() - t_inicio
-        logger.error("[HTTP] POST %s | status=%d | error=%s | duration=%.2fs", url, e.response.status_code, str(e), t_duracion)
-        raise
-    except Exception as e:
-        t_duracion = time.perf_counter() - t_inicio
-        logger.error("[HTTP] POST %s | error=%s | duration=%.2fs", url, str(e), t_duracion)
-        raise
+def http_get_json(
+    url: str,
+    params: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
+    timeout: float | None = None,
+    retries: int | None = None,
+) -> dict[str, Any]:
+    return _request_json(
+        method="GET",
+        url=url,
+        params=params,
+        headers=headers,
+        timeout=timeout,
+        retries=retries,
+    )
+
+
+def http_post_json(
+    url: str,
+    json_data: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
+    timeout: float | None = None,
+    retries: int | None = None,
+) -> dict[str, Any]:
+    return _request_json(
+        method="POST",
+        url=url,
+        json_data=json_data,
+        headers=headers,
+        timeout=timeout,
+        retries=retries,
+    )

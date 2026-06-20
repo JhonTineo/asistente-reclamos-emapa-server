@@ -52,6 +52,11 @@ class ResultadoInvestigacion(BaseModel):
 
 class InvestigacionRequest(BaseModel):
     suministro_id: str = Field(description="ID del suministro")
+    codsede: str | None = Field(default=None, description="Código de sede EMAPA")
+    codsuc: str | None = Field(default=None, description="Código de sucursal EMAPA")
+    codcliente: str | None = Field(default=None, description="Código de cliente EMAPA")
+    codreclamo: str | None = Field(default=None, description="Código de reclamo EMAPA")
+    anio: str | None = Field(default=None, description="Año de consulta para facturación")
     detalle_reclamo: str = Field(description="Detalle del reclamo")
     modelo: str | None = None
 

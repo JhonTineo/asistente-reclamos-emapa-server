@@ -2,8 +2,10 @@ import time
 import logging
 
 import httpx
-from openai import OpenAI
-from langchain_openai import ChatOpenAI
+import os
+
+from langchain_ollama import ChatOllama
+
 from app.core.config import settings
 
 logger = logging.getLogger("core.llm")
@@ -42,20 +44,24 @@ def _crear_http_client() -> httpx.Client:
 _http_client = _crear_http_client()
 
 
-def get_llm(model: str | None = None) -> ChatOpenAI:
-    return ChatOpenAI(
-        model=model or settings.llm_model,
-        base_url=settings.opencode_go_base_url,
-        api_key=settings.opencode_go_api_key,
-        temperature=0.2,
-        http_client=_http_client,
+def get_llm(model: str | None = None):
+    return ChatOllama(
+        model=model or os.getenv("OLLAMA_GENERATOR_MODEL", settings.ollama_generator_model),
+        base_url=os.getenv("OLLAMA_BASE_URL", settings.ollama_base_url),
+        temperature=0,
     )
 
 
 def listar_modelos() -> list[str]:
-    client = OpenAI(
-        base_url=settings.opencode_go_base_url,
-        api_key=settings.opencode_go_api_key,
-    )
-    modelos = client.models.list()
-    return [m.id for m in modelos.data]
+    ollama_url = os.getenv("OLLAMA_BASE_URL", settings.ollama_base_url).rstrip("/")
+    endpoint = f"{ollama_url}/api/tags"
+
+    try:
+        response = httpx.get(endpoint, timeout=20.0)
+        response.raise_for_status()
+        payload = response.json()
+        models = payload.get("models", [])
+        return [m.get("name") for m in models if m.get("name")]
+    except Exception as exc:
+        logger.warning("No se pudo listar modelos de Ollama: %s", exc)
+        return []
