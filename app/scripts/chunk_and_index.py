@@ -3,9 +3,11 @@ import uuid
 import glob
 import logging
 
-from sentence_transformers import SentenceTransformer
+from dotenv import load_dotenv
+load_dotenv()
 
-from app.tools.vector_db import QdrantStore
+from app.rag.embeddings import EmbeddingService
+from app.rag.qdrant_store import QdrantStore
 
 from app.scripts.pdf_parser import (
     extract_text_multicolumn,
@@ -17,9 +19,6 @@ from app.scripts.legal_chunker import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-MODEL_NAME = "intfloat/multilingual-e5-base"
 
 
 def build_index(pdf_path):
@@ -35,15 +34,14 @@ def build_index(pdf_path):
 
     articles = split_articles(text)
 
-    embedder = SentenceTransformer(
-        MODEL_NAME
-    )
+    embedder = EmbeddingService()
 
     qdrant = QdrantStore(
-        dim=embedder.get_embedding_dimension()
     )
 
-    qdrant.create_collection()
+    qdrant.create_collection(
+        dimension=embedder.dimension
+    )
 
     points = []
 
@@ -60,13 +58,12 @@ def build_index(pdf_path):
 
             embedding = embedder.encode(
                 chunk["text"],
-                normalize_embeddings=True
             )
 
             points.append(
                 {
                     "id": str(uuid.uuid4()),
-                    "vector": embedding.tolist(),
+                    "vector": embedding,
                     "payload": {
 
                         "norma":
@@ -112,7 +109,7 @@ if __name__ == "__main__":
     )
 
     BASE_DIR = os.path.dirname(
-    os.path.dirname(__file__)
+        os.path.dirname(__file__)
     )
 
     pdf_path = os.path.join(
@@ -125,6 +122,12 @@ if __name__ == "__main__":
     pdfs = glob.glob(
         pdf_path
     )
+
+    if not pdfs:
+        logger.warning(
+            "No se encontraron PDFs para indexar en %s",
+            os.path.join(BASE_DIR, "storage", "files")
+        )
 
     for pdf in pdfs:
         build_index(pdf)

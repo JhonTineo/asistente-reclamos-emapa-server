@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from app.schemas.reclamo import ClasificarReclamoRequest, ClasificarReclamoResponse
-from app.agent.clasificador import clasificar_reclamo
+from app.agents.clasificador import clasificar_reclamo
 
 router = APIRouter(prefix="/reclamos", tags=["reclamos"])
 
