@@ -37,7 +37,7 @@ class ConsultarMedioProbatorioTool(Tool):
             logger.info("[EMAPA_CLIENT] REQUEST | medio=%s | method=GET | url=%s", medio_id, url)
             logger.debug("[EMAPA_CLIENT] Headers: %s", headers)
 
-            response = httpx.get(url, headers=headers, timeout=30.0)
+            response = httpx.get(url, headers=headers, timeout=10.0)
             
             logger.info("[EMAPA_CLIENT] RESPONSE | medio=%s | status=%d | size=%d bytes",
                        medio_id, response.status_code, len(response.content))
@@ -56,6 +56,12 @@ class ConsultarMedioProbatorioTool(Tool):
             return ToolResult(
                 success=False,
                 error=f"Error HTTP {e.response.status_code}: {str(e)}"
+            )
+        except httpx.TimeoutException:
+            logger.error("[EMAPA_CLIENT] TIMEOUT | medio=%s | No se obtuvo respuesta de los servicios", medio_id)
+            return ToolResult(
+                success=False,
+                error="No se obtuvo respuesta de los servicios"
             )
         except Exception as e:
             logger.error("[EMAPA_CLIENT] EXCEPTION | medio=%s | type=%s | message=%s",
@@ -100,7 +106,7 @@ def consultar_emapa(endpoint_key: str, params: dict) -> ToolResult:
         logger.info("[EMAPA_CLIENT] URL=%s", url)
         logger.info("[EMAPA_CLIENT] HEADERS=%s", headers)
 
-        response = httpx.get(url, headers=headers, timeout=30.0)
+        response = httpx.get(url, headers=headers, timeout=10.0)
 
         logger.info("[EMAPA_CLIENT] RESPONSE | status=%d | size=%d", response.status_code, len(response.text))
 
@@ -130,6 +136,9 @@ def consultar_emapa(endpoint_key: str, params: dict) -> ToolResult:
     except httpx.ConnectError as e:
         logger.error("[EMAPA_CLIENT] CONNECTION ERROR: %s", str(e))
         return ToolResult(success=False, error=f"Error de conexión: {str(e)}")
+    except httpx.TimeoutException:
+        logger.error("[EMAPA_CLIENT] TIMEOUT | endpoint=%s | No se obtuvo respuesta de los servicios", endpoint_key)
+        return ToolResult(success=False, error="No se obtuvo respuesta de los servicios")
     except Exception as e:
         logger.error("[EMAPA_CLIENT] EXCEPTION | type=%s | error=%s", type(e).__name__, str(e))
         return ToolResult(success=False, error=str(e))
