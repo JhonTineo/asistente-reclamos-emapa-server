@@ -8,12 +8,23 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    opencode_go_api_key: str
+    opencode_go_api_key: str = "local-dev"
     opencode_go_base_url: str = "https://opencode.ai/zen/go/v1"
     llm_model: str = "deepseek-v4-flash"
 
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_generator_model: str = "qwen3:8b"
+
+    qdrant_url: str = "http://127.0.0.1:6333"
+    qdrant_collection_name: str = "sunass_reglamento"
+    embedding_model: str = "BAAI/bge-m3"
+
+    timeout_seconds: int = 60
+    max_retries: int = 2
+
     emapa_api_base_url: str = "https://comercial.emapasanmartin.com:8889/sysco-comercial/backend"
-    emapa_access_token: str = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczovL3N5c2NvLmNvbS8iLCJzdWIiOiJ3d3cuc3lzY28uY29tIiwianRpIjoiQ0VTQVIiLCJ1c3VhcmlvIjoiQ0VTQVIiLCJhcGVsbGlkb3BhIjoiRkxPUkVTIiwiYXBlbGxpZG9tYSI6IlJJT1MiLCJjb2R1c3UiOiJDRVNBUiIsInBhc3N3b3JkIjoiTjJQRFVIcCtncnNWeXIwU1NPdXZqQT09IiwiY29kZW1wIjoiMDAxIiwiY29kc3VjIjoiMDAxIiwiY29kc2VkZSI6IjAwMSIsImVtcHJlc2EiOiJFUFMgRU1BUEEgU0FOIE1BUlRJTiBTLkEuIiwic3VjdXJzYWwiOiJUQVJBUE9UTyIsInNlZGVvcGVyYWNpb25hbCI6Ik9GSUNJTkEgVEFSQVBPVE8iLCJjb2RpbnNwZWN0b3IiOiIwMDAiLCJpcHNlcnZpZG9yIjoiU0hFK1QvV2ZSOXU5SE05azVWK3VMdz09Iiwibm9tYnJlX2JkIjoiNVZwdVdESk51MHBUOU83ZEI4cElIdz09IiwicHVlcnRvIjoiQlpZcHZ5UVFIaCtXN1BZbnZ4Z083dz09Iiwic3VjZGVmIjoiMCIsImV4cGlyYWNpb24iOiIxNzgxOTA5OTQ5NjM0IiwidGlwb3VzdWFyaW8iOiIwMDEiLCJjb2RvZmljaW5hIjoiIiwiaWF0IjowLCJleHAiOjE3ODE5MDk5NDl9.5zDqVkmdjQcClG9VRXhupWMDfvV7RUH37HWGFyh4mGA"
+    emapa_access_token: str = ""
+
 
 
 settings = Settings()

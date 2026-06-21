@@ -2,6 +2,15 @@ import time
 import logging
 import json
 from fastapi import APIRouter
+from app.tools.emapa_api import (
+    buscar_reclamo_emapa,
+    obtener_saldo_actual,
+    obtener_tarjeta_lectura,
+    obtener_record_facturacion,
+    obtener_corte_reapertura,
+    obtener_inspeccion_externa,
+    obtener_inspeccion_interna,
+)
 from app.schemas.investigacion import (
     InvestigacionRequest,
     InvestigacionResponse,

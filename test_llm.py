@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from app.core.llm import get_llm
-from app.agent.clasificador import clasificar_reclamo
+from app.agents.clasificador import clasificar_reclamo
 
 
 def test_conexion():
@@ -32,6 +32,7 @@ def test_clasificacion():
     print("=" * 60)
 
     resultado = clasificar_reclamo(
+        suministro_id="SUM-001",
         reclamo_id="REC-001",
         detalle="""
                 NO ESTOY CONFORME CON EL COBRO DE LOS RECIBOS DEL 2025 DE ENERO, FEBRERO, JUNIO, JULIO, AGOSTO, OCTUBRE, NOVIEMBRE Y DICIEMBRE, 
@@ -40,9 +41,9 @@ def test_clasificacion():
                 """,
     )
 
-    print(f"ID Reclamo:     {resultado.reclamo_id}")
-    print(f"Clasificación:  {resultado.clasificacion}")
-    print(f"Razonamiento:   {resultado.razonamiento}")
+    print(f"ID Reclamo:     {resultado['reclamo_id']}")
+    print(f"Clasificación:  {resultado['clasificacion']}")
+    print(f"Razonamiento:   {resultado['razonamiento']}")
     print()
 
 
