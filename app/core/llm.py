@@ -79,11 +79,31 @@ def _resolver_ollama_base_url() -> str:
         return fallback_url
 
 
+def _resolver_modelo(model: str | None = None) -> str:
+    desired_model = model or os.getenv("OLLAMA_GENERATOR_MODEL", settings.ollama_generator_model)
+    disponibles = listar_modelos()
+
+    if not disponibles:
+        return desired_model
+
+    if desired_model in disponibles:
+        return desired_model
+
+    logger.warning(
+        "Modelo configurado '%s' no disponible. Usando modelo detectado '%s'. Disponibles=%s",
+        desired_model,
+        disponibles[0],
+        disponibles,
+    )
+    return disponibles[0]
+
+
 def get_llm(model: str | None = None):
     return ChatOllama(
-        model=model or os.getenv("OLLAMA_GENERATOR_MODEL", settings.ollama_generator_model),
+        model=_resolver_modelo(model),
         base_url=_resolver_ollama_base_url(),
         temperature=0,
+        num_ctx=16384
     )
 
 

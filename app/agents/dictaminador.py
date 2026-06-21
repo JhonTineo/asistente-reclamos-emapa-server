@@ -28,14 +28,14 @@ Responde únicamente JSON.
 
 Formato:
 
-{
-  "clasificacion":"",
-  "procede":true,
-  "nivel_confianza":0.0,
-  "articulos_aplicables":[],
-  "fundamento":"",
-  "requiere_revision_humana":false
-}
+{{
+    "clasificacion":"",
+    "procede":true,
+    "nivel_confianza":0.0,
+    "articulos_aplicables":[],
+    "fundamento":"",
+    "requiere_revision_humana":false
+}}
 """
         ),
         (
@@ -44,6 +44,10 @@ Formato:
 RECLAMO
 
 {detalle}
+
+CLASIFICACIÓN DE RECLAMO
+
+{clasificacion}
 
 
 EVIDENCIAS
@@ -73,26 +77,11 @@ class DictaminadorAgent:
     def run(
         self,
         detalle,
+        clasificacion,
         evidencias,
         articulos,
         resumen_servicio
     ):
-
-        texto_articulos = "\n\n".join(
-            [
-                f"""
-Articulo:
-{x['payload'].get('article')}
-
-Numeral:
-{x['payload'].get('numeral')}
-
-Texto:
-{x['payload'].get('text')}
-"""
-                for x in articulos
-            ]
-        )
 
         if isinstance(evidencias, (dict, list)):
             texto_evidencias = json.dumps(
@@ -109,8 +98,9 @@ Texto:
             {
                 "detalle": detalle,
                 "evidencias": texto_evidencias,
-                "articulos": texto_articulos,
+                "articulos": articulos,
                 "resumen_servicio": resumen_servicio,
+                "clasificacion": clasificacion
             }
         )
 

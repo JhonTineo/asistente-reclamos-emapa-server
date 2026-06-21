@@ -144,11 +144,8 @@ curl http://localhost:6333/
 ### 5. Descargar el modelo LLM en Ollama
 
 ```bash
-# Qwen3 8B (~5 GB, descarga unica)
-docker exec ollama ollama pull qwen3:8b
-
-# Alternativa mas liviana
-docker exec ollama ollama pull llama3.1:8b
+# Qwen (~5 GB, descarga unica)
+docker exec ollama ollama pull qwen3.5:latest
 ```
 
 Verificar modelos disponibles:

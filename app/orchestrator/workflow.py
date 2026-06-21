@@ -14,6 +14,10 @@ from app.agents.resumen_tecnico import (
     ResumenTecnicoAgent
 )
 
+from app.agents.clasificador import (
+    ClasificadorAgent)
+
+from concurrent.futures import ThreadPoolExecutor
 
 class ReclamoWorkflow:
 
@@ -35,42 +39,55 @@ class ReclamoWorkflow:
             DictaminadorAgent()
         )
 
+        self.clasificador = (
+            ClasificadorAgent()
+        )
+
     def run(
         self,
         detalle,
         contexto_emapa
-    ):
+        ):
 
-        analisis = (
-            self.analizador.run(
+        with ThreadPoolExecutor(max_workers=3) as executor:
+
+            future_analisis = executor.submit(
+                self.analizador.run,
                 detalle
             )
-        )
 
-        resumen_tecnico = (
-            self.resumen_tecnico.run(
+            future_clasificacion = executor.submit(
+                self.clasificador.run,
+                detalle
+            )
+
+            future_resumen = executor.submit(
+                self.resumen_tecnico.run,
                 contexto_emapa
             )
+
+            analisis = future_analisis.result()
+
+            clasificacion = future_clasificacion.result()
+
+            resumen_tecnico = future_resumen.result()
+
+        articulos = self.normativo.run(
+            detalle,
+            analisis
         )
 
-        articulos = (
-            self.normativo.run(
-                detalle,
-                analisis
-            )
-        )
-
-        dictamen = (
-            self.dictaminador.run(
-                detalle,
-                contexto_emapa,
-                articulos,
-                resumen_tecnico
-            )
+        dictamen = self.dictaminador.run(
+            detalle,
+            clasificacion,
+            analisis,
+            articulos,
+            resumen_tecnico
         )
 
         return {
             "analisis": analisis,
+            "clasificacion": clasificacion,
             "articulos": articulos,
             "resumen_tecnico": resumen_tecnico,
             "dictamen": dictamen

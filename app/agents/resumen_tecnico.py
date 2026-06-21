@@ -23,9 +23,9 @@ Responde únicamente JSON.
 
 Formato:
 
-{
+{{
 "resumen_servicio":"Texto del resumen analítico del servicio anual brindado por EMAPA al cliente, incluyendo cualquier irregularidad identificada, su periodo, naturaleza e impacto."
-}
+}}
 """
         ),
         (
