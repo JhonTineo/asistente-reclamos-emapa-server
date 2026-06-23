@@ -10,6 +10,9 @@ env/
 # Configuración sensible
 conf.env
 
+# Runtime local data and model cache
+volumes/
+
 # Archivos compilados de Python
 __pycache__/
 *.py[cod]
