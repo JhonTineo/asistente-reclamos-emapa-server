@@ -11,8 +11,7 @@ env/
 conf.env
 
 # Runtime local data and model cache
-ollama/
-qdrant_storage/
+volumes/
 
 # Archivos compilados de Python
 __pycache__/

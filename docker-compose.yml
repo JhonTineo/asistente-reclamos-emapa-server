@@ -8,7 +8,7 @@ services:
       - "6333:6333"
       - "6334:6334"
     volumes:
-      - ./qdrant_storage:/qdrant/storage
+      - ./volumes/qdrant_storage:/qdrant/storage
 
   ollama:
     image: ollama/ollama
@@ -17,24 +17,20 @@ services:
     ports:
       - "11434:11434"
     volumes:
-      - ./ollama:/root/.ollama
+      - ./volumes/ollama:/root/.ollama
   
   agent:
-    build: .
-
+    build: 
+      context: ./app
     container_name: sunass-agent
-
     restart: unless-stopped
-
     depends_on:
       - qdrant
       - ollama
-
     ports:
       - "8000:8000"
-
     env_file:
       - .env
-
+    working_dir: /app
     volumes:
-      - .:/app
+      - ./app:/app
