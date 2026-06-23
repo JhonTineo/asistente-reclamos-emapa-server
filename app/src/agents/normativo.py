@@ -1,10 +1,10 @@
-from rag.retriever import RegulationRetriever
+from rag.retriever import Retriever
 
 
 class NormativoAgent:
 
     def __init__(self):
-        self.retriever = RegulationRetriever()
+        self.retriever = Retriever()
 
     def run(self, detalle, analisis):
         query = (
@@ -14,7 +14,13 @@ class NormativoAgent:
             f"Detalle del reclamo: {detalle}"
         )
 
-        return self.retriever.retrieve(
-            query,
+        normas_relacionadas = self.retriever.retrieve(
+            collection_name="sunass_reglamento",
+            query=query,
             top_k=5
+        )
+
+        return self.retriever.build_context(
+            collection_name="sunass_reglamento",
+            results=normas_relacionadas
         )

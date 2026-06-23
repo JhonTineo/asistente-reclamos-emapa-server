@@ -1,8 +1,6 @@
 import os
 
-from qdrant_client import (
-    QdrantClient
-)
+from qdrant_client import QdrantClient
 
 from qdrant_client.http.models import (
     Distance,
@@ -15,15 +13,10 @@ class QdrantStore:
 
     def __init__(self):
 
-        self.collection_name = os.getenv(
-            "QDRANT_COLLECTION_NAME",
-            "sunass_reglamento"
-        )
-
         self.client = QdrantClient(
             url=os.getenv(
-                "QDRANT_URL",
-                "http://localhost:6333"
+                "QDRANTQDRANT_URL_URL",
+                "http://127.0.0.1:6333"
             )
         )
 
@@ -78,6 +71,7 @@ class QdrantStore:
 
     def search(
         self,
+        collection_name: str,
         vector,
         top_k=5,
         collection_name: str | None = None
@@ -91,6 +85,8 @@ class QdrantStore:
             limit=top_k
         )
 
+        points = getattr(results, "points", results)
+
         return [
             {
                 "id": p.id,
@@ -100,8 +96,25 @@ class QdrantStore:
             for p in results.points
         ]
 
-    def count(self):
+    def count(
+        self,
+        collection_name: str
+    ):
 
         return self.client.count(
-            collection_name=self.collection_name
+            collection_name=collection_name
         ).count
+
+    def collection_exists(
+        self,
+        collection_name: str
+    ) -> bool:
+
+        collections = self.client.get_collections()
+
+        existing = {
+            c.name
+            for c in collections.collections
+        }
+
+        return collection_name in existing
