@@ -3,10 +3,10 @@ import logging
 from typing import Any
 import httpx
 
-from tools.base import Tool, ToolResult
-from tools.registry import ToolRegistry
-from core.config import settings
-from core.http import http_get_json
+from app.src.tools.base import Tool, ToolResult
+from app.src.tools.registry import ToolRegistry
+from app.src.core.config import settings
+from app.src.core.http import http_get_json
 
 logger = logging.getLogger("tools.emapa_api")
 

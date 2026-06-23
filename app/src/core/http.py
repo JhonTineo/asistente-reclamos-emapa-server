@@ -3,7 +3,7 @@ import logging
 import httpx
 from typing import Any
 
-from core.config import settings
+from app.src.core.config import settings
 
 logger = logging.getLogger("core.http")
 

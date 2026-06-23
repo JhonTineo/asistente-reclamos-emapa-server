@@ -1,12 +1,9 @@
 import json
 import re
 from pathlib import Path
-
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_ollama import ChatOllama
-
-from core.llm import get_llm
-
+from app.src.core.llm import get_llm
 
 ANEXO_PATH = Path(__file__).parent.parent / "storage" / "anexo1_tipos_reclamo.md"
 

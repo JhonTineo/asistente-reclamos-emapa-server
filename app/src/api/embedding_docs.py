@@ -1,16 +1,13 @@
 import logging
 import re
-
 from fastapi import APIRouter, UploadFile, File
-
-from services.md_embedding_service import (
+from app.src.services.md_embedding_service import (
     parse_md_to_chunks,
     generar_embeddings,
     indexar_en_qdrant
 )
 
 logger = logging.getLogger("api.embedding_docs")
-
 router = APIRouter(prefix="/normativa", tags=["normativa"])
 
 

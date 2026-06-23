@@ -3,8 +3,8 @@ import time
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from agents.analizador import AnalizadorAgent
-from agents.clasificador_llm import clasificar_reclamo as clasificar_llm
+from app.src.agents.analizador import AnalizadorAgent
+from app.src.agents.clasificador_llm import clasificar_reclamo as clasificar_llm
 
 logger = logging.getLogger("api.clasificador")
 

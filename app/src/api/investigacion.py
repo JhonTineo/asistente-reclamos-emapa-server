@@ -2,7 +2,7 @@ import time
 import logging
 import json
 from fastapi import APIRouter
-from tools.emapa_api import (
+from app.src.tools.emapa_api import (
     buscar_reclamo_emapa,
     obtener_saldo_actual,
     obtener_tarjeta_lectura,
@@ -11,7 +11,7 @@ from tools.emapa_api import (
     obtener_inspeccion_externa,
     obtener_inspeccion_interna,
 )
-from schemas.investigacion import (
+from app.src.schemas.investigacion import (
     InvestigacionRequest,
     InvestigacionResponse,
     ResumenMedio,
@@ -24,11 +24,11 @@ from schemas.investigacion import (
     BuscarReclamoRequest,
     BuscarReclamoResponse,
 )
-from agent.coordinator import analizar_medios
-from agent.unificador import UnificadorAgent
-from agent.conciliador import ConciliadorAgent
-from agent.resolucion import ResolucionAgent
-from tools.emapa_client import consultar_emapa
+from app.src.agent.coordinator import analizar_medios
+from app.src.agent.unificador import UnificadorAgent
+from app.src.agent.conciliador import ConciliadorAgent
+from app.src.agent.resolucion import ResolucionAgent
+from app.src.tools.emapa_client import consultar_emapa
 
 logger = logging.getLogger("api.investigacion")
 

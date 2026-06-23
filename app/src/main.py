@@ -2,10 +2,10 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.modelos import router as modelos_router
-from api.investigacion import router as investigacion_router
-from api.reclamos import router as reclamos_router
-from api.embedding_docs import router as embedding_docs_router 
+from app.src.api.modelos import router as modelos_router
+from app.src.api.investigacion import router as investigacion_router
+from app.src.api.reclamos import router as reclamos_router
+from app.src.api.embedding_docs import router as embedding_docs_router 
 
 
 logging.basicConfig(

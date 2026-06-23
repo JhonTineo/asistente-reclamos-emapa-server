@@ -3,7 +3,7 @@ import time
 import logging
 from pathlib import Path
 from langchain_core.messages import SystemMessage
-from core.llm import get_llm
+from app.src.core.llm import get_llm
 
 logger = logging.getLogger("agent.conciliador")
 

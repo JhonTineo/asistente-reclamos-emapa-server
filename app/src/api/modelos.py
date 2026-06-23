@@ -1,7 +1,7 @@
 from fastapi import APIRouter
-from schemas.modelo import ModeloResponse, ModelosListResponse
-from core.llm import listar_modelos
-from core.config import settings
+from app.src.schemas.modelo import ModeloResponse, ModelosListResponse
+from app.src.core.llm import listar_modelos
+from app.src.core.config import settings
 
 router = APIRouter(prefix="/modelos", tags=["modelos"])
 

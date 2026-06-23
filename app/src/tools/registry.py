@@ -1,4 +1,4 @@
-from tools.base import Tool
+from app.src.tools.base import Tool
 
 
 class ToolRegistry:

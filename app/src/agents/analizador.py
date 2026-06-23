@@ -2,6 +2,8 @@ import os
 import spacy
 import time
 import logging
+from app.src.rag.embeddings import EmbeddingService
+from app.src.rag.qdrant_store import QdrantStore
 
 logger = logging.getLogger("agent.clasificador")
 
@@ -80,8 +82,7 @@ class AnalizadorAgent:
         return list(set(encontrados))
 
     def _clasificar(self, conceptos, acciones, numeros, dominio, detalle):
-        from rag.embeddings import EmbeddingService
-        from rag.qdrant_store import QdrantStore
+        
 
         embedder = EmbeddingService()
         consulta = f"Problema relacionado con: {', '.join(conceptos[:5])}"
@@ -103,6 +104,7 @@ class AnalizadorAgent:
                 "tipo": payload.get("tipo"),
                 "descripcion": payload.get("descripcion"),
                 "score": resultados[0]["score"]
+
             }
 
         return {"tipo": "No determinado", "descripcion": None, "score": 0.0}

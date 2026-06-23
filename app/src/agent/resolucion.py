@@ -1,7 +1,7 @@
 import time
 import logging
 from langchain_core.messages import SystemMessage
-from core.llm import get_llm
+from app.src.core.llm import get_llm
 
 logger = logging.getLogger("agent.resolucion")
 

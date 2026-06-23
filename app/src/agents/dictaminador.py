@@ -1,11 +1,6 @@
 import json
-
-from langchain_core.prompts import (
-    ChatPromptTemplate
-)
-
-from core.llm import get_llm
-
+from langchain_core.prompts import (ChatPromptTemplate)
+from app.src.core.llm import get_llm
 
 PROMPT = ChatPromptTemplate.from_messages(
     [

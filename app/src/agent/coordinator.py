@@ -3,8 +3,8 @@ import time
 import logging
 import asyncio
 from pathlib import Path
-from agent.analista_medio import AnalistaMedioAgent
-from tools.emapa_client import consultar_medio_probatorio
+from app.src.agent.analista_medio import AnalistaMedioAgent
+from app.src.tools.emapa_client import consultar_medio_probatorio
 
 logger = logging.getLogger("agent.coordinator")
 

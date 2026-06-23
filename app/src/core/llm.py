@@ -8,7 +8,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from langchain_ollama import ChatOllama
 
-from core.config import settings
+from app.src.core.config import settings
 
 logger = logging.getLogger("core.llm")
 

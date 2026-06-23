@@ -1,8 +1,8 @@
 import httpx
 import logging
-from tools.base import Tool, ToolResult
-from core.emapa_config import EMAPA_API_BASE_URL, EMAPA_ENDPOINTS, EMAPA_ACCESS_TOKEN
-from core.config import settings
+from app.src.tools.base import Tool, ToolResult
+from app.src.core.emapa_config import EMAPA_API_BASE_URL, EMAPA_ENDPOINTS, EMAPA_ACCESS_TOKEN
+from app.src.core.config import settings
 
 logger = logging.getLogger("tools.emapa_client")
 

@@ -1,7 +1,7 @@
 import re
 
-from rag.embeddings import EmbeddingService
-from rag.qdrant_store import QdrantStore
+from app.src.rag.embeddings import EmbeddingService
+from app.src.rag.qdrant_store import QdrantStore
 
 
 def generar_slug(texto: str) -> str:

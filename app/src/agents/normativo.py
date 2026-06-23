@@ -1,4 +1,4 @@
-from rag.retriever import Retriever
+from app.src.rag.retriever import Retriever
 
 
 class NormativoAgent:

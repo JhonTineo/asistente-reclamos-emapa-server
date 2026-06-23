@@ -1,3 +1,3 @@
-from orchestrator.workflow import ReclamoWorkflow
+from app.src.orchestrator.workflow import ReclamoWorkflow
 
 __all__ = ["ReclamoWorkflow"]

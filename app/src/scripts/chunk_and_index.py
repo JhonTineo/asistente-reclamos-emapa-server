@@ -6,15 +6,15 @@ import logging
 from dotenv import load_dotenv
 load_dotenv()
 
-from rag.embeddings import EmbeddingService
-from rag.qdrant_store import QdrantStore
+from app.src.rag.embeddings import EmbeddingService
+from app.src.rag.qdrant_store import QdrantStore
 
-from src.scripts.pdf_parser import (
+from app.src.scripts.pdf_parser import (
     extract_text_multicolumn,
     split_articles
 )
 
-from src.scripts.legal_chunker import (
+from app.src.scripts.legal_chunker import (
     split_numerals
 )
 

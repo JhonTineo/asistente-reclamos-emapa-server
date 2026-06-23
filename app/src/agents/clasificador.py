@@ -1,12 +1,7 @@
 import json
-
-from langchain_core.prompts import (
-    ChatPromptTemplate
-)
-
-from app.rag.retriever import Retriever
-
-from app.core.llm import get_llm
+from langchain_core.prompts import (ChatPromptTemplate)
+from app.src.rag.retriever import Retriever
+from app.src.core.llm import get_llm
 
 PROMPT = ChatPromptTemplate.from_messages(
     [
@@ -46,7 +41,7 @@ RECLAMO
 
 REGLAMENTO
 
-{tipos_reclamos}
+{anexo1_tipos_reclamo}
 """
         )
     ]
@@ -64,24 +59,24 @@ class ClasificadorAgent:
     detalle: str
     ):
         query = f"Detalle del reclamo: {detalle}\n\nClasifica este reclamo según el reglamento de SUNASS."
-        tipos_reclamos =self.retriever.retrieve(
-            collection_name = "tipos_reclamos",
+        anexo1_tipos_reclamo =self.retriever.retrieve(
+            collection_name = "anexo1_tipos_reclamo",
             query=query,
             top_k=5
         )
 
         tipos_reclamos_context = self.retriever.build_context(
-            collection_name="tipos_reclamos",
-            results=tipos_reclamos
+            collection_name="anexo1_tipos_reclamo",
+            results=anexo1_tipos_reclamo
         )
 
         response = self.llm.invoke(
             PROMPT.format_messages(
                 detalle=detalle,
-                tipos_reclamos=tipos_reclamos_context
+                anexo1_tipos_reclamo=tipos_reclamos_context
             )
         )
-        print("tipos_reclamos:", tipos_reclamos[:10])
+        print("anexo1_tipos_reclamo:", anexo1_tipos_reclamo[:10])
         print("=" * 80)
         print("TIPO RESPONSE:", type(response))
         print("RESPONSE:", response)
