@@ -1,85 +1,251 @@
-# ANEXO 1: PROBLEMAS DE ALCANCE PARTICULAR
+ID: COM-FAC-001
+TIPO: Comercial
+SUBTIPO: Facturación
+CATEGORIA: Consumo medido
+DEFINICION:
+El usuario considera que el régimen de facturación no es aplicable o que ha efectuado un consumo menor al volumen registrado por el medidor.
 
-> Documento: Texto Único Ordenado del Reglamento General de Reclamos de Usuarios de Servicios de Saneamiento
-> Resolución: RCD Nº 015-2023-SUNASS-CD
->
-> Problemas de Alcance Particular ante los cuales corresponde interponer un reclamo.
+ID: COM-FAC-002
+TIPO: Comercial
+SUBTIPO: Facturación
+CATEGORIA: Consumo promedio
+DEFINICION:
+El usuario considera que el régimen de facturación no es aplicable o que el monto facturado está mal calculado.
 
----
+ID: COM-FAC-003
+TIPO: Comercial
+SUBTIPO: Facturación
+CATEGORIA: Asignación de consumo
+DEFINICION:
+El usuario considera que el régimen de facturación no es aplicable, que el volumen facturado está por encima del valor que corresponde según las normas y la estructura tarifaria vigente, o que el volumen facturado es mayor por considerarse un número mayor de unidades de uso al que corresponde.
 
-## I. COMERCIALES
+ID: COM-FAC-004
+TIPO: Comercial
+SUBTIPO: Facturación
+CATEGORIA: Consumo no facturado oportunamente
+DEFINICION:
+El usuario considera que no corresponde el cobro de consumos que la Empresa Prestadora no facturó en su oportunidad.
 
-### A. Relativos a la Facturación
+ID: COM-FAC-005
+TIPO: Comercial
+SUBTIPO: Facturación
+CATEGORIA: Consumo no realizado por servicio cerrado
+DEFINICION:
+El usuario considera que se le ha facturado un servicio que la Empresa Prestadora no le ha brindado, ya sea porque no tiene conexión o porque ésta se encuentra cerrada.
 
-#### 1. Problemas en el régimen de facturación y el nivel de consumo
+ID: COM-FAC-006
+TIPO: Comercial
+SUBTIPO: Facturación
+CATEGORIA: Consumo atribuible a usuario anterior del suministro
+DEFINICION:
+El usuario considera que no le corresponde asumir el pago de determinados meses de facturación.
 
-1. **Consumo medido:** el usuario considera que (i) el régimen de facturación no es aplicable, o (ii) ha efectuado un consumo menor al volumen registrado por el medidor.
-2. **Consumo Promedio:** el usuario considera que (i) el régimen de facturación no es aplicable, o (ii) el monto facturado está mal calculado.
-3. **Asignación de Consumo:** el usuario considera que (i) el régimen de facturación no es aplicable, (ii) el volumen facturado está por encima del valor que corresponde según las normas y la estructura tarifaria vigente, o (iii) el volumen facturado es mayor por considerarse un número mayor de unidades de uso al que corresponde.
-4. **Consumo no facturado oportunamente:** el usuario considera que no corresponde el cobro de consumos que la Empresa Prestadora no facturó en su oportunidad.
-5. **Consumo no realizado por servicio cerrado:** el usuario considera que se le ha facturado un servicio que la Empresa Prestadora no le ha brindado, ya sea porque no tiene conexión o porque ésta se encuentra cerrada.
-6. **Consumo atribuible a usuario anterior del suministro:** el usuario considera que no le corresponde asumir el pago de determinados meses de facturación.
-7. **Consumo atribuible a otro suministro:** confusión o cruce de suministros.
-8. **Pago no procesado:** el usuario ha efectuado el pago del servicio, sin embargo, la Empresa Prestadora se lo cobra nuevamente.
+ID: COM-FAC-007
+TIPO: Comercial
+SUBTIPO: Facturación
+CATEGORIA: Consumo atribuible a otro suministro
+DEFINICION:
+Existe una confusión o cruce de suministros.
 
-#### 2. Problemas en la tarifa aplicada al usuario
+ID: COM-FAC-008
+TIPO: Comercial
+SUBTIPO: Facturación
+CATEGORIA: Pago no procesado
+DEFINICION:
+El usuario ha efectuado el pago del servicio; sin embargo, la Empresa Prestadora se lo cobra nuevamente.
 
-- **Tipo de Tarifa:** el usuario considera que la categoría tarifaria en la cual se ha incluido no le corresponde.
+ID: COM-FAC-009
+TIPO: Comercial
+SUBTIPO: Facturación
+CATEGORIA: Tipo de tarifa
+DEFINICION:
+El usuario considera que la categoría tarifaria en la cual se ha incluido no le corresponde.
 
-#### 3. Problemas en otros conceptos facturados al usuario
+ID: COM-FAC-010
+TIPO: Comercial
+SUBTIPO: Facturación
+CATEGORIA: Conceptos emitidos
+DEFINICION:
+El usuario considera la existencia de cargos o conceptos que no debían ser facturados, tales como el servicio de alcantarillado o servicios colaterales.
 
-1. **Conceptos emitidos:** el usuario considera la existencia de cargos o conceptos que no debían ser facturados, tales como el servicio de alcantarillado, servicios colaterales, etc.
-2. **Número de unidades de uso:** mayor al que corresponde.
+ID: COM-FAC-011
+TIPO: Comercial
+SUBTIPO: Facturación
+CATEGORIA: Número de unidades de uso
+DEFINICION:
+El usuario considera que se le ha asignado un número de unidades de uso mayor al que corresponde.
 
-### B. No Relativos a la Facturación
+ID: COM-NRF-001
+TIPO: Comercial
+SUBTIPO: No relativo a facturación
+CATEGORIA: Instalación de conexión domiciliaria fuera de plazo
+DEFINICION:
+La instalación de la conexión domiciliaria no se ha realizado en el plazo establecido.
 
-#### 1. Problemas relativos al acceso al servicio
+ID: COM-NRF-002
+TIPO: Comercial
+SUBTIPO: No relativo a facturación
+CATEGORIA: Desacuerdo con informe de factibilidad
+DEFINICION:
+Existe desacuerdo con los condicionamientos técnicos y/o administrativos establecidos en el Informe de Factibilidad.
 
-1. La instalación de la conexión domiciliaria no se ha realizado en el plazo establecido.
-2. Desacuerdo con los condicionamientos técnicos y/o administrativos establecidos en el Informe de Factibilidad.
-3. No se admite a trámite la solicitud.
-4. El servicio prestado no responde a las condiciones contenidas en el estudio de factibilidad, el cual forma parte integrante del contrato de prestación de servicios.
-5. No se suscribe el contrato de prestación de servicios.
-6. Otros problemas relativos al contrato.
-7. Empresa Prestadora no emite informe de factibilidad dentro del plazo.
+ID: COM-NRF-003
+TIPO: Comercial
+SUBTIPO: No relativo a facturación
+CATEGORIA: No admisión a trámite
+DEFINICION:
+La Empresa Prestadora no admite a trámite la solicitud presentada por el usuario.
 
-#### 2. Problemas relativos a la Micromedición
+ID: COM-NRF-004
+TIPO: Comercial
+SUBTIPO: No relativo a facturación
+CATEGORIA: Incumplimiento de condiciones del estudio de factibilidad
+DEFINICION:
+El servicio prestado no responde a las condiciones contenidas en el estudio de factibilidad que forma parte del contrato de prestación de servicios.
 
-1. El reclamante adquiere un medidor, solicita su instalación habiendo realizado el pago del servicio colateral correspondiente, y la Empresa Prestadora no realiza la instalación en el plazo establecido.
-2. La reinstalación del medidor no se ha realizado en el plazo establecido.
-3. El medidor ha sido retirado sin previa comunicación al usuario.
-4. El medidor ha sido retirado por razones distintas a su mantenimiento, verificación posterior o reposición.
-5. Empresa Prestadora instala medidor sin verificación inicial o sin entregar al usuario el resultado de la prueba de verificación inicial.
+ID: COM-NRF-005
+TIPO: Comercial
+SUBTIPO: No relativo a facturación
+CATEGORIA: No suscripción del contrato de prestación de servicios
+DEFINICION:
+La Empresa Prestadora no suscribe el contrato de prestación de servicios.
 
-#### 3. Problemas relativos a cortes indebidos
+ID: COM-NRF-006
+TIPO: Comercial
+SUBTIPO: No relativo a facturación
+CATEGORIA: Otros problemas relativos al contrato
+DEFINICION:
+Existen problemas relacionados con el contrato de prestación de servicios que no encajan en categorías específicas.
 
-1. El corte o la suspensión del servicio han sido realizados sin causa justificada.
-2. La rehabilitación de un servicio cerrado no se ha realizado en el plazo establecido, a pesar de cesar la causa del cierre.
+ID: COM-NRF-007
+TIPO: Comercial
+SUBTIPO: No relativo a facturación
+CATEGORIA: No emisión de informe de factibilidad
+DEFINICION:
+La Empresa Prestadora no emite el informe de factibilidad dentro del plazo establecido.
 
-#### 4. Falta de entrega del recibo
+ID: COM-NRF-008
+TIPO: Comercial
+SUBTIPO: Micromedición
+CATEGORIA: No instalación de medidor dentro del plazo
+DEFINICION:
+El usuario adquirió un medidor, solicitó su instalación y efectuó el pago correspondiente, pero la Empresa Prestadora no realizó la instalación dentro del plazo establecido.
 
-#### 5. Problemas relativos a información
+ID: COM-NRF-009
+TIPO: Comercial
+SUBTIPO: Micromedición
+CATEGORIA: No reinstalación de medidor dentro del plazo
+DEFINICION:
+La reinstalación del medidor no se realizó dentro del plazo establecido.
 
-- No entregar al usuario la información que de manera obligatoria establece la SUNASS.
+ID: COM-NRF-010
+TIPO: Comercial
+SUBTIPO: Micromedición
+CATEGORIA: Retiro de medidor sin comunicación previa
+DEFINICION:
+El medidor fue retirado sin previa comunicación al usuario.
 
----
+ID: COM-NRF-011
+TIPO: Comercial
+SUBTIPO: Micromedición
+CATEGORIA: Retiro indebido de medidor
+DEFINICION:
+El medidor fue retirado por razones distintas a mantenimiento, verificación posterior o reposición.
 
-## II. OPERACIONALES
+ID: COM-NRF-012
+TIPO: Comercial
+SUBTIPO: Micromedición
+CATEGORIA: Instalación de medidor sin verificación inicial
+DEFINICION:
+La Empresa Prestadora instaló un medidor sin realizar la verificación inicial o sin entregar el resultado al usuario.
 
-### A. Filtraciones
+ID: COM-NRF-013
+TIPO: Comercial
+SUBTIPO: Cortes indebidos
+CATEGORIA: Corte o suspensión injustificada
+DEFINICION:
+El corte o la suspensión del servicio fueron realizados sin causa justificada.
 
-- Filtración de aguas externas hacia el predio.
+ID: COM-NRF-014
+TIPO: Comercial
+SUBTIPO: Cortes indebidos
+CATEGORIA: Rehabilitación fuera de plazo
+DEFINICION:
+La rehabilitación de un servicio cerrado no se realizó en el plazo establecido pese a haber cesado la causa del cierre.
 
-### B. Problemas en el servicio de agua potable
+ID: COM-NRF-015
+TIPO: Comercial
+SUBTIPO: Entrega de recibo
+CATEGORIA: Falta de entrega del recibo
+DEFINICION:
+La Empresa Prestadora no entregó el recibo correspondiente al usuario.
 
-1. Fugas en conexión domiciliaria.
-2. Negativa de la Empresa Prestadora a realizar mantenimiento por deterioro o daño de caja de medidor o de conexión domiciliaria.
-3. Negativa de la Empresa Prestadora a realizar la reubicación de la conexión domiciliaria que cuenta con estudio de factibilidad favorable.
-4. Negativa de la Empresa Prestadora a realizar ampliación de diámetro que cuenta con estudio de factibilidad positivo.
+ID: COM-NRF-016
+TIPO: Comercial
+SUBTIPO: Información
+CATEGORIA: Falta de entrega de información obligatoria
+DEFINICION:
+La Empresa Prestadora no entrega al usuario la información obligatoria establecida por SUNASS.
 
-### C. Problemas en el servicio de alcantarillado
+ID: OPE-FIL-001
+TIPO: Operacional
+SUBTIPO: Filtraciones
+CATEGORIA: Filtración de aguas externas
+DEFINICION:
+Existe filtración de aguas externas hacia el predio del usuario.
 
-1. Atoro en conexión de alcantarillado.
-2. Negativa de la Empresa Prestadora a realizar mantenimiento por deterioro o daño de caja de registro o de conexión domiciliaria.
-3. Negativa de la Empresa Prestadora a realizar ampliación de diámetro que cuenta con estudio de factibilidad positivo.
-4. Negativa de la Empresa Prestadora a realizar la reubicación de la conexión domiciliaria que cuenta con estudio de factibilidad favorable.
+ID: OPE-APA-001
+TIPO: Operacional
+SUBTIPO: Agua potable
+CATEGORIA: Fuga en conexión domiciliaria
+DEFINICION:
+Existe una fuga en la conexión domiciliaria.
+
+ID: OPE-APA-002
+TIPO: Operacional
+SUBTIPO: Agua potable
+CATEGORIA: Negativa de mantenimiento de conexión domiciliaria
+DEFINICION:
+La Empresa Prestadora se niega a realizar mantenimiento por deterioro o daño de la caja del medidor o de la conexión domiciliaria.
+
+ID: OPE-APA-003
+TIPO: Operacional
+SUBTIPO: Agua potable
+CATEGORIA: Negativa de reubicación de conexión domiciliaria
+DEFINICION:
+La Empresa Prestadora se niega a realizar la reubicación de una conexión domiciliaria que cuenta con estudio de factibilidad favorable.
+
+ID: OPE-APA-004
+TIPO: Operacional
+SUBTIPO: Agua potable
+CATEGORIA: Negativa de ampliación de diámetro
+DEFINICION:
+La Empresa Prestadora se niega a realizar una ampliación de diámetro que cuenta con estudio de factibilidad positivo.
+
+ID: OPE-ALC-001
+TIPO: Operacional
+SUBTIPO: Alcantarillado
+CATEGORIA: Atoro en conexión de alcantarillado
+DEFINICION:
+Existe un atoro en la conexión de alcantarillado.
+
+ID: OPE-ALC-002
+TIPO: Operacional
+SUBTIPO: Alcantarillado
+CATEGORIA: Negativa de mantenimiento de conexión de alcantarillado
+DEFINICION:
+La Empresa Prestadora se niega a realizar mantenimiento por deterioro o daño de la caja de registro o de la conexión domiciliaria.
+
+ID: OPE-ALC-003
+TIPO: Operacional
+SUBTIPO: Alcantarillado
+CATEGORIA: Negativa de ampliación de diámetro
+DEFINICION:
+La Empresa Prestadora se niega a realizar una ampliación de diámetro que cuenta con estudio de factibilidad positivo.
+
+ID: OPE-ALC-004
+TIPO: Operacional
+SUBTIPO: Alcantarillado
+CATEGORIA: Negativa de reubicación de conexión domiciliaria
+DEFINICION:
+La Empresa Prestadora se niega a realizar la reubicación de una conexión domiciliaria que cuenta con estudio de factibilidad favorable.

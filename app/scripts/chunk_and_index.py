@@ -30,10 +30,10 @@ logger = logging.getLogger(__name__)
 
     embedder = EmbeddingService()
 
-    qdrant = QdrantStore(
-    )
+    qdrant = QdrantStore()
 
     qdrant.create_collection(
+        collection_name="sunass_reglamento",
         dimension=embedder.dimension
     )
 
@@ -87,7 +87,8 @@ logger = logging.getLogger(__name__)
     ):
 
         qdrant.upsert(
-            points[i:i + batch_size]
+            collection_name="sunass_reglamento",
+            points=points[i:i + batch_size]
         )
 
     logger.info(

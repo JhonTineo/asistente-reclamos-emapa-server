@@ -1,6 +1,7 @@
 import json
 import logging
 from typing import Any
+import httpx
 
 from app.tools.base import Tool, ToolResult
 from app.tools.registry import ToolRegistry
@@ -55,12 +56,27 @@ def _get_headers() -> dict[str, str]:
 
 def _request(path: str) -> dict[str, Any]:
     url = _get_url(path)
-    return http_get_json(
-        url=url,
-        headers=_get_headers(),
-        timeout=float(settings.timeout_seconds),
-        retries=int(settings.max_retries),
-    )
+    try:
+        return http_get_json(
+            url=url,
+            headers=_get_headers(),
+            timeout=float(settings.timeout_seconds),
+            retries=int(settings.max_retries),
+        )
+    except httpx.HTTPStatusError as exc:
+        if exc.response is not None and exc.response.status_code == 404:
+            logger.warning(
+                "[EMAPA] Endpoint no encontrado (404). Continuando con datos parciales. url=%s",
+                url,
+            )
+            return {
+                "_partial": True,
+                "_error": "endpoint_not_found",
+                "_status_code": 404,
+                "_url": url,
+                "data": {},
+            }
+        raise
 
 
 def buscar_reclamo_emapa(codsede: str, codsuc: str, codreclamo: str, codcliente: str) -> dict[str, Any]:
