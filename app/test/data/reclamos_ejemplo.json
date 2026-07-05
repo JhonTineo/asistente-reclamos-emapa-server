@@ -1,0 +1,14 @@
+[
+  {
+    "detalle": "No estoy conforme con el cobro de los recibos del 2025, ya que mis consumos son de 23 m3 aproximadamente.",
+    "tipo_esperado": "Consumo medido"
+  },
+  {
+    "detalle": "Me facturaron por consumo promedio pero no me parece correcto el monto.",
+    "tipo_esperado": "Consumo Promedio"
+  },
+  {
+    "detalle": "Ya pagué el recibo pero me lo vuelven a cobrar.",
+    "tipo_esperado": "Pago no procesado"
+  }
+]

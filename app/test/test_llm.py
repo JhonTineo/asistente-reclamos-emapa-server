@@ -7,9 +7,9 @@ import os
 import json
 from urllib import response
 from dotenv import load_dotenv
-from app.src.core.llm import get_llm
-from app.src.agents.clasificador import ClasificadorAgent
-from app.src.tools.emapa_api import (
+from app.src.application.adapters.llm import get_llm
+from app.src.application.usecase.agents.clasificador import ClasificadorAgent
+from app.src.core.service.tools.emapa_api import (
     buscar_reclamo_emapa,
     obtener_saldo_actual,
     obtener_tarjeta_lectura,
@@ -18,7 +18,7 @@ from app.src.tools.emapa_api import (
     obtener_inspeccion_externa,
     obtener_inspeccion_interna,
 )
-from app.src.orchestrator.workflow import ReclamoWorkflow
+from app.src.application.usecase.workflow import ReclamoWorkflow
 
 sys.path.insert(0, os.path.dirname(__file__))
 load_dotenv()
