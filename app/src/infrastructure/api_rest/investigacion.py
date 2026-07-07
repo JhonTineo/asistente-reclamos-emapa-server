@@ -12,7 +12,7 @@ from app.src.core.service.tools.emapa_api import (
     obtener_inspeccion_externa,
     obtener_inspeccion_interna,
 )
-from app.src.core.model.investigacion import (
+from app.src.core.schemas.investigacion import (
     InvestigacionRequest,
     InvestigacionResponse,
     ResumenMedio,
@@ -57,7 +57,7 @@ async def inspeccion_externa(request: BuscarReclamoRequest) -> ResumenMedio:
     return ResumenMedio(
         medio_id="inspeccion_externa",
         medio_nombre="Inspección Externa",
-        resumen=resultado["resumen"],
+        resumen=resultado.analisis,
         tiempo=tiempo_total,
     )
 
@@ -82,7 +82,7 @@ async def inspeccion_interna(request: BuscarReclamoRequest) -> ResumenMedio:
     return ResumenMedio(
         medio_id="inspeccion_interna",
         medio_nombre="Inspección Interna",
-        resumen=resultado["resumen"],
+        resumen=resultado.analisis,
         tiempo=tiempo_total,
     )
 

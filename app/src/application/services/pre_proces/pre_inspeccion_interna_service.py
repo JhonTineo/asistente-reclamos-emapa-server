@@ -1,136 +1,64 @@
 import time
 import logging
+from dataclasses import fields
+from app.src.core.model.inspeccion_interna import InspeccionInterna, PuntosAgua
+from app.src.core.model.indicadores.inspeccion_interna_indicadores import INDICADORES_INSPECCION_INTERNA
 from app.src.core.service.tools.emapa_api import obtener_inspeccion_interna
-from app.src.application.services.rag.retriever import Retriever
 
 logger = logging.getLogger("services.pre_inspeccion_interna_service")
 
+
 class PreInspeccionInternaService:
 
-    def __init__(self):
-        self.retriever = Retriever()
-
-    CAMPOS_RELEVANTES_INSPECCION_INTERNA = {
-        "cab": [
-            "nroinspeccion",
-            "fechainspeccion",
-            "funcionamed",
-            "fugas",
-            "tipofugas",
-            "observacionmed",
-            "estadocaja",
-            "observacionsum",
-            "estconexion",
-            "nomresponsable",
-            "atipico",
-        ]
-    }
-
-    FORMATO_RESPUESTA_INSPECCION_INTERNA = (
-        "La inspección interna realizada por el inspector {nomresponsable} con fecha "
-        "{fechainspeccion} con número de inspección {nroinspeccion} reveló lo siguiente: "
-        "{observaciones}."
-    )
-
-    INDICADORES_INSPECCION_INTERNA = {
-        "fugas": {
-            "0": "No se detectaron fugas de agua.",
-            "1": "Se detectaron fugas de agua.",
-        },
-        "tipofugas": {
-            "001": "Sin Fugas.",
-            "002": "Fuga por rotura de tubería.",
-            "003": "Fuga por válvula defectuosa.",
-            "004": "Fuga por medidor defectuoso.",
-            "005": "Fuga por otro motivo.",
-        },
-        "funcionamed": {
-            "1": "El medidor funciona correctamente.",
-            "0": "El medidor no funciona correctamente.",
-        },
-        "estadocaja": {
-            "001": "La caja del medidor está en buen estado.",
-            "002": "La caja del medidor está en mal estado.",
-        },
-        "estconexion": {
-            "001": "La conexión del medidor está en buen estado.",
-            "002": "La conexión del medidor está en mal estado.",
-        },
-        "atipico": {
-            "1": "Se detectaron condiciones atípicas en la inspección.",
-            "0": "No se detectaron condiciones atípicas en la inspección.",
-        }
-    }
-  
     def preprocesar_inspeccion_interna(self, codsuc: str, codcliente: str) -> dict:
         t1 = time.time()
         json_raw = obtener_inspeccion_interna(codsuc, codcliente)
-        t2 = time.time()
-        logger.info("[PRE_INSPECCION_INTERNA] Datos obtenidos de EMAPA en %.2f segundos", t2 - t1)
-        datos_limpios = self._filtrar_campos_inspeccion_interna(json_raw)
-        t3 = time.time()
-        logger.info("[PRE_INSPECCION_INTERNA] Datos filtrados en %.2f segundos", t3 - t2)
-        observaciones = self._extraer_observaciones_inspeccion_interna(datos_limpios)
-        t4 = time.time()
-        logger.info("[PRE_INSPECCION_INTERNA] Observaciones extraídas en %.2f segundos", t4 - t3)
-        articulos_sunass = []
-        if observaciones:
-            logger.info("[PRE_INSPECCION_INTERNA] Buscando artículos SUNASS para las observaciones extraídas")
-            articulos_sunass = self._buscar_articulos_sunass(observaciones)
-            t5 = time.time()
-            logger.info("[PRE_INSPECCION_INTERNA] Artículos SUNASS encontrados en %.2f segundos", t5 - t4)
-        t_final = time.time()
-        logger.info("[PRE_INSPECCION_INTERNA] Preprocesamiento completo en %.2f segundos", t_final - t1)
+        logger.info("[PRE_INSPECCION_INTERNA] Datos obtenidos de EMAPA en %.2f segundos", time.time() - t1)
+
+        inspeccion = self._construir_inspeccion(json_raw)
+        observaciones = inspeccion.observaciones_texto()
+
+        logger.info("[PRE_INSPECCION_INTERNA] Preprocesamiento completo en %.2f segundos", time.time() - t1)
         return {
-            "datos": datos_limpios,
-            "articulos_sunass": articulos_sunass,
-            "formato_respuesta": self.FORMATO_RESPUESTA_INSPECCION_INTERNA,
+            "inspeccion": inspeccion,                     # entidad de dominio
+            "observaciones": observaciones,
         }
 
-    def _filtrar_campos_inspeccion_interna(self, json_raw: dict) -> dict:
-        data = json_raw.get("data", {})
-        cab_raw = data.get("cab", {})
-        cab_filtrado = {
-            k: v for k, v in cab_raw.items()
-            if k in self.CAMPOS_RELEVANTES_INSPECCION_INTERNA["cab"]
-        }
-        cab_interpretado = self._interpretar_valores_cab(cab_filtrado)
-        return {
-            "cab": cab_interpretado
-        }
+    def _construir_inspeccion(self, json_raw: dict) -> InspeccionInterna:
+        """Filtra los campos relevantes (definidos por la entidad), traduce los
+        códigos de EMAPA y construye la entidad de dominio."""
+        data = (json_raw or {}).get("data", {})
+        cab = data.get("cab", {})
+        ite = data.get("ite", [])
 
-    def _interpretar_valores_cab(self, cab: dict) -> dict:
-        cab_interpretado = dict(cab)
-        for campo, valores in self.INDICADORES_INSPECCION_INTERNA.items():
-            if campo in cab_interpretado:
-                valor_original = str(cab_interpretado[campo])
-                cab_interpretado[campo] = valores.get(valor_original, valor_original)
-        return cab_interpretado
+        valores: dict = {}
+        for campo in fields(InspeccionInterna):
+            nombre = campo.name
+            if nombre == "puntos_agua":
+                continue
+            valor = cab.get(nombre)
+            if valor is not None and nombre in INDICADORES_INSPECCION_INTERNA:
+                valor = INDICADORES_INSPECCION_INTERNA[nombre].get(str(valor), str(valor))
+            valores[nombre] = valor
 
-    def _extraer_observaciones_inspeccion_interna(self, datos_limpios: dict) -> list[str]:
-        cab = datos_limpios.get("cab", {})
-        observaciones = []
-        for campo, valor in cab.items():
-            if "observacion" in campo and valor:
-                observaciones.append(f"{campo}: {valor}")
-        return observaciones
-    
-    def _buscar_articulos_sunass(self, observaciones: list[str], top_k: int = 5) -> list[dict]:
-            try:
-                resultados = self.retriever.retrieve(
-                    query=" ".join(observaciones),
-                    top_k=top_k,
-                    collection_name="sunass_reglamento",
-                )
-                if resultados and resultados[0]["score"] > 0.5:
-                    context = self.retriever.build_context("sunass_reglamento", resultados)
-                    return [
-                        {"articulo": r["payload"].get("article", ""),
-                        "numeral": r["payload"].get("numeral", ""),
-                        "texto": r["payload"].get("text", ""),
-                        "score": r["score"]}
-                        for r in resultados
-                    ]
-            except Exception as e:
-                logger.warning("[ANALISTA_MEDIO] Error buscando artículos SUNASS: %s", str(e))
-            return []
+        valores["puntos_agua"] = self._extraer_puntos_agua(ite)
+        return InspeccionInterna(**valores)
+
+    def _extraer_puntos_agua(self, ite: list) -> list[PuntosAgua]:
+        """Convierte los ítems en puntos de agua, descartando los que están en cero."""
+        puntos = []
+        for item in ite or []:
+            p = PuntosAgua(
+                inodoro=item.get("inodoro", 0.0) or 0.0,
+                lavado=item.get("lavado", 0.0) or 0.0,
+                ducha=item.get("ducha", 0.0) or 0.0,
+                urinario=item.get("urinario", 0.0) or 0.0,
+                bidet=item.get("bidet", 0.0) or 0.0,
+                grifo=item.get("grifo", 0.0) or 0.0,
+                cisterna=item.get("cisterna", 0.0) or 0.0,
+                tanque=item.get("tanque", 0.0) or 0.0,
+                piscina=item.get("piscina", 0.0) or 0.0,
+            )
+            if p.tiene_puntos():
+                puntos.append(p)
+        return puntos

@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from app.src.application.usecase.agents.analizador import AnalizadorAgent
 from app.src.application.usecase.agents.clasificador_llm import clasificar_reclamo as clasificar_llm
-from app.src.core.model.investigacion import BuscarReclamoResponse
+from app.src.core.schemas.investigacion import BuscarReclamoResponse
 from app.src.core.service.tools.emapa_client import consultar_emapa
 
 logger = logging.getLogger("api.clasificador")
