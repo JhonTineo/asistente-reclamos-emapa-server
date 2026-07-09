@@ -8,5 +8,6 @@ class HallazgoInvestigacion:
     medio_id: str
     medio_nombre: str
     analisis: str
+    datos: dict | None = None
     tiempo: float | None = None
     articulos_sunass: list[dict] = field(default_factory=list)

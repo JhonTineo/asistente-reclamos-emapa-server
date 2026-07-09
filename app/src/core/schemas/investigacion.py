@@ -15,6 +15,7 @@ class ResumenMedio(BaseModel):
     medio_id: str
     medio_nombre: str
     resumen: str
+    datos: dict | None = None
     tiempo: float | None = None
     estado: str = "ok"
     error: str | None = None

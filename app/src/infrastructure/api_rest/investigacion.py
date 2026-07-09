@@ -57,6 +57,7 @@ async def inspeccion_externa(request: BuscarReclamoRequest) -> ResumenMedio:
     return ResumenMedio(
         medio_id="inspeccion_externa",
         medio_nombre="Inspección Externa",
+        datos=resultado.datos,
         resumen=resultado.analisis,
         tiempo=tiempo_total,
     )
@@ -82,6 +83,60 @@ async def inspeccion_interna(request: BuscarReclamoRequest) -> ResumenMedio:
     return ResumenMedio(
         medio_id="inspeccion_interna",
         medio_nombre="Inspección Interna",
+        datos=resultado.datos,
+        resumen=resultado.analisis,
+        tiempo=tiempo_total, 
+    )
+
+
+@router.post("/investigacion/tarjeta-lectura", response_model=ResumenMedio)
+async def tarjeta_lectura(request: BuscarReclamoRequest) -> ResumenMedio:
+    """Genera un resumen de la tarjeta de lecturas (micromedición) para un reclamo."""
+    t_inicio = time.perf_counter()
+    logger.info("=" * 60)
+    logger.info("[API /investigacion/tarjeta-lectura] Solicitud recibida codsuc=%s | codcliente=%s | codreclamo=%s", request.codsuc, request.codcliente, request.codreclamo)
+    analista = AnalistaMedioAgent(model=request.modelo)
+    resultado = analista.analizar(
+        medio_id="tarjeta_lectura",
+        medio_nombre="Tarjeta de Lecturas",
+        codsuc=request.codsuc,
+        codcliente=request.codcliente,
+        clasificacion=request.clasificacion,
+    )
+    tiempo_total = time.perf_counter() - t_inicio
+    logger.info("[API /investigacion/tarjeta-lectura] COMPLETADO | tiempo_total=%.2fs", tiempo_total)
+    logger.info("=" * 60)
+    return ResumenMedio(
+        medio_id="tarjeta_lectura",
+        medio_nombre="Tarjeta de Lecturas",
+        datos=resultado.datos,
+        resumen=resultado.analisis,
+        tiempo=tiempo_total,
+    )
+
+
+@router.post("/investigacion/corte-reapertura", response_model=ResumenMedio)
+async def corte_reapertura(request: BuscarReclamoRequest) -> ResumenMedio:
+    """Genera un resumen de los cortes/reaperturas/prórrogas para un reclamo.
+    Requiere que se haya analizado antes la tarjeta de lecturas (fija la ventana)."""
+    t_inicio = time.perf_counter()
+    logger.info("=" * 60)
+    logger.info("[API /investigacion/corte-reapertura] Solicitud recibida codsuc=%s | codcliente=%s | codreclamo=%s", request.codsuc, request.codcliente, request.codreclamo)
+    analista = AnalistaMedioAgent(model=request.modelo)
+    resultado = analista.analizar(
+        medio_id="corte_reapertura",
+        medio_nombre="Cortes y Reaperturas",
+        codsuc=request.codsuc,
+        codcliente=request.codcliente,
+        clasificacion=request.clasificacion,
+    )
+    tiempo_total = time.perf_counter() - t_inicio
+    logger.info("[API /investigacion/corte-reapertura] COMPLETADO | tiempo_total=%.2fs", tiempo_total)
+    logger.info("=" * 60)
+    return ResumenMedio(
+        medio_id="corte_reapertura",
+        medio_nombre="Cortes y Reaperturas",
+        datos=resultado.datos,
         resumen=resultado.analisis,
         tiempo=tiempo_total,
     )
