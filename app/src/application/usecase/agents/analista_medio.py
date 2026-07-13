@@ -8,9 +8,21 @@ from app.src.application.services.pre_proces.pre_inspeccion_externa_service impo
 from app.src.application.services.pre_proces.pre_inspeccion_interna_service import PreInspeccionInternaService
 from app.src.application.services.pre_proces.pre_targeta_lecturas_service import PreTargetaLecturasService
 from app.src.application.services.pre_proces.pre_corte_reapertura_service import PreCorteReaperturaService
-from app.src.core.model.investigacion import HallazgoInvestigacion
+from app.src.application.services.pre_proces.problemas_normalizer import (
+    extraer_problemas,
+    MEDIOS_SOPORTADOS,
+)
+from app.src.core.model.informe_atencion import BloqueMedio
 
 logger = logging.getLogger("agent.analista_medio")
+
+# Frase predefinida cuando un medio con detección de problemas no halló ninguno.
+FRASE_SIN_PROBLEMAS = {
+    "inspeccion_externa": "Realizada la inspección externa no se encontró ningún problema.",
+    "inspeccion_interna": "Realizada la inspección interna no se encontró ningún problema.",
+    "tarjeta_lectura": "Revisada la tarjeta de lecturas no se encontró ninguna anomalía.",
+    "corte_reapertura": "Revisados los cortes y reaperturas no se encontró ningún problema.",
+}
 
 
 class AnalistaMedioAgent:
@@ -22,35 +34,59 @@ class AnalistaMedioAgent:
         self.pre_tarj_service = PreTargetaLecturasService()
         self.pre_corte_service = PreCorteReaperturaService()
 
-    def analizar(self, medio_id: str, medio_nombre: str, codsuc: str, codcliente: str, clasificacion: str) -> HallazgoInvestigacion:
+    def preprocesar(self, medio_id: str, medio_nombre: str, codsuc: str, codcliente: str):
+        """Fase 1 (rápida): obtiene la entidad del medio y detecta problemas por
+        reglas. Devuelve (datos, problemas) sin llamar al LLM."""
+        t_inicio = time.perf_counter()
+        logger.info("Preprocesando medio: %s | codsuc=%s | codcliente=%s", medio_nombre, codsuc, codcliente)
+
+        entidad = self._dispatch_preprocesamiento(medio_id, codsuc, codcliente)
+        datos = asdict(entidad)
+
+        # Detección de problemas (reglas). [] si el medio aún no la implementa.
+        problemas = extraer_problemas(medio_id, entidad)
+        logger.info(
+            "Preprocesamiento completado | medio=%s | problemas=%d | tiempo=%.2fs",
+            medio_nombre, len(problemas), time.perf_counter() - t_inicio,
+        )
+        return datos, problemas
+
+    def interpretar(self, medio_id: str, medio_nombre: str, datos: dict, problemas: list, clasificacion: str) -> str:
+        """Fase 2 (lenta): genera el resumen en lenguaje natural. Si el medio
+        tiene detección de problemas y no halló ninguno, usa una frase
+        predefinida y evita la llamada al LLM."""
+        if medio_id in MEDIOS_SOPORTADOS and not problemas:
+            return FRASE_SIN_PROBLEMAS.get(medio_id, "No se encontró ningún problema.")
+        return self._resumen_llm(medio_nombre, datos, clasificacion)
+
+    def analizar(self, medio_id: str, medio_nombre: str, codsuc: str, codcliente: str, clasificacion: str) -> BloqueMedio:
+        """Análisis completo (bloqueante): preprocesa e interpreta en un solo
+        paso. Se mantiene para los endpoints no-streaming."""
         t_inicio = time.perf_counter()
         logger.info("Iniciando análisis para medio: %s | codsuc=%s | codcliente=%s", medio_nombre, codsuc, codcliente)
 
-        entidad = self._dispatch_preprocesamiento(medio_id, codsuc, codcliente)
-        t2 = time.perf_counter()
-        logger.info("Preprocesamiento completado | medio=%s | tiempo=%.2fs", medio_nombre, t2 - t_inicio)
+        datos, problemas = self.preprocesar(medio_id, medio_nombre, codsuc, codcliente)
+        resumen = self.interpretar(medio_id, medio_nombre, datos, problemas, clasificacion)
 
-        datos = asdict(entidad)
+        logger.info("Análisis completado | medio=%s | tiempo=%.2fs", medio_nombre, time.perf_counter() - t_inicio)
+
+        return BloqueMedio(
+            medio_id=medio_id,
+            medio_nombre=medio_nombre,
+            entidad=datos,
+            resumen=resumen,
+            problemas=problemas,
+        )
+
+    def _resumen_llm(self, medio_nombre: str, datos: dict, clasificacion: str) -> str:
         datos_texto = json.dumps(datos, ensure_ascii=False, indent=2)
         prompt = self._construir_prompt(medio_nombre, datos_texto)
-        logger.info("Prompt construido | medio=%s", medio_nombre)
-        logger.info("Prompt:\n%s", prompt)
-        logger.info("Consultando al modelo")
+        logger.info("Consultando al modelo | medio=%s", medio_nombre)
         response = self.llm.invoke([
             SystemMessage(content=prompt),
             HumanMessage(content=f"Analiza los datos y genera un resumen relevante para un reclamo de: {clasificacion}")
         ])
-        contenido = response.content if response.content else ""
-        tiempo = time.perf_counter() - t_inicio
-        logger.info("Resumen completado | medio=%s | tiempo=%.2fs", medio_nombre, tiempo)
-
-        return HallazgoInvestigacion(
-            medio_id=medio_id,
-            medio_nombre=medio_nombre,
-            datos=datos,
-            analisis=contenido,
-            tiempo=tiempo,
-        )
+        return response.content if response.content else ""
 
     def _dispatch_preprocesamiento(self, medio_id: str, codsuc: str, codcliente: str):
         """Devuelve la entidad de dominio preprocesada según el medio."""

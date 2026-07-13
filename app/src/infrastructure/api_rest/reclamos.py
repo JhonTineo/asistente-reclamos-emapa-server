@@ -6,8 +6,10 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from app.src.application.usecase.agents.analizador import AnalizadorAgent
 from app.src.application.usecase.agents.clasificador_llm import clasificar_reclamo as clasificar_llm
-from app.src.core.schemas.investigacion import BuscarReclamoResponse
+from app.src.application.usecase.agents.clasificador_rapido import clasificar_rapido
+from app.src.core.schemas.investigacion import BuscarReclamoResponse, InformeMetadata
 from app.src.core.service.tools.emapa_client import consultar_emapa
+from app.src.application.services.informe.informe_store import informe_store
 
 logger = logging.getLogger("api.clasificador")
 
@@ -24,6 +26,22 @@ class ClasificarResponse(BaseModel):
 
 class ClasificarLLMRequest(BaseModel):
     detalle: str
+
+
+class ClasificarRapidoRequest(BaseModel):
+    motivo: str
+    desc_tipo_reclamo: str | None = None
+    # Si el reclamo ya fue clasificado por el personal, se respeta y no se
+    # vuelve a clasificar (caso: reclamos presenciales ya tipificados).
+    des_cod_reclamo: str | None = None
+
+
+class ClasificarRapidoResponse(BaseModel):
+    tipo: str | None
+    confianza: str            # "definida" | "alta" | "media" | "baja" | "nula"
+    metodo: str               # "sistema" (ya venía) | "reglas"
+    score: int = 0
+    candidatos: list[dict] = []
 
 
 class ClasificarLLMResponse(BaseModel):
@@ -54,10 +72,25 @@ async def buscar_reclamo(codsede: str, codsuc: str, codreclamo: str, codcliente:
         try:
             datos = json.loads(result.data) if result.data else None
             logger.info("[API /reclamo] OK | tiempo=%.2fs", tiempo)
+
+            # Se crean los metadatos del informe de atención y quedan en el
+            # store, listos para ir llenándose con cada medio analizado.
+            informe = informe_store.crear_metadata(
+                codreclamo=codreclamo,
+                suministro=codcliente,
+            )
             logger.info("=" * 60)
             return BuscarReclamoResponse(
                 codreclamo=codreclamo,
                 datos=datos,
+                informe=InformeMetadata(
+                    numero=informe.numero,
+                    fecha=informe.fecha.isoformat(),
+                    asunto=informe.asunto,
+                    reclamo=informe.reclamo,
+                    suministro=informe.suministro,
+                    destinatario=informe.destinatario,
+                ),
                 tiempo=tiempo,
             )
         except json.JSONDecodeError as e:
@@ -97,6 +130,30 @@ def clasificar(request: dict) -> ClasificarResponse:
         clasificacion=analisis["categoria_probable"],
         descripcion=analisis["descripcion"],
         score=analisis["score"]
+    )
+
+
+@router.post("/clasificar-rapido", response_model=ClasificarRapidoResponse)
+def clasificar_rapido_endpoint(request: ClasificarRapidoRequest) -> ClasificarRapidoResponse:
+    """
+    Clasificación rápida por reglas (sin LLM ni embeddings), pensada para
+    reclamos web. Si el reclamo ya trae tipo asignado (des_cod_reclamo), se
+    respeta y no se reclasifica.
+    """
+    if request.des_cod_reclamo and request.des_cod_reclamo.strip():
+        return ClasificarRapidoResponse(
+            tipo=request.des_cod_reclamo.strip(),
+            confianza="definida",
+            metodo="sistema",
+        )
+
+    resultado = clasificar_rapido(request.motivo, request.desc_tipo_reclamo)
+    return ClasificarRapidoResponse(
+        tipo=resultado["tipo"],
+        confianza=resultado["confianza"],
+        metodo=resultado["metodo"],
+        score=resultado["score"],
+        candidatos=resultado["candidatos"],
     )
 
 

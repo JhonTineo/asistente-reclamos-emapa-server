@@ -11,11 +11,21 @@ class InvestigacionRequest(BaseModel):
     modelo: str | None = None
 
 
+class ProblemaNormadoSchema(BaseModel):
+    tipo: str
+    detalle: str
+    articulos: list[dict] = Field(default_factory=list)
+    accion: str | None = None
+    responsable: str | None = None
+    base_legal: str | None = None
+
+
 class ResumenMedio(BaseModel):
     medio_id: str
     medio_nombre: str
     resumen: str
     datos: dict | None = None
+    problemas: list[ProblemaNormadoSchema] = Field(default_factory=list)
     tiempo: float | None = None
     estado: str = "ok"
     error: str | None = None
@@ -32,18 +42,24 @@ class InvestigacionResponse(BaseModel):
 
 
 class InformeRequest(BaseModel):
-    codsuc: str = Field(description="Código de sucursal")
-    codcliente: str = Field(description="Código de cliente")
-    codreclamo: str = Field(description="Código del reclamo")
-    clasificacion: str = Field(description="Clasificación del reclamo")
-    detalle: str = Field(description="Detalle del reclamo")
-    resumenes: list[ResumenMedio] = Field(description="Resúmenes verificados por el usuario")
+    codreclamo: str = Field(description="Código del reclamo (clave del informe en el store)")
+    clasificacion: str | None = Field(default=None, description="Clasificación del reclamo (contexto para la fundamentación)")
     modelo: str | None = None
+
+
+class ProblemaInforme(BaseModel):
+    medio_id: str
+    tipo: str
+    detalle: str
+    accion: str | None = None
+    responsable: str | None = None
+    base_legal: str | None = None
 
 
 class InformeResponse(BaseModel):
     codreclamo: str
     informe: str
+    problemas: list[ProblemaInforme] = Field(default_factory=list)
     tiempo: float
 
 
@@ -87,8 +103,18 @@ class BuscarReclamoRequest(BaseModel):
     modelo: str | None = None
 
 
+class InformeMetadata(BaseModel):
+    numero: str
+    fecha: str
+    asunto: str
+    reclamo: str
+    suministro: str
+    destinatario: str | None = None
+
+
 class BuscarReclamoResponse(BaseModel):
     codreclamo: str
     datos: dict | None = None
+    informe: InformeMetadata | None = None
     error: str | None = None
     tiempo: float

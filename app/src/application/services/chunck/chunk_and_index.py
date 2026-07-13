@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 import glob
 import logging
@@ -9,9 +10,10 @@ load_dotenv()
 from app.src.application.services.rag.embeddings import EmbeddingService
 from app.src.application.services.rag.qdrant_store import QdrantStore
 
-from app.src.application.services.chunck.pdf_parser import (
-    extract_text_multicolumn,
-    split_articles
+from app.src.application.services.chunck.pdf_chunk import (
+    extract_document_structure,
+    parse_document,
+    clean_article
 )
 
 from app.src.application.services.chunck.legal_chunker import (
@@ -21,12 +23,29 @@ from app.src.application.services.chunck.legal_chunker import (
 logger = logging.getLogger(__name__)
 
 
-def build_index(pdf_path):
-    text = extract_text_multicolumn(
-        pdf_path
-    )
+ARTICLE_NUMBER_RE = re.compile(
+    r"ART[IÍ]CULO\s+(\d+)",
+    re.IGNORECASE
+)
 
-    articles = split_articles(text)
+
+def extract_articles(pdf_path):
+    """PDF -> bloques ordenados -> articulos estructurados y limpios."""
+
+    blocks = extract_document_structure(pdf_path)
+
+    articles = parse_document(blocks)
+
+    articles = [
+        clean_article(article)
+        for article in articles
+    ]
+
+    return articles
+
+
+def build_index(pdf_path):
+    articles = extract_articles(pdf_path)
 
     embedder = EmbeddingService()
 
@@ -41,11 +60,17 @@ def build_index(pdf_path):
 
     for article in articles:
 
-        article_number = article["article"]
+        match = ARTICLE_NUMBER_RE.search(article["articulo"])
+
+        article_number = match.group(1) if match else None
+
+        article_text = (
+            article["articulo"] + "\n" + article["texto"]
+        ).strip()
 
         chunks = split_numerals(
             article_number,
-            article["text"]
+            article_text
         )
 
         for chunk in chunks:
@@ -65,6 +90,15 @@ def build_index(pdf_path):
 
                         "source":
                         os.path.basename(pdf_path),
+
+                        "titulo":
+                        article["titulo"],
+
+                        "capitulo":
+                        article["capitulo"],
+
+                        "subcapitulo":
+                        article["subcapitulo"],
 
                         "article":
                         chunk["article"],
@@ -103,12 +137,17 @@ if __name__ == "__main__":
         level=logging.INFO
     )
 
-    BASE_DIR = os.path.dirname(
-        os.path.dirname(__file__)
+    # chunck -> services -> application -> src
+    SRC_DIR = os.path.dirname(
+        os.path.dirname(
+            os.path.dirname(
+                os.path.dirname(__file__)
+            )
+        )
     )
 
     pdf_path = os.path.join(
-        BASE_DIR,
+        SRC_DIR,
         "storage",
         "files",
         "*.pdf"
@@ -121,7 +160,7 @@ if __name__ == "__main__":
     if not pdfs:
         logger.warning(
             "No se encontraron PDFs para indexar en %s",
-            os.path.join(BASE_DIR, "storage", "files")
+            os.path.join(SRC_DIR, "storage", "files")
         )
 
     for pdf in pdfs:
