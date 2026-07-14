@@ -3,6 +3,7 @@ import logging
 from app.src.core.service.tools.base import Tool, ToolResult
 from app.src.application.adapters.emapa_config import EMAPA_API_BASE_URL, EMAPA_ENDPOINTS, EMAPA_ACCESS_TOKEN
 from app.src.application.adapters.config import settings
+from app.src.core.service.tools.emapa_api import emapa_token_ctx
 
 logger = logging.getLogger("tools.emapa_client")
 
@@ -29,7 +30,8 @@ def consultar_emapa(endpoint_key: str, params: dict) -> ToolResult:
                 logger.warning("[EMAPA_CLIENT] Parametro %s no encontrado en path", key)
 
         url = f"{EMAPA_API_BASE_URL}{path}"
-        token = settings.emapa_access_token or EMAPA_ACCESS_TOKEN
+        # Prioridad: token de la petición (ContextVar) y, si no vino, el de .env.
+        token = emapa_token_ctx.get() or settings.emapa_access_token or EMAPA_ACCESS_TOKEN
 
         headers = {}
         if token:

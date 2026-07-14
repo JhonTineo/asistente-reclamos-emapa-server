@@ -128,6 +128,12 @@ class AnalizadorAgent:
         "no quieren reubicar alcantarillado",
     }
 
+    KEYWORDS_DEBILES = {
+        "medidor", "factura", "facturación", "consumo",
+        "tarifa", "alcantarillado", "fuga",
+        "conexión", "servicio", "suministro", "lectura", "cargos"
+    }
+
     def __init__(self):
         spacy_model = os.getenv(
             "SPACY_MODEL",
@@ -146,7 +152,6 @@ class AnalizadorAgent:
                 conceptos.append(token.lemma_)
         return list(set(conceptos))
 
-
     def _extraer_acciones(self, doc):
         acciones = []
         for token in doc:
@@ -154,14 +159,12 @@ class AnalizadorAgent:
                 acciones.append(token.lemma_)
         return list(set(acciones))
 
-
     def _extraer_numeros(self, doc):
         numeros = []
         for token in doc:
             if token.pos_ == "NUM":
                 numeros.append(token.text)
         return numeros
-
 
     def _extraer_entidades(self, doc):
         entidades = []
@@ -174,7 +177,6 @@ class AnalizadorAgent:
             )
         return entidades
 
-
     def _extraer_conceptos_dominio(self, doc):
         encontrados = []
         for token in doc:
@@ -184,16 +186,6 @@ class AnalizadorAgent:
                     self.DOMINIO[lemma]
                 )
         return list(set(encontrados))
-
-    # Palabras sueltas de menor poder discriminativo; se usan como refuerzo
-    # en la consulta de embeddings y con menor peso en el reranking.
-    # Se omiten términos muy genéricos como 'recibo' o 'cobro' que aparecen
-    # en la mayoría de reclamos comerciales y generan falsos positivos.
-    KEYWORDS_DEBILES = {
-        "medidor", "factura", "facturación", "consumo",
-        "tarifa", "alcantarillado", "fuga",
-        "conexión", "servicio", "suministro", "lectura", "cargos"
-    }
 
     def _extraer_keywords(self, texto: str):
         """Extrae palabras clave del detalle usando lexicon de dominio.
@@ -330,7 +322,6 @@ class AnalizadorAgent:
             }
 
         return {"tipo": "No determinado", "descripcion": None, "score": 0.0}
-
 
     def run(self, detalle):
         t0 = time.perf_counter()

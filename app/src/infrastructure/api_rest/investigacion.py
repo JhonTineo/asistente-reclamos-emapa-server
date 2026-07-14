@@ -1,8 +1,9 @@
 import time
 import logging
 import json
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
+from app.src.infrastructure.api_rest.deps import usar_token_emapa
 from starlette.concurrency import run_in_threadpool
 from app.src.application.services.pre_proces.pre_inspeccion_externa_service import PreInspeccionExternaService
 from app.src.core.service.tools.emapa_api import (
@@ -29,7 +30,6 @@ from app.src.core.schemas.investigacion import (
     BuscarReclamoRequest,
     BuscarReclamoResponse,
 )
-from app.src.application.usecase.agents.unificador import UnificadorAgent
 from app.src.application.usecase.agents.conciliador import ConciliadorAgent
 from app.src.application.usecase.agents.resolucion import ResolucionAgent
 from app.src.application.usecase.agents.fundamentacion_normativa import FundamentacionNormativaAgent
@@ -43,7 +43,7 @@ from app.src.core.model.informe_atencion import BloqueMedio
 
 logger = logging.getLogger("api.investigacion")
 
-router = APIRouter(prefix="", tags=["investigacion"])
+router = APIRouter(prefix="", tags=["investigacion"], dependencies=[Depends(usar_token_emapa)])
 
 
 def _analizar_medio_y_registrar(
@@ -253,8 +253,19 @@ async def generar_informe(request: InformeRequest) -> InformeResponse:
     # Fase 4: fundamentación normativa de cada problema de cada bloque.
     fundamentador = FundamentacionNormativaAgent(model=request.modelo)
     problemas_resp: list[ProblemaInforme] = []
+    total_problemas = sum(len(b.problemas) for b in informe.bloques)
+    logger.info(
+        "[API /investigacion/informe] Fundamentando %d problema(s) en %d bloque(s)",
+        total_problemas, len(informe.bloques),
+    )
+    idx = 0
     for bloque in informe.bloques:
         for problema in bloque.problemas:
+            idx += 1
+            logger.info(
+                "[API /investigacion/informe] Problema %d/%d | medio=%s | tipo=%s",
+                idx, total_problemas, bloque.medio_id, problema.tipo,
+            )
             fundamentador.fundamentar(problema, clasificacion)
             problemas_resp.append(
                 ProblemaInforme(

@@ -1,8 +1,6 @@
 from app.src.application.usecase.agents.analizador import (AnalizadorAgent)
 from app.src.application.usecase.agents.normativo import (NormativoAgent)
 from app.src.application.usecase.agents.dictaminador import (DictaminadorAgent)
-from app.src.application.usecase.agents.resumen_tecnico import (ResumenTecnicoAgent)
-from app.src.application.usecase.agents.clasificador import (ClasificadorAgent)
 from concurrent.futures import ThreadPoolExecutor
 
 class ReclamoWorkflow:

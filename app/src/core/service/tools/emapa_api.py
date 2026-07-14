@@ -1,5 +1,6 @@
 import json
 import logging
+from contextvars import ContextVar
 from typing import Any
 import httpx
 
@@ -9,6 +10,19 @@ from app.src.application.adapters.config import settings
 from app.src.application.adapters.http import http_get_json
 
 logger = logging.getLogger("tools.emapa_api")
+
+# Token de EMAPA para la petición en curso. Lo fija la capa de API a partir
+# del header Authorization; si queda vacío se usa el de .env (settings).
+# Se usa ContextVar para que el token viaje por toda la cadena
+# (endpoint -> agente -> servicios -> _request) sin pasarlo en cada firma,
+# y sin filtrarse entre peticiones concurrentes.
+emapa_token_ctx: ContextVar[str | None] = ContextVar("emapa_token_ctx", default=None)
+
+
+def set_emapa_token(token: str | None) -> None:
+    """Fija el token de EMAPA para la petición en curso (solo si viene)."""
+    if token and token.strip():
+        emapa_token_ctx.set(token.strip())
 
 
 EMAPA_ENDPOINTS = {
@@ -49,8 +63,10 @@ def _get_url(path: str) -> str:
 
 def _get_headers() -> dict[str, str]:
     headers = {"Accept": "application/json"}
-    if settings.emapa_access_token:
-        headers["Authorization"] = f"Bearer {settings.emapa_access_token}"
+    # Prioridad: token de la petición (ContextVar) y, si no vino, el de .env.
+    token = emapa_token_ctx.get() or settings.emapa_access_token
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     return headers
 
 

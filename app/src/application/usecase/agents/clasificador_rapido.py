@@ -1,15 +1,3 @@
-"""Clasificador rápido de reclamos por reglas de palabras clave.
-
-Sin NLP pesado, sin embeddings, sin LLM: clasificación determinística e
-instantánea a partir del `motivo` del reclamo. Pensado para reclamos web donde
-el tipo (`desCodReclamo`) aún no fue asignado por el personal.
-
-Limitación conocida: la familia de "facturación elevada" (Consumo medido /
-Promedio / Asignación) comparte mucho vocabulario y el discriminador real
-(régimen de facturación) está en la tarjeta de lecturas, no en el motivo. Por
-eso esas clases se resuelven "a lo mejor posible" desde el texto.
-"""
-
 import re
 import unicodedata
 

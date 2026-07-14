@@ -14,6 +14,10 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 
+# Ver el prompt completo enviado a los agentes (nivel DEBUG solo en estos loggers).
+logging.getLogger("agent.analista_medio").setLevel(logging.DEBUG)
+logging.getLogger("agent.fundamentacion_normativa").setLevel(logging.DEBUG)
+
 app = FastAPI(
     title="Asistente Reclamos EMAPA",
     description="API para análisis de reclamos de EMAPA",

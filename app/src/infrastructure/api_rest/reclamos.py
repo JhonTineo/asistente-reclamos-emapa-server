@@ -2,18 +2,18 @@ import json
 import logging
 import time
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from app.src.application.usecase.agents.analizador import AnalizadorAgent
-from app.src.application.usecase.agents.clasificador_llm import clasificar_reclamo as clasificar_llm
 from app.src.application.usecase.agents.clasificador_rapido import clasificar_rapido
 from app.src.core.schemas.investigacion import BuscarReclamoResponse, InformeMetadata
 from app.src.core.service.tools.emapa_client import consultar_emapa
 from app.src.application.services.informe.informe_store import informe_store
+from app.src.infrastructure.api_rest.deps import usar_token_emapa
 
 logger = logging.getLogger("api.clasificador")
 
-router = APIRouter(prefix="/reclamos", tags=["reclamos"])
+router = APIRouter(prefix="/reclamos", tags=["reclamos"], dependencies=[Depends(usar_token_emapa)])
 
 
 class ClasificarResponse(BaseModel):
@@ -157,11 +157,3 @@ def clasificar_rapido_endpoint(request: ClasificarRapidoRequest) -> ClasificarRa
     )
 
 
-@router.post("/clasificar-llm", response_model=ClasificarLLMResponse)
-def clasificar_con_llm(request: ClasificarLLMRequest) -> ClasificarLLMResponse:
-    resultado = clasificar_llm(detalle=request.detalle)
-
-    if not resultado["success"]:
-        raise HTTPException(status_code=500, detail=resultado.get("error", "Error desconocido"))
-
-    return ClasificarLLMResponse(**resultado)

@@ -6,15 +6,12 @@ Dado un ProblemaNormado detectado en un medio probatorio:
   2. Pasa el problema (con sus datos) + los artículos al LLM para que infiera
      qué corresponde hacer y de quién es la responsabilidad.
 
-Rellena in-place los campos de fundamentación del ProblemaNormado.
 """
 
 import json
 import re
 import logging
-
 from langchain_core.messages import SystemMessage, HumanMessage
-
 from app.src.application.adapters.llm import get_llm
 from app.src.application.services.rag.retriever import Retriever
 from app.src.core.model.informe_atencion import ProblemaNormado
@@ -25,8 +22,7 @@ COLLECTION = "sunass_reglamento"
 TOP_K = 3
 UMBRAL_SCORE = 0.5   # descarta artículos poco relevantes (calibrar con casos)
 
-# Query canónica por tipo de problema (concepto, SIN cifras ni fechas: eso
-# empeora el match contra el lenguaje jurídico del reglamento).
+# Query canónica por tipo de problema (concepto, SIN cifras ni fechas)
 CONSULTA_POR_TIPO = {
     "errorConsumo": (
         "consumo atípico y facturación elevada por diferencia de lecturas "
@@ -89,7 +85,7 @@ class FundamentacionNormativaAgent:
             "Reglas:\n"
             "- Basáte ÚNICAMENTE en los artículos proporcionados. No inventes "
             "normas.\n"
-            "- Si los artículos no permiten determinar la responsabilidad, usa "
+            "- Si los artículos no permiten determinar la responsabilidad ni que acción tomar, usa "
             "\"no_determinable\".\n"
             "- Cita el artículo/numeral en que te apoyas.\n"
             "Responde SOLO con un JSON válido con las claves: accion, "
@@ -105,10 +101,24 @@ class FundamentacionNormativaAgent:
             "Devuelve SOLO el JSON."
         )
 
+        # --- Depuración: prompt exacto enviado al modelo -------------------
+        logger.info(
+            "PROMPT LLM fundamentacion_normativa\n"
+            "===================== SYSTEM =====================\n%s\n"
+            "===================== HUMAN ======================\n%s\n"
+            "==================================================\n"
+            "articulos_recuperados=%d",
+            system,
+            human,
+            len(articulos),
+        )
+
         response = self.llm.invoke([
             SystemMessage(content=system),
             HumanMessage(content=human),
         ])
+
+        logger.info("RESPUESTA LLM (raw): %s", response.content)
 
         return self._parse_json(response.content or "")
 
@@ -143,7 +153,7 @@ class FundamentacionNormativaAgent:
     # ------------------------------------------------------------------ #
     def fundamentar_articulos(self, problema: ProblemaNormado) -> list[dict]:
         """Fase 1: busca los artículos aplicables y los asigna al problema.
-        Devuelve los artículos crudos (necesarios para la interpretación)."""
+        Devuelve los artículos (que se utilizan en la interpretación)."""
         articulos = self.buscar_articulos(problema.tipo, problema.detalle)
         problema.articulos = self.articulos_a_payload(articulos)
         return articulos
@@ -154,7 +164,7 @@ class FundamentacionNormativaAgent:
         articulos: list[dict],
         clasificacion: str = "",
     ) -> ProblemaNormado:
-        """Fase 2: infiere acción/responsable/base_legal a partir de los
+        """Fase 2: infierencia acción/responsable/base_legal a partir de los
         artículos hallados y rellena el problema in-place."""
         if not articulos:
             problema.accion = (
@@ -171,7 +181,7 @@ class FundamentacionNormativaAgent:
         return problema
 
     # ------------------------------------------------------------------ #
-    # Orquestación: busca + interpreta y rellena el problema
+    # Fundamentación completa (artículos + interpretación)
     # ------------------------------------------------------------------ #
     def fundamentar(
         self,
