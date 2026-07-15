@@ -124,6 +124,8 @@ if __name__ == "__main__":
 
     pdf_path = os.path.join(
         BASE_DIR,
+        "..",
+        "..",
         "storage",
         "files",
         "*.pdf"

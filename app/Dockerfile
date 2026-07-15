@@ -25,4 +25,6 @@ COPY . .
 # Puerto FastAPI
 EXPOSE 8000
 
+ENV PYTHONPATH=/
+
 CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]

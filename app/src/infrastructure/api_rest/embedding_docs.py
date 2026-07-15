@@ -90,6 +90,11 @@ async def actualizar_articulo(request: ActualizarArticuloRequest):
     qdrant = QdrantStore()
     embedder = EmbeddingService()
 
+    qdrant.create_collection(
+        collection_name=request.coleccion,
+        dimension=embedder.dimension
+    )
+
     point_id = generate_chunk_id(
         request.article,
         request.numeral,
