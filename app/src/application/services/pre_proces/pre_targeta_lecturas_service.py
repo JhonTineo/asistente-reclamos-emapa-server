@@ -7,7 +7,7 @@ import pandas as pd
 
 from app.src.core.model.targeta_lecturas import TargetaLecturas, LecturaMensual
 from app.src.core.model.indicadores.targeta_lecturas_indicadores import INDICADORES_TARJETA_LECTURA
-from app.src.core.service.tools.emapa_api import obtener_tarjeta_lectura
+from app.src.application.adapters.emapa_api import obtener_tarjeta_lectura
 
 logger = logging.getLogger("services.pre_targeta_lecturas_service")
 

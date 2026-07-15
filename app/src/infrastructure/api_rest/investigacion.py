@@ -3,19 +3,10 @@ import logging
 import json
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
-from app.src.infrastructure.api_rest.deps import usar_token_emapa
+from app.src.infrastructure.api_rest.deps import usar_token_emapa, asegurar_token_emapa
 from starlette.concurrency import run_in_threadpool
 from app.src.application.services.pre_proces.pre_inspeccion_externa_service import PreInspeccionExternaService
-from app.src.core.service.tools.emapa_api import (
-    buscar_reclamo_emapa,
-    obtener_saldo_actual,
-    obtener_tarjeta_lectura,
-    obtener_record_facturacion,
-    obtener_corte_reapertura,
-    obtener_inspeccion_externa,
-    obtener_inspeccion_interna,
-)
-from app.src.core.schemas.investigacion import (
+from app.src.infrastructure.api_rest.schemas.investigacion import (
     InvestigacionRequest,
     InvestigacionResponse,
     ResumenMedio,
@@ -33,7 +24,6 @@ from app.src.core.schemas.investigacion import (
 from app.src.application.usecase.agents.conciliador import ConciliadorAgent
 from app.src.application.usecase.agents.resolucion import ResolucionAgent
 from app.src.application.usecase.agents.fundamentacion_normativa import FundamentacionNormativaAgent
-from app.src.core.service.tools.emapa_client import consultar_emapa
 
 from app.src.application.usecase.agents.analista_medio import AnalistaMedioAgent
 from app.src.application.services.informe.informe_store import informe_store
@@ -54,6 +44,8 @@ def _analizar_medio_y_registrar(
     """Analiza un medio, registra su bloque en el informe (store) y devuelve
     el ResumenMedio con los problemas detectados (aún sin fundamentar)."""
     t_inicio = time.perf_counter()
+    # Usa el token de la petición o, si no vino, el guardado al buscar el reclamo.
+    asegurar_token_emapa(request.codreclamo)
     logger.info("=" * 60)
     logger.info(
         "[API /investigacion/%s] codsuc=%s | codcliente=%s | codreclamo=%s",
@@ -107,6 +99,10 @@ def _stream_analisis_medio(
 
     async def generador():
         t_inicio = time.perf_counter()
+        # Usa el token de la petición o, si no vino, el guardado al buscar el
+        # reclamo. Debe fijarse aquí, antes de las llamadas en threadpool, para
+        # que el ContextVar se propague al hilo que consulta EMAPA.
+        asegurar_token_emapa(request.codreclamo)
         logger.info("=" * 60)
         logger.info(
             "[API /investigacion/%s/stream] codsuc=%s | codcliente=%s | codreclamo=%s",

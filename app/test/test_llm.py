@@ -9,7 +9,7 @@ from urllib import response
 from dotenv import load_dotenv
 from app.src.application.adapters.llm import get_llm
 from app.src.application.usecase.agents.clasificador import ClasificadorAgent
-from app.src.core.service.tools.emapa_api import (
+from app.src.application.adapters.emapa_api import (
     buscar_reclamo_emapa,
     obtener_saldo_actual,
     obtener_tarjeta_lectura,

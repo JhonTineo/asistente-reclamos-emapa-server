@@ -21,6 +21,11 @@ class InformeAtencionStore:
 
     def __init__(self):
         self._data: dict[str, InformeAtencion] = {}
+        # Token de EMAPA con el que se buscó cada reclamo. Se guarda al buscar
+        # el reclamo y se reutiliza en los demás pasos (investigación) de ese
+        # mismo reclamo. Indexado por codreclamo para no mezclar reclamos que
+        # se atienden en paralelo.
+        self._tokens: dict[str, str] = {}
         self._lock = threading.Lock()
 
     def _nuevo_informe(
@@ -54,6 +59,16 @@ class InformeAtencionStore:
 
     def obtener(self, codreclamo: str) -> InformeAtencion | None:
         return self._data.get(codreclamo)
+
+    def guardar_token(self, codreclamo: str, token: str) -> None:
+        """Asocia el token de EMAPA al reclamo (se fija al buscar el reclamo)."""
+        with self._lock:
+            self._tokens[codreclamo] = token
+        logger.info("[INFORME_STORE] Token EMAPA guardado para reclamo %s", codreclamo)
+
+    def obtener_token(self, codreclamo: str) -> str | None:
+        """Token con el que se buscó el reclamo, o None si no se guardó."""
+        return self._tokens.get(codreclamo)
 
     def registrar_bloque(
         self,

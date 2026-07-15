@@ -3,7 +3,7 @@ import logging
 from dataclasses import fields
 from app.src.core.model.inspeccion_interna import InspeccionInterna, PuntosAgua
 from app.src.core.model.indicadores.inspeccion_interna_indicadores import INDICADORES_INSPECCION_INTERNA
-from app.src.core.service.tools.emapa_api import obtener_inspeccion_interna
+from app.src.application.adapters.emapa_api import obtener_inspeccion_interna
 
 logger = logging.getLogger("services.pre_inspeccion_interna_service")
 

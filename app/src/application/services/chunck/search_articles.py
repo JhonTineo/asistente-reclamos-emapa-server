@@ -3,7 +3,7 @@ from typing import List, Dict
 
 from sentence_transformers import SentenceTransformer
 
-from app.src.core.service.tools.vector_db import QdrantStore
+from app.src.application.adapters.vector_db import QdrantStore
 
 logger = logging.getLogger(__name__)
 
