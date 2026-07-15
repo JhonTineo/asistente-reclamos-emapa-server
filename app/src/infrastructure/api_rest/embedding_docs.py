@@ -1,56 +1,14 @@
 import logging
 import re
-from fastapi import APIRouter, UploadFile, File, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, UploadFile, File
 from app.src.application.services.chunck.md_embedding_service import (
     parse_md_to_chunks,
     generar_embeddings,
     indexar_en_qdrant
 )
-from app.src.application.services.rag.retriever import Retriever
 
 logger = logging.getLogger("api.embedding_docs")
 router = APIRouter(prefix="/normativa", tags=["normativa"])
-
-# Colección donde chunk_and_index.py indexa el reglamento SUNASS.
-REGLAMENTO_COLLECTION = "sunass_reglamento"
-
-# Usa EmbeddingService (Ollama nomic-embed-text), el mismo modelo con el que
-# se indexó, para que el score coseno sea significativo.
-retriever = Retriever()
-
-
-class BuscarNormativaRequest(BaseModel):
-    texto: str = Field(
-        ...,
-        min_length=1,
-        description="Texto relacionado a calidad de atención a consultar."
-    )
-    top_k: int = Field(
-        5,
-        ge=1,
-        le=20,
-        description="Cantidad de artículos a devolver (por defecto 5)."
-    )
-
-
-class ArticuloRelacionado(BaseModel):
-    rank: int
-    score: float
-    article: str | None = None
-    numeral: str | None = None
-    titulo: str | None = None
-    capitulo: str | None = None
-    subcapitulo: str | None = None
-    norma: str | None = None
-    texto: str | None = None
-    source: str | None = None
-
-
-class BuscarNormativaResponse(BaseModel):
-    query: str
-    total: int
-    resultados: list[ArticuloRelacionado]
 
 
 def sanitize_filename(filename: str) -> str:
@@ -76,60 +34,116 @@ async def vectorizar(file: UploadFile = File(...)):
     }
 
 
-@router.post("/buscar", response_model=BuscarNormativaResponse)
-def buscar(request: BuscarNormativaRequest) -> BuscarNormativaResponse:
-    """
-    Busca en el reglamento SUNASS los artículos más relacionados con un texto
-    sobre calidad de atención. Devuelve los `top_k` resultados ordenados por
-    score (similitud coseno) de mayor a menor.
-    """
-    texto = request.texto.strip()
+from pydantic import BaseModel
+from app.src.application.services.chunck.chunk_and_index import generate_chunk_id
+from app.src.application.services.rag.embeddings import EmbeddingService
+from app.src.application.services.rag.qdrant_store import QdrantStore
 
-    if not texto:
-        raise HTTPException(
-            status_code=400,
-            detail="El campo 'texto' no puede estar vacío."
-        )
 
-    try:
-        results = retriever.retrieve(
-            query=texto,
-            top_k=request.top_k,
-            collection_name=REGLAMENTO_COLLECTION,
-        )
-    except Exception as e:
-        logger.exception("Error en la búsqueda vectorial")
-        raise HTTPException(
-            status_code=503,
-            detail=f"Error consultando el índice vectorial: {e}"
-        )
+class BuscarArticuloRequest(BaseModel):
+    article: str
+    numeral: str | None = None
+    coleccion: str | None = "sunass_reglamento"
 
-    # Qdrant ya devuelve los puntos ordenados por score (desc) para COSINE.
-    resultados = []
-    for rank, r in enumerate(results, start=1):
-        payload = r["payload"]
-        resultados.append(
-            ArticuloRelacionado(
-                rank=rank,
-                score=round(r["score"], 4),
-                article=payload.get("article"),
-                numeral=payload.get("numeral"),
-                titulo=payload.get("titulo"),
-                capitulo=payload.get("capitulo"),
-                subcapitulo=payload.get("subcapitulo"),
-                norma=payload.get("norma"),
-                texto=payload.get("text"),
-                source=payload.get("source"),
-            )
-        )
 
-    logger.info(
-        "Búsqueda normativa | top_k=%d | resultados=%d | query=%.60s",
-        request.top_k, len(resultados), texto
+class ActualizarArticuloRequest(BaseModel):
+    article: str
+    text: str
+    numeral: str | None = None
+    norma: str = "Reglamento Calidad Servicios Saneamiento"
+    source: str = "Modificación EMAPA (API)"
+    coleccion: str | None = "sunass_reglamento"
+
+
+class EliminarArticuloRequest(BaseModel):
+    point_id: str | None = None
+    article: str | None = None
+    numeral: str | None = None
+    norma: str = "Reglamento Calidad Servicios Saneamiento"
+    coleccion: str | None = "sunass_reglamento"
+
+
+@router.post("/buscar-articulo")
+async def buscar_articulo(request: BuscarArticuloRequest):
+    qdrant = QdrantStore()
+    resultados = qdrant.filter_by_article(
+        article=request.article,
+        numeral=request.numeral,
+        collection_name=request.coleccion
+    )
+    id_determinista = generate_chunk_id(
+        request.article,
+        request.numeral,
+        "Reglamento Calidad Servicios Saneamiento"
+    )
+    return {
+        "status": "ok",
+        "coleccion": request.coleccion,
+        "id_determinista_calculado": id_determinista,
+        "encontrados": len(resultados),
+        "puntos": resultados
+    }
+
+
+@router.post("/actualizar-articulo")
+async def actualizar_articulo(request: ActualizarArticuloRequest):
+    qdrant = QdrantStore()
+    embedder = EmbeddingService()
+
+    point_id = generate_chunk_id(
+        request.article,
+        request.numeral,
+        request.norma
     )
 
-    return BuscarNormativaResponse(
-        query=texto,
-        total=len(resultados),
-        resultados=resultados,
+    punto_existente = qdrant.get_by_id(point_id, collection_name=request.coleccion)
+    operacion = "ACTUALIZADO (MODIFICADO)" if punto_existente else "CREADO (INSERTADO)"
+
+    vector = embedder.encode(request.text)
+
+    payload = {
+        "norma": request.norma,
+        "source": request.source,
+        "article": request.article,
+        "numeral": request.numeral,
+        "text": request.text
+    }
+
+    qdrant.upsert(
+        points=[{
+            "id": point_id,
+            "vector": vector,
+            "payload": payload
+        }],
+        collection_name=request.coleccion
     )
+
+    logger.info(f"Artículo {request.article} (Numeral {request.numeral}) -> {operacion} con ID {point_id}")
+
+    return {
+        "status": "ok",
+        "operacion": operacion,
+        "id": point_id,
+        "articulo": request.article,
+        "numeral": request.numeral,
+        "texto": request.text,
+        "coleccion": request.coleccion or "sunass_reglamento"
+    }
+
+
+@router.post("/eliminar-articulo")
+async def eliminar_articulo(request: EliminarArticuloRequest):
+    qdrant = QdrantStore()
+    point_id = request.point_id
+    if not point_id and request.article:
+        point_id = generate_chunk_id(request.article, request.numeral, request.norma)
+    if not point_id:
+        return {"status": "error", "message": "Debe especificar point_id o article/numeral para calcularlo."}
+
+    qdrant.delete_by_id(point_id, collection_name=request.coleccion)
+    return {
+        "status": "ok",
+        "operacion": "ELIMINADO",
+        "id_eliminado": point_id,
+        "coleccion": request.coleccion or "sunass_reglamento"
+    }

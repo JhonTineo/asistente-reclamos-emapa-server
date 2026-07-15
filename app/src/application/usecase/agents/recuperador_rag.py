@@ -1,5 +1,5 @@
 import logging
-from app.src.application.adapters.vector_db import QdrantStore
+from app.src.core.service.tools.vector_db import QdrantStore
 
 logger = logging.getLogger("agent.recuperador_rag")
 

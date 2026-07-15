@@ -23,17 +23,10 @@
     - discrepancia de lectura
     - error de lectura
     - revisar medidor
-    - consumo muy elevado
-    - consumo excesivo
-    - no habitan personas
-    - predio deshabitado
-    - predio desocupado
-    - solicita inspeccion interna y externa
   descripcion: |
-    El usuario considera que: (i) el régimen de facturación no es aplicable, o (ii) ha efectuado un consumo menor al volumen registrado por el medidor.
-    Aplica cuando el predio TIENE medidor operativo con lectura y la facturación es por diferencia de lecturas, y el usuario cuestiona el consumo REGISTRADO por el medidor: dice que consumió menos, que el consumo del mes es muy elevado o excesivo, que no habitaban personas en el predio, o solicita inspección interna y externa para verificar el medidor.
-    También aplica cuando el predio estuvo deshabitado o desocupado y aun así el medidor registra un consumo que el usuario considera alto y pide verificación: el reclamo es sobre su propio consumo medido, no sobre un cambio de titular.
-    Ejemplos de motivo: "reclamo el consumo de noviembre, es muy elevado, no vive nadie en el predio desde octubre, solicito inspeccion interna y externa"; "el medidor marca mas m3 de los que realmente consumo"; "mi consumo facturado no coincide con la lectura de mi medidor".
+    El usuario considera que:
+    (i) el régimen de facturación no es aplicable, o
+    (ii) ha efectuado un consumo menor al volumen registrado por el medidor.
 
 - tipo: Consumo Promedio
   palabras_clave:
@@ -44,13 +37,10 @@
     - monto facturado
     - mal calculado
     - cálculo incorrecto
-    - medidor inoperativo
-    - sin lectura
-    - sin medidor
   descripcion: |
-    El usuario considera que: (i) el régimen de facturación no es aplicable, o (ii) el monto facturado está mal calculado.
-    Aplica cuando NO hay lectura de medidor (medidor inoperativo, sin medidor, o sin lectura del periodo) y la Empresa facturó por un PROMEDIO estimado, y el usuario cuestiona ese cálculo del promedio.
-    Ejemplos de motivo: "me estan facturando por promedio y no es correcto"; "no tengo medidor y el promedio asignado esta mal calculado"; "mi medidor esta malogrado y me cobran un promedio muy alto".
+    El usuario considera que:
+    (i) el régimen de facturación no es aplicable, o
+    (ii) el monto facturado está mal calculado.
 
 - tipo: Asignación de Consumo
   palabras_clave:
@@ -61,12 +51,11 @@
     - tarifa equivocada
     - asignación incorrecta
     - estructura tarifaria
-    - sin medidor
-    - volumen asignado
   descripcion: |
-    El usuario considera que: (i) el régimen de facturación no es aplicable; (ii) el volumen facturado está por encima del valor que corresponde según las normas y estructura tarifaria vigente; o (iii) el volumen facturado es mayor por considerarse un número mayor de unidades de uso al que corresponde.
-    Aplica cuando el predio NO tiene medidor y se factura por ASIGNACIÓN de consumo según el número de unidades de uso; el usuario cuestiona el volumen asignado o el número de unidades de uso consideradas.
-    Ejemplos de motivo: "me asignan un consumo mayor al que corresponde"; "consideran mas unidades de uso de las que tengo"; "el volumen asignado no corresponde a mi categoria".
+    El usuario considera que:
+    (i) el régimen de facturación no es aplicable;
+    (ii) el volumen facturado está por encima del valor que corresponde según las normas y estructura tarifaria vigente; o
+    (iii) el volumen facturado es mayor por considerarse un número mayor de unidades de uso al que corresponde.
 
 - tipo: Consumo no facturado oportunamente
   palabras_clave:
@@ -75,11 +64,8 @@
     - facturación tardía
     - deuda antigua
     - consumo anterior no facturado
-    - cobro retroactivo
   descripcion: |
     El usuario considera que no corresponde el cobro de consumos que la Empresa Prestadora no facturó en su oportunidad.
-    Aplica cuando le cobran de forma tardía o retroactiva consumos de meses anteriores que no se facturaron a tiempo.
-    Ejemplos de motivo: "me estan cobrando consumos de meses pasados que nunca facturaron"; "aparece una deuda antigua que no me facturaron en su momento".
 
 - tipo: Consumo no realizado por servicio cerrado
   palabras_clave:
@@ -94,8 +80,6 @@
     - se me facturó sin tener servicio
   descripcion: |
     El usuario considera que se le ha facturado un servicio que la Empresa Prestadora no le ha brindado, ya sea porque no tiene conexión o porque ésta se encuentra cerrada.
-    Aplica cuando le facturan consumo pese a que el servicio estaba cortado, cerrado o inactivo, o no tiene conexión.
-    Ejemplos de motivo: "me facturan pero mi servicio esta cortado hace meses"; "no tengo conexion y me llega recibo"; "el predio esta cerrado y siguen facturando consumo".
 
 - tipo: Consumo atribuible a usuario anterior del suministro
   palabras_clave:
@@ -106,8 +90,6 @@
     - no me corresponde pagar
   descripcion: |
     El usuario considera que no le corresponde asumir el pago de determinados meses de facturación sino al usuario anterior del suministro.
-    Aplica ÚNICAMENTE cuando hubo cambio de titular (compra, venta, alquiler o traspaso del predio) y la deuda o consumos corresponden al dueño o titular ANTERIOR, no al reclamante actual.
-    Ejemplos de motivo: "esa deuda es del anterior dueño, recien compre el predio"; "me cobran meses de antes de que yo sea titular"; "el inquilino anterior dejo esa deuda".
 
 - tipo: Consumo atribuible a otro suministro
   palabras_clave:
@@ -121,8 +103,6 @@
     - predio equivocado
   descripcion: |
     Confusión de facturación de suministro o cruce de suministros.
-    Aplica cuando el consumo facturado corresponde a otro suministro o predio por cruce o confusión de suministros o medidores.
-    Ejemplos de motivo: "me estan cobrando el consumo de mi vecino"; "cruzaron mi suministro con otro"; "el medidor que facturan no es el mio".
 
 - tipo: Pago no procesado
   palabras_clave:
@@ -137,8 +117,6 @@
     - cobro por pago ya realizado
   descripcion: |
     El usuario ha efectuado el pago del servicio, sin embargo, la Empresa Prestadora se lo cobra nuevamente.
-    Aplica cuando el usuario ya pagó y le vuelven a cobrar el mismo recibo (pago no registrado, doble cobro, pago duplicado).
-    Ejemplos de motivo: "ya pague mi recibo y me lo vuelven a cobrar"; "tengo el voucher de pago pero figura como deuda"; "me cobraron dos veces el mismo mes".
 
 
 #### Problemas en la tarifa aplicada al usuario

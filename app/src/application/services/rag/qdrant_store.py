@@ -3,7 +3,11 @@ from qdrant_client import ( QdrantClient )
 from qdrant_client.http.models import (
     Distance,
     VectorParams,
-    PointStruct
+    PointStruct,
+    Filter,
+    FieldCondition,
+    MatchValue,
+    PointIdsList
 )
 
 
@@ -85,3 +89,75 @@ class QdrantStore:
         return self.client.count(
             collection_name=self.collection_name
         ).count
+
+    def get_by_id(
+        self,
+        point_id: str | int,
+        collection_name: str | None = None
+    ):
+        target_collection = collection_name or self.collection_name
+        try:
+            points = self.client.retrieve(
+                collection_name=target_collection,
+                ids=[point_id],
+                with_payload=True,
+                with_vectors=False
+            )
+            if points:
+                p = points[0]
+                return {
+                    "id": p.id,
+                    "payload": p.payload
+                }
+        except Exception:
+            pass
+        return None
+
+    def filter_by_article(
+        self,
+        article: str,
+        numeral: str | None = None,
+        collection_name: str | None = None
+    ):
+        target_collection = collection_name or self.collection_name
+        conditions = [
+            FieldCondition(
+                key="article",
+                match=MatchValue(value=str(article))
+            )
+        ]
+        if numeral:
+            conditions.append(
+                FieldCondition(
+                    key="numeral",
+                    match=MatchValue(value=str(numeral))
+                )
+            )
+        try:
+            results, _ = self.client.scroll(
+                collection_name=target_collection,
+                scroll_filter=Filter(must=conditions),
+                with_payload=True,
+                with_vectors=False,
+                limit=100
+            )
+            return [
+                {
+                    "id": p.id,
+                    "payload": p.payload
+                }
+                for p in results
+            ]
+        except Exception:
+            return []
+
+    def delete_by_id(
+        self,
+        point_id: str | int,
+        collection_name: str | None = None
+    ):
+        target_collection = collection_name or self.collection_name
+        self.client.delete(
+            collection_name=target_collection,
+            points_selector=PointIdsList(points=[point_id])
+        )

@@ -7,28 +7,15 @@ import pandas as pd
 
 from app.src.core.model.targeta_lecturas import TargetaLecturas, LecturaMensual
 from app.src.core.model.indicadores.targeta_lecturas_indicadores import INDICADORES_TARJETA_LECTURA
-from app.src.application.adapters.emapa_api import obtener_tarjeta_lectura
+from app.src.core.service.tools.emapa_api import obtener_tarjeta_lectura
 
 logger = logging.getLogger("services.pre_targeta_lecturas_service")
 
 # Códigos "normales" del origen y factor de consumo atípico.
+ESTADO_LECTURA_NORMAL = "000"
 ESTADO_SERVICIO_ACTIVO = "001"
 ESTADO_MEDIDOR_OK = "001"
-
-# Estados de lectura que NO constituyen un problema (informativos o esperados),
-# aunque su código sea distinto de "000". No se reportan como hallazgo.
-#   000 LECTURA NORMAL
-#   002 LECTURAS IGUALES
-#   005 MEDIDOR NUEVO
-#   010 CONSUMO MENOR AL PROMEDIO
-ESTADOS_LECTURA_NO_PROBLEMA = {"000", "002", "005", "010"}
-
-# Códigos de estadolectura que representan un problema de CONSUMO (van a
-# errorConsumo). El resto de códigos con problema van a errorLecturas.
-#   001 CONSUMO EXCESIVO
-#   008 CONSUMO ATIPICO
-#   011 CONSUMO DOBLE AL PROMEDIO
-ESTADOS_LECTURA_CONSUMO = {"001", "008", "011"}
+FACTOR_ATIPICO = 2  # consumo atípico: mayor al doble del promedio del mes
 
 COLUMNAS = [f.name for f in fields(LecturaMensual)]
 _HINTS = get_type_hints(LecturaMensual)
@@ -106,84 +93,80 @@ class PreTargetaLecturasService:
         return targeta, df
 
     def _calcular_indicadores(self, df: pd.DataFrame) -> dict:
-        """Recorre la ventana y agrupa los hallazgos por problema.
-
-        Cada grupo mapea el *concepto* del problema (p.ej. "consumo atípico")
-        a la lista de fechas (MM/AAAA) en que se detectó. Así un mismo problema
-        aparece una sola vez con todas sus fechas, en lugar de repetirse por mes.
-        """
+        """Recorre la ventana y agrupa los hallazgos por mes (AAAA-MM)."""
         registros = df.to_dict("records")
-        # concepto -> lista de fechas MM/AAAA en que ocurrió
         consumo_grp: dict[str, list[str]] = {}
         lectura_grp: dict[str, list[str]] = {}
         reinst_grp: dict[str, list[str]] = {}
         servicio_grp: dict[str, list[str]] = {}
         obs_grp: dict[str, list[str]] = {}
 
-        def _add(grupo: dict[str, list[str]], concepto: str, fecha: str) -> None:
-            fechas = grupo.setdefault(concepto, [])
-            if fecha not in fechas:
-                fechas.append(fecha)
-
         for i, r in enumerate(registros):
             if pd.isna(r.get("anio")) or pd.isna(r.get("mes")):
                 continue
             anio, mes = int(r["anio"]), int(r["mes"])
-            fecha = f"{mes:02d}/{anio}"
+            etiqueta = f"{anio}-{mes:02d}"
             prev = registros[i - 1] if i > 0 else None
+            consumo = r.get("consumo")
+            la, lu = r.get("lecturaanterior"), r.get("lecturaultima")
+            prom = r.get("lecturapromedio")
 
-            # --- Errores de lectura / consumo ---------------------------------
-            # Nos apoyamos únicamente en el código estadolectura del origen; los
-            # códigos de consumo van a errorConsumo y el resto a errorLecturas.
+            # --- Errores de lectura -------------------------------------------
             estado_lec = str(r["estadolectura"]) if pd.notna(r.get("estadolectura")) else None
-            es_problema_lec = bool(estado_lec) and estado_lec not in ESTADOS_LECTURA_NO_PROBLEMA
-            if es_problema_lec:
+            if estado_lec and estado_lec != ESTADO_LECTURA_NORMAL:
                 detalle = INDICADORES_TARJETA_LECTURA["estadolectura"].get(estado_lec, f"cód {estado_lec}")
-                grupo = consumo_grp if estado_lec in ESTADOS_LECTURA_CONSUMO else lectura_grp
-                _add(grupo, detalle.capitalize(), fecha)
+                lectura_grp.setdefault(etiqueta, []).append(f"sin lectura normal ({detalle})")
+            if pd.notna(la) and pd.notna(lu) and float(lu) < float(la):
+                lectura_grp.setdefault(etiqueta, []).append(
+                    f"consumo negativo (última {float(lu):g} < anterior {float(la):g})"
+                )
+            fecha = pd.to_datetime(r.get("fechalecturault"), errors="coerce")
+            if pd.notna(fecha) and (fecha.year != anio or fecha.month != mes):
+                lectura_grp.setdefault(etiqueta, []).append(
+                    f"error de fecha (lectura {fecha.date()} no pertenece a {etiqueta})"
+                )
 
-            # Error de fecha: la lectura no pertenece al periodo facturado.
-            # No está representado en estadolectura, por eso se evalúa aparte.
-            fecha_lec = pd.to_datetime(r.get("fechalecturault"), errors="coerce")
-            if pd.notna(fecha_lec) and (fecha_lec.year != anio or fecha_lec.month != mes):
-                _add(lectura_grp, "error de fecha (lectura no pertenece al periodo)", fecha)
+            # --- Errores de consumo -------------------------------------------
+            es_atipico = (pd.notna(consumo) and pd.notna(prom) and float(prom) > 0
+                          and float(consumo) > FACTOR_ATIPICO * float(prom))
+            if es_atipico:
+                consumo_grp.setdefault(etiqueta, []).append(
+                    f"consumo atípico ({float(consumo):g} m³ > 2×promedio {float(prom):g})"
+                )
+            if (prev is not None and pd.notna(consumo) and pd.notna(prev.get("consumo"))
+                    and float(consumo) > 0 and float(consumo) == float(prev["consumo"])):
+                consumo_grp.setdefault(etiqueta, []).append(
+                    f"doble consumo ({float(consumo):g} m³ igual al mes anterior)"
+                )
 
             # --- Errores por reinstalación ------------------------------------
-            # Cambio de medidor coincidente con un consumo atípico del origen.
-            es_atipico = estado_lec in ESTADOS_LECTURA_CONSUMO
             if prev is not None:
                 nromed, nromed_prev = r.get("nromed"), prev.get("nromed")
                 if nromed and nromed_prev and str(nromed) != str(nromed_prev) and es_atipico:
-                    _add(reinst_grp, "cambio de medidor con consumo atípico", fecha)
+                    reinst_grp.setdefault(etiqueta, []).append(
+                        f"cambio de medidor ({nromed_prev}→{nromed}) con consumo atípico "
+                        f"({float(consumo):g} m³)"
+                    )
 
             # --- Errores de servicio / medidor --------------------------------
             estado_serv = str(r["estadoservicio"]) if pd.notna(r.get("estadoservicio")) else None
             if estado_serv and estado_serv != ESTADO_SERVICIO_ACTIVO:
                 # El texto oficial ya menciona "SERVICIO", no anteponemos prefijo.
                 detalle = INDICADORES_TARJETA_LECTURA["estadoservicio"].get(estado_serv, f"cód {estado_serv}")
-                _add(servicio_grp, detalle, fecha)
+                servicio_grp.setdefault(etiqueta, []).append(detalle)
             estado_med = str(r["estadomed"]) if pd.notna(r.get("estadomed")) else None
             if estado_med and estado_med != ESTADO_MEDIDOR_OK:
                 # Prefijo "medidor:" para distinguirlo del hallazgo de servicio.
                 detalle = INDICADORES_TARJETA_LECTURA["estadomed"].get(estado_med, f"cód {estado_med}")
-                _add(servicio_grp, f"medidor: {detalle}", fecha)
+                servicio_grp.setdefault(etiqueta, []).append(f"medidor: {detalle}")
 
             # --- Observaciones de lectura -------------------------------------
             obs = r.get("obslectura")
             if obs and str(obs).strip():
-                _add(obs_grp, str(obs).strip(), fecha)
-
-        def _unir_fechas(fechas: list[str]) -> str:
-            """['10/2025', '02/2026'] -> '10/2025 y 02/2026'."""
-            if len(fechas) == 1:
-                return fechas[0]
-            return f"{', '.join(fechas[:-1])} y {fechas[-1]}"
+                obs_grp.setdefault(etiqueta, []).append(str(obs).strip())
 
         def _fmt(grupo: dict[str, list[str]]) -> list[str]:
-            return [
-                f"{concepto}: detectado en {_unir_fechas(fechas)}"
-                for concepto, fechas in grupo.items()
-            ]
+            return [f"{etiqueta}: {', '.join(items)}" for etiqueta, items in grupo.items()]
 
         return {
             "errorConsumo": _fmt(consumo_grp),

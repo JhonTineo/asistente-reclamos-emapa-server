@@ -3,7 +3,7 @@ import logging
 from dataclasses import fields
 from app.src.core.model.inspeccion_externa import InspeccionExterna
 from app.src.core.model.indicadores.inspeccion_externa_indicadores import INDICADORES_INSPECCION_EXTERNA
-from app.src.application.adapters.emapa_api import obtener_inspeccion_externa
+from app.src.core.service.tools.emapa_api import obtener_inspeccion_externa
 
 logger = logging.getLogger("services.pre_inspeccion_externa_service")
 

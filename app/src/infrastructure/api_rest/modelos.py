@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.src.infrastructure.api_rest.schemas.modelo import ModeloResponse, ModelosListResponse
+from app.src.core.schemas.modelo import ModeloResponse, ModelosListResponse
 from app.src.application.adapters.llm import listar_modelos
 from app.src.application.adapters.config import settings
 

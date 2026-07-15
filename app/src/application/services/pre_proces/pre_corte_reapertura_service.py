@@ -7,7 +7,7 @@ from typing import get_args, get_type_hints
 import pandas as pd
 
 from app.src.core.model.corte_reapertura import CorteReapertura, RegistroCorteReapertura
-from app.src.application.adapters.emapa_api import obtener_corte_reapertura
+from app.src.core.service.tools.emapa_api import obtener_corte_reapertura
 from app.src.application.services.pre_proces import pre_targeta_lecturas_service as tarj_svc
 
 logger = logging.getLogger("services.pre_corte_reapertura_service")

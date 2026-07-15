@@ -1,17 +1,21 @@
 import logging
-import re, json
 from langchain_core.messages import SystemMessage, HumanMessage
 from app.src.application.adapters.llm import get_llm
+
 logger = logging.getLogger("agent.analista_normativo")
 
 
 class AnalistaNormativoAgent():
+    role = "analista_normativo"
 
     def run(self, input_data: dict) -> dict:
+        # input_data should contain: 'reclamo_text' and 'contexts' (list of payloads)
         reclamo = input_data.get("reclamo_text", "")
         contexts = input_data.get("contexts", [])
         modelo = input_data.get("modelo")
+
         llm = get_llm(model=modelo)
+
         contexts_text = "\n\n".join(
             f"=== Contexto #{i} ===\nTitle: {c.get('payload', {}).get('title')}\nText: {c.get('payload', {}).get('text', c.get('payload'))}"[:2000]
             for i, c in enumerate(contexts)
@@ -27,7 +31,9 @@ class AnalistaNormativoAgent():
             SystemMessage(content=prompt),
             HumanMessage(content="Analiza y devuelve el JSON pedido."),
         ])
-        
+
+        # Intentamos extraer JSON simple desde la respuesta
+        import re, json
 
         match = re.search(r"\{.*\}", response.content, re.DOTALL)
         if not match:
