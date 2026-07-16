@@ -1,7 +1,7 @@
 import time
 import logging
 from langchain_core.messages import SystemMessage
-from app.src.application.adapters.llm import get_llm
+from app.src.application.adapters.llm import get_llm, log_uso_llm
 
 logger = logging.getLogger("agent.resolucion")
 
@@ -31,10 +31,12 @@ class ResolucionAgent:
             observaciones,
         )
 
+        logger.debug("[PROMPT resolucion][SYSTEM]\n%s", prompt)
         logger.info("[RESOLUCION] Invocando LLM...")
         t_llm_inicio = time.perf_counter()
 
         response = self.llm.invoke([SystemMessage(content=prompt)])
+        log_uso_llm(logger, "resolucion", response)
         contenido = response.content if response.content else ""
 
         t_llm = time.perf_counter() - t_llm_inicio

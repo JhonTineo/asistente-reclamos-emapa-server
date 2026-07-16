@@ -16,6 +16,11 @@
       "descripcion": "Histórico de facturaciones del suministro"
     },
     {
+      "id": "saldo_detalle",
+      "nombre": "Saldo detalle",
+      "descripcion": "Detalle de pagos por mes: cobro indebido, mora y meses pendientes"
+    },
+    {
       "id": "corte_reapertura",
       "nombre": "Corte y reapertura",
       "descripcion": "Histórico de cierres y reaperturas del servicio"

@@ -34,10 +34,7 @@ COLUMNAS = [f.name for f in fields(LecturaMensual)]
 _HINTS = get_type_hints(LecturaMensual)
 CAMPOS_NUMERICOS = [n for n, t in _HINTS.items() if float in get_args(t) or t is float]
 
-# Ventana de análisis: lista de (año, mes) que otros medios probatorios
-# (corte/reapertura, facturación, etc.) consultan para mantenerse alineados
-# al mismo periodo. Solución temporal; sustituir por un contexto explícito.
-MESES_VENTANA: list[tuple[int, int]] = []
+
 
 
 class PreTargetaLecturasService:
@@ -55,7 +52,11 @@ class PreTargetaLecturasService:
             "[PRE_TARGETA_LECTURAS] Preprocesamiento completo en %.2f s | meses=%d | hallazgos=%d",
             time.time() - t1, len(df), hallazgos,
         )
-        return {"targeta": targeta, "df": df}
+        # Calcula la ventana a partir del DataFrame ya filtrado.
+        ventana = [(int(a), int(m)) for a, m in zip(df["anio"], df["mes"])
+                   if pd.notna(a) and pd.notna(m)]
+        logger.info("[PRE_TARGETA_LECTURAS] Ventana calculada: %d meses", len(ventana))
+        return {"targeta": targeta, "df": df, "ventana": ventana}
 
     def _construir_targeta(self, json_raw: dict, meses: int) -> tuple[TargetaLecturas, pd.DataFrame]:
         registros = (json_raw or {}).get("data") or []
@@ -89,11 +90,7 @@ class PreTargetaLecturasService:
                 df[col] = pd.to_numeric(df[col], errors="coerce").astype("Float64")
         df = df.sort_values(["anio", "mes"]).reset_index(drop=True)
 
-        # Publica la ventana para que otros medios probatorios se alineen.
-        global MESES_VENTANA
-        MESES_VENTANA = [(int(a), int(m)) for a, m in zip(df["anio"], df["mes"])
-                         if pd.notna(a) and pd.notna(m)]
-        logger.info("[PRE_TARGETA_LECTURAS] Ventana publicada: %d meses", len(MESES_VENTANA))
+
 
         indicadores = self._calcular_indicadores(df)
         targeta = TargetaLecturas(

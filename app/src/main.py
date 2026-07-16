@@ -17,6 +17,10 @@ logging.basicConfig(
 # Ver el prompt completo enviado a los agentes (nivel DEBUG solo en estos loggers).
 logging.getLogger("agent.analista_medio").setLevel(logging.DEBUG)
 logging.getLogger("agent.fundamentacion_normativa").setLevel(logging.DEBUG)
+logging.getLogger("agent.objetivos").setLevel(logging.DEBUG)
+logging.getLogger("agent.conclusion").setLevel(logging.DEBUG)
+logging.getLogger("agent.conciliador").setLevel(logging.DEBUG)
+logging.getLogger("agent.resolucion").setLevel(logging.DEBUG)
 
 app = FastAPI(
     title="Asistente Reclamos EMAPA",

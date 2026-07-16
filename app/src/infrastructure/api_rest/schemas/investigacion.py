@@ -100,6 +100,7 @@ class BuscarReclamoRequest(BaseModel):
     codreclamo: str = Field(description="Código del reclamo")
     codcliente: str = Field(description="Código de cliente")
     clasificacion: str = Field(description="Clasificación del reclamo")
+    meses: int = Field(default=12, description="Ventana de meses a analizar")
     modelo: str | None = None
 
 
@@ -117,4 +118,43 @@ class BuscarReclamoResponse(BaseModel):
     datos: dict | None = None
     informe: InformeMetadata | None = None
     error: str | None = None
+    tiempo: float
+
+
+# --- Objetivos de investigación (se generan tras buscar el reclamo) ---
+class ObjetivoInvestigacionSchema(BaseModel):
+    id: int
+    descripcion: str
+    medio: str | None = None
+    determinante: bool = False
+
+
+class ObjetivosRequest(BaseModel):
+    codreclamo: str = Field(description="Código del reclamo (clave del informe en el store)")
+    modelo: str | None = None
+
+
+class ObjetivosResponse(BaseModel):
+    codreclamo: str
+    objetivos: list[ObjetivoInvestigacionSchema] = Field(default_factory=list)
+    tiempo: float
+
+
+# --- Disponibilidad de medios probatorios (chequeo rápido sin LLM) ---
+class MediosDisponiblesRequest(BaseModel):
+    codsuc: str = Field(description="Código de sucursal")
+    codcliente: str = Field(description="Código de cliente")
+    codreclamo: str = Field(description="Código del reclamo (para reutilizar el token guardado)")
+    anio: str = Field(default="2026", description="Año para el record de facturación")
+
+
+class MedioDisponible(BaseModel):
+    medio_id: str
+    disponible: bool
+    error: str | None = None
+
+
+class MediosDisponiblesResponse(BaseModel):
+    codreclamo: str
+    medios: list[MedioDisponible] = Field(default_factory=list)
     tiempo: float

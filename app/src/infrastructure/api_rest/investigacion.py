@@ -1,4 +1,5 @@
 import time
+import asyncio
 import logging
 import json
 from fastapi import APIRouter, HTTPException, Depends
@@ -20,15 +21,31 @@ from app.src.infrastructure.api_rest.schemas.investigacion import (
     ResolucionResponse,
     BuscarReclamoRequest,
     BuscarReclamoResponse,
+    ObjetivosRequest,
+    ObjetivosResponse,
+    ObjetivoInvestigacionSchema,
+    MediosDisponiblesRequest,
+    MediosDisponiblesResponse,
+    MedioDisponible,
 )
 from app.src.application.usecase.agents.conciliador import ConciliadorAgent
 from app.src.application.usecase.agents.resolucion import ResolucionAgent
 from app.src.application.usecase.agents.fundamentacion_normativa import FundamentacionNormativaAgent
+from app.src.application.usecase.agents.objetivos import ObjetivosAgent
+from app.src.application.usecase.agents.conclusion import ConclusionAgent
 
 from app.src.application.usecase.agents.analista_medio import AnalistaMedioAgent
 from app.src.application.services.informe.informe_store import informe_store
 from app.src.application.services.informe.render import construir_texto_informe
 from app.src.core.model.informe_atencion import BloqueMedio
+from app.src.application.adapters.emapa_api import (
+    obtener_tarjeta_lectura,
+    obtener_corte_reapertura,
+    obtener_inspeccion_externa,
+    obtener_inspeccion_interna,
+    obtener_record_facturacion,
+    obtener_saldo_actual,
+)
 
 
 logger = logging.getLogger("api.investigacion")
@@ -36,7 +53,7 @@ logger = logging.getLogger("api.investigacion")
 router = APIRouter(prefix="", tags=["investigacion"], dependencies=[Depends(usar_token_emapa)])
 
 
-def _analizar_medio_y_registrar(
+async def _analizar_medio_y_registrar(
     request: BuscarReclamoRequest,
     medio_id: str,
     medio_nombre: str,
@@ -45,28 +62,37 @@ def _analizar_medio_y_registrar(
     el ResumenMedio con los problemas detectados (aún sin fundamentar)."""
     t_inicio = time.perf_counter()
     # Usa el token de la petición o, si no vino, el guardado al buscar el reclamo.
-    asegurar_token_emapa(request.codreclamo)
+    await asegurar_token_emapa(request.codreclamo)
     logger.info("=" * 60)
     logger.info(
         "[API /investigacion/%s] codsuc=%s | codcliente=%s | codreclamo=%s",
         medio_id, request.codsuc, request.codcliente, request.codreclamo,
     )
 
+    # Lee la ventana actual del informe (si existe).
+    informe = informe_store.obtener(request.codreclamo)
+    ventana_actual = informe.ventana_meses if informe else []
+
     analista = AnalistaMedioAgent(model=request.modelo)
-    bloque = analista.analizar(
+    bloque, ventana = analista.analizar(
         medio_id=medio_id,
         medio_nombre=medio_nombre,
         codsuc=request.codsuc,
         codcliente=request.codcliente,
         clasificacion=request.clasificacion,
+        meses=request.meses,
+        ventana=ventana_actual,
     )
 
-    informe_store.registrar_bloque(
+    informe = informe_store.registrar_bloque(
         codreclamo=request.codreclamo,
         bloque=bloque,
         suministro=request.codcliente,
         clasificacion=request.clasificacion,
     )
+    # Persiste la ventana devuelta (solo la tarjeta la actualiza).
+    if ventana:
+        informe.ventana_meses = ventana
 
     tiempo_total = time.perf_counter() - t_inicio
     logger.info(
@@ -102,19 +128,25 @@ def _stream_analisis_medio(
         # Usa el token de la petición o, si no vino, el guardado al buscar el
         # reclamo. Debe fijarse aquí, antes de las llamadas en threadpool, para
         # que el ContextVar se propague al hilo que consulta EMAPA.
-        asegurar_token_emapa(request.codreclamo)
+        await asegurar_token_emapa(request.codreclamo)
         logger.info("=" * 60)
         logger.info(
             "[API /investigacion/%s/stream] codsuc=%s | codcliente=%s | codreclamo=%s",
             medio_id, request.codsuc, request.codcliente, request.codreclamo,
         )
+
+        # Lee la ventana actual del informe (si existe).
+        informe = informe_store.obtener(request.codreclamo)
+        ventana_actual = informe.ventana_meses if informe else []
+
         analista = AnalistaMedioAgent(model=request.modelo)
 
         try:
             # --- Fase 1: preprocesamiento (rápido) ---------------------------
-            datos, problemas = await run_in_threadpool(
+            datos, problemas, ventana = await run_in_threadpool(
                 analista.preprocesar,
                 medio_id, medio_nombre, request.codsuc, request.codcliente,
+                request.meses, ventana_actual,
             )
             problemas_schema = [ProblemaNormadoSchema(**vars(p)) for p in problemas]
             evento_pre = {
@@ -140,12 +172,15 @@ def _stream_analisis_medio(
                 resumen=resumen,
                 problemas=problemas,
             )
-            informe_store.registrar_bloque(
+            informe = informe_store.registrar_bloque(
                 codreclamo=request.codreclamo,
                 bloque=bloque,
                 suministro=request.codcliente,
                 clasificacion=request.clasificacion,
             )
+            # Persiste la ventana devuelta (solo la tarjeta la actualiza).
+            if ventana:
+                informe.ventana_meses = ventana
 
             tiempo_total = time.perf_counter() - t_inicio
             evento_res = {
@@ -197,29 +232,149 @@ async def corte_reapertura_stream(request: BuscarReclamoRequest) -> StreamingRes
     return _stream_analisis_medio(request, "corte_reapertura", "Cortes y Reaperturas")
 
 
+@router.post("/investigacion/record-facturacion/stream")
+async def record_facturacion_stream(request: BuscarReclamoRequest) -> StreamingResponse:
+    """Versión streaming: emite preprocesamiento y luego el resumen del LLM."""
+    return _stream_analisis_medio(request, "record_facturacion", "Record de Facturación")
+
+
+@router.post("/investigacion/saldo-detalle/stream")
+async def saldo_detalle_stream(request: BuscarReclamoRequest) -> StreamingResponse:
+    """Versión streaming: emite preprocesamiento y luego el resumen del LLM."""
+    return _stream_analisis_medio(request, "saldo_detalle", "Saldo Detalle")
+
+
 @router.post("/investigacion/inspeccion-externa", response_model=ResumenMedio)
 async def inspeccion_externa(request: BuscarReclamoRequest) -> ResumenMedio:
     """Analiza la inspección externa y registra su bloque en el informe."""
-    return _analizar_medio_y_registrar(request, "inspeccion_externa", "Inspección Externa")
+    return await _analizar_medio_y_registrar(request, "inspeccion_externa", "Inspección Externa")
 
 
 @router.post("/investigacion/inspeccion-interna", response_model=ResumenMedio)
 async def inspeccion_interna(request: BuscarReclamoRequest) -> ResumenMedio:
     """Analiza la inspección interna y registra su bloque en el informe."""
-    return _analizar_medio_y_registrar(request, "inspeccion_interna", "Inspección Interna")
+    return await _analizar_medio_y_registrar(request, "inspeccion_interna", "Inspección Interna")
 
 
 @router.post("/investigacion/tarjeta-lectura", response_model=ResumenMedio)
 async def tarjeta_lectura(request: BuscarReclamoRequest) -> ResumenMedio:
     """Analiza la tarjeta de lecturas (micromedición) y registra su bloque."""
-    return _analizar_medio_y_registrar(request, "tarjeta_lectura", "Tarjeta de Lecturas")
+    return await _analizar_medio_y_registrar(request, "tarjeta_lectura", "Tarjeta de Lecturas")
 
 
 @router.post("/investigacion/corte-reapertura", response_model=ResumenMedio)
 async def corte_reapertura(request: BuscarReclamoRequest) -> ResumenMedio:
     """Analiza los cortes/reaperturas y registra su bloque en el informe.
     Requiere que se haya analizado antes la tarjeta de lecturas (fija la ventana)."""
-    return _analizar_medio_y_registrar(request, "corte_reapertura", "Cortes y Reaperturas")
+    return await _analizar_medio_y_registrar(request, "corte_reapertura", "Cortes y Reaperturas")
+
+
+@router.post("/investigacion/record-facturacion", response_model=ResumenMedio)
+async def record_facturacion(request: BuscarReclamoRequest) -> ResumenMedio:
+    """Analiza el record de facturación (cómo se facturó cada mes: por lectura o
+    por promedio) y registra su bloque. Requiere que se haya analizado antes la
+    tarjeta de lecturas (fija la ventana de meses)."""
+    return await _analizar_medio_y_registrar(request, "record_facturacion", "Record de Facturación")
+
+
+@router.post("/investigacion/saldo-detalle", response_model=ResumenMedio)
+async def saldo_detalle(request: BuscarReclamoRequest) -> ResumenMedio:
+    """Analiza el saldo-detalle (pagos por mes: cobro indebido, mora y meses
+    pendientes) y registra su bloque. Requiere que se haya analizado antes la
+    tarjeta de lecturas (fija la ventana de meses)."""
+    return await _analizar_medio_y_registrar(request, "saldo_detalle", "Saldo Detalle")
+
+
+# Medios cuya disponibilidad se puede verificar (función EMAPA por medio).
+_MEDIOS_VERIFICABLES = {
+    "tarjeta_lectura": lambda r: obtener_tarjeta_lectura(r.codsuc, r.codcliente),
+    "corte_reapertura": lambda r: obtener_corte_reapertura(r.codsuc, r.codcliente),
+    "inspeccion_externa": lambda r: obtener_inspeccion_externa(r.codsuc, r.codcliente),
+    "inspeccion_interna": lambda r: obtener_inspeccion_interna(r.codsuc, r.codcliente),
+    "record_facturacion": lambda r: obtener_record_facturacion(r.codsuc, r.codcliente, r.anio),
+    "saldo_detalle": lambda r: obtener_saldo_actual(r.codsuc, r.codcliente),
+    "saldo_actual": lambda r: obtener_saldo_actual(r.codsuc, r.codcliente),
+}
+
+
+def _tiene_datos(respuesta: dict) -> bool:
+    """True si la respuesta de EMAPA trae datos utilizables (no 404/parcial ni vacío)."""
+    if not isinstance(respuesta, dict) or respuesta.get("_partial"):
+        return False
+    return bool(respuesta.get("data"))
+
+
+@router.post("/investigacion/objetivos", response_model=ObjetivosResponse)
+async def generar_objetivos(request: ObjetivosRequest) -> ObjetivosResponse:
+    """Genera los objetivos de investigación a partir del motivo del reclamo
+    (guardado al buscar el reclamo) y los deja en el informe. Se llama aparte de
+    la búsqueda para poder correrlo en paralelo con la verificación de medios."""
+    t_inicio = time.perf_counter()
+    logger.info("[API /investigacion/objetivos] codreclamo=%s", request.codreclamo)
+
+    informe = informe_store.obtener(request.codreclamo)
+    if informe is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No hay un informe en curso para el reclamo {request.codreclamo}. Busque el reclamo primero.",
+        )
+
+    motivo = (informe.motivo or "").strip()
+    logger.info(
+        "[API /investigacion/objetivos] motivo_len=%d | clasificacion=%s",
+        len(motivo), informe.clasificacion,
+    )
+    if motivo:
+        agente = ObjetivosAgent(model=request.modelo)
+        informe.objetivos = await run_in_threadpool(agente.generar, motivo, informe.clasificacion or "")
+    else:
+        informe.objetivos = []
+        logger.warning(
+            "[API /investigacion/objetivos] Reclamo %s SIN motivo guardado; no se infieren objetivos. "
+            "¿Se buscó el reclamo (que guarda el motivo) después de reiniciar el server?",
+            request.codreclamo,
+        )
+
+    tiempo = time.perf_counter() - t_inicio
+    logger.info(
+        "[API /investigacion/objetivos] COMPLETADO | objetivos=%d | tiempo=%.2fs",
+        len(informe.objetivos), tiempo,
+    )
+    return ObjetivosResponse(
+        codreclamo=request.codreclamo,
+        objetivos=[ObjetivoInvestigacionSchema(**vars(o)) for o in informe.objetivos],
+        tiempo=tiempo,
+    )
+
+
+@router.post("/investigacion/medios-disponibles", response_model=MediosDisponiblesResponse)
+async def medios_disponibles(request: MediosDisponiblesRequest) -> MediosDisponiblesResponse:
+    """Verifica en paralelo qué medios probatorios devuelven datos desde EMAPA,
+    sin analizarlos (sin LLM). Sirve para marcar en el front los medios que sí
+    traen información."""
+    t_inicio = time.perf_counter()
+    await asegurar_token_emapa(request.codreclamo)
+    logger.info("[API /investigacion/medios-disponibles] codreclamo=%s", request.codreclamo)
+
+    async def _verificar(medio_id: str, fn) -> MedioDisponible:
+        try:
+            respuesta = await run_in_threadpool(fn, request)
+            return MedioDisponible(medio_id=medio_id, disponible=_tiene_datos(respuesta))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[MEDIOS] %s error=%s", medio_id, e)
+            return MedioDisponible(medio_id=medio_id, disponible=False, error=str(e))
+
+    medios = await asyncio.gather(
+        *(_verificar(mid, fn) for mid, fn in _MEDIOS_VERIFICABLES.items())
+    )
+
+    tiempo = time.perf_counter() - t_inicio
+    disponibles = sum(1 for m in medios if m.disponible)
+    logger.info(
+        "[API /investigacion/medios-disponibles] COMPLETADO | disponibles=%d/%d | tiempo=%.2fs",
+        disponibles, len(medios), tiempo,
+    )
+    return MediosDisponiblesResponse(codreclamo=request.codreclamo, medios=list(medios), tiempo=tiempo)
 
 
 @router.post("/investigacion/informe", response_model=InformeResponse)
@@ -274,12 +429,15 @@ async def generar_informe(request: InformeRequest) -> InformeResponse:
                 )
             )
 
+    # Conclusión: veredicto FUNDADO/INFUNDADO por regla sobre los objetivos.
+    veredicto = ConclusionAgent(model=request.modelo).concluir_y_asignar(informe)
+
     texto = construir_texto_informe(informe)
 
     tiempo = time.perf_counter() - t_inicio
     logger.info(
-        "[API /investigacion/informe] COMPLETADO | bloques=%d | problemas=%d | tiempo=%.2fs",
-        len(informe.bloques), len(problemas_resp), tiempo,
+        "[API /investigacion/informe] COMPLETADO | veredicto=%s | bloques=%d | problemas=%d | tiempo=%.2fs",
+        veredicto, len(informe.bloques), len(problemas_resp), tiempo,
     )
     logger.info("=" * 60)
 
@@ -371,6 +529,15 @@ async def generar_informe_stream(request: InformeRequest) -> StreamingResponse:
                         )
                     )
                     indice += 1
+
+            # --- Conclusión: veredicto FUNDADO/INFUNDADO ----------------------
+            conclusionador = ConclusionAgent(model=request.modelo)
+            veredicto = await run_in_threadpool(conclusionador.concluir_y_asignar, informe)
+            yield json.dumps({
+                "evento": "conclusion",
+                "veredicto": veredicto,
+                "conclusion": informe.conclusion,
+            }, ensure_ascii=False) + "\n"
 
             # --- Cierre: texto final del informe ------------------------------
             texto = construir_texto_informe(informe)

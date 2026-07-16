@@ -103,8 +103,32 @@ def get_llm(model: str | None = None):
         model=_resolver_modelo(model),
         base_url=_resolver_ollama_base_url(),
         temperature=0,
-        num_ctx=16384
+        num_ctx=4096
     )
+
+
+def log_uso_llm(log: logging.Logger, etiqueta: str, response) -> None:
+    """Loguea los tokens y la velocidad de una respuesta del LLM, usando los
+    conteos reales que devuelve Ollama (tokenizer exacto del modelo).
+
+    - input_tokens / output_tokens / total_tokens: de ``usage_metadata``.
+    - tok/s: tokens de salida entre la duración de generación (``eval_duration``,
+      que Ollama reporta en nanosegundos)."""
+    usage = getattr(response, "usage_metadata", None) or {}
+    meta = getattr(response, "response_metadata", None) or {}
+    in_tok = usage.get("input_tokens") or meta.get("prompt_eval_count")
+    out_tok = usage.get("output_tokens") or meta.get("eval_count")
+    total = usage.get("total_tokens")
+    if total is None and in_tok is not None and out_tok is not None:
+        total = in_tok + out_tok
+
+    extra = ""
+    eval_dur = meta.get("eval_duration")  # nanosegundos
+    if out_tok and eval_dur:
+        tok_s = out_tok / (eval_dur / 1e9)
+        extra = f" | {tok_s:.1f} tok/s"
+
+    log.info("[TOKENS %s] input=%s output=%s total=%s%s", etiqueta, in_tok, out_tok, total, extra)
 
 
 def listar_modelos() -> list[str]:

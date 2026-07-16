@@ -12,7 +12,7 @@ import json
 import re
 import logging
 from langchain_core.messages import SystemMessage, HumanMessage
-from app.src.application.adapters.llm import get_llm
+from app.src.application.adapters.llm import get_llm, log_uso_llm
 from app.src.application.services.rag.retriever import Retriever
 from app.src.core.model.informe_atencion import ProblemaNormado
 
@@ -38,6 +38,18 @@ CONSULTA_POR_TIPO = {
     "errorServicio": (
         "estado del servicio y del medidor: servicio cortado, inactivo o "
         "medidor inoperativo"
+    ),
+    "cobroIndebido": (
+        "cobro indebido por servicio no prestado, facturación de alcantarillado "
+        "o desagüe sin conexión al servicio"
+    ),
+    "mora": (
+        "cobro de intereses moratorios y recargos por pago fuera de plazo del "
+        "servicio de agua"
+    ),
+    "mesesNoPagados": (
+        "deuda pendiente de pago, saldos vencidos y facturación de meses "
+        "anteriores no cancelados"
     ),
 }
 
@@ -117,6 +129,7 @@ class FundamentacionNormativaAgent:
             SystemMessage(content=system),
             HumanMessage(content=human),
         ])
+        log_uso_llm(logger, "fundamentacion", response)
 
         logger.info("RESPUESTA LLM (raw): %s", response.content)
 

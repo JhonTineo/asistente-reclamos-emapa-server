@@ -50,6 +50,16 @@ class ClasificarLLMResponse(BaseModel):
     seccion: str | None
     error: str | None
 
+def _campo_reclamo(datos: dict | None, campo: str) -> str:
+    """Lee un campo del JSON del reclamo (data puede ser dict o lista)."""
+    data = datos.get("data") if isinstance(datos, dict) else None
+    if isinstance(data, dict):
+        return str(data.get(campo) or "").strip()
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        return str(data[0].get(campo) or "").strip()
+    return ""
+
+
 analizador = AnalizadorAgent()
 
 @router.get("/reclamo/{codsede}/{codsuc}/{codreclamo}/{codcliente}", response_model=BuscarReclamoResponse)
@@ -88,11 +98,18 @@ async def buscar_reclamo(
     tiempo = time.perf_counter() - t_inicio
     logger.info("[API /reclamo] OK | tiempo=%.2fs", tiempo)
 
+    # Motivo (lo que reclama el cliente) y clasificación (desCodReclamo). Se
+    # guardan desde ya para que la generación de objetivos los tenga disponibles.
+    motivo = _campo_reclamo(datos, "motivo")
+    clasificacion = _campo_reclamo(datos, "desCodReclamo")
+
     # Se crean los metadatos del informe de atención y quedan en el
     # store, listos para ir llenándose con cada medio analizado.
     informe = informe_store.crear_metadata(
         codreclamo=codreclamo,
         suministro=codcliente,
+        clasificacion=clasificacion or None,
+        motivo=motivo,
     )
     # Se guarda el token con el que se buscó el reclamo para reutilizarlo en
     # las consultas de investigación de este mismo reclamo.

@@ -8,7 +8,7 @@ import pandas as pd
 
 from app.src.core.model.corte_reapertura import CorteReapertura, RegistroCorteReapertura
 from app.src.application.adapters.emapa_api import obtener_corte_reapertura
-from app.src.application.services.pre_proces import pre_targeta_lecturas_service as tarj_svc
+
 
 logger = logging.getLogger("services.pre_corte_reapertura_service")
 
@@ -38,12 +38,15 @@ class PreCorteReaperturaService:
     origen la reporta con inconsistencias.
     """
 
-    def preprocesar_corte_reapertura(self, codsuc: str, codcliente: str) -> dict:
+    def preprocesar_corte_reapertura(
+        self, codsuc: str, codcliente: str,
+        ventana: list[tuple[int, int]] | None = None,
+    ) -> dict:
         t1 = time.time()
         json_raw = obtener_corte_reapertura(codsuc, codcliente)
         logger.info("[PRE_CORTE_REAPERTURA] Datos obtenidos de EMAPA en %.2f s", time.time() - t1)
 
-        ventana = tarj_svc.MESES_VENTANA
+        ventana = ventana or []
         if not ventana:
             logger.warning(
                 "[PRE_CORTE_REAPERTURA] Sin ventana fijada: analiza primero la tarjeta de lecturas"

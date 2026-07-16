@@ -33,6 +33,7 @@ class InformeAtencionStore:
         codreclamo: str,
         suministro: str,
         clasificacion: str | None,
+        motivo: str | None = None,
     ) -> InformeAtencion:
         return InformeAtencion(
             numero=f"{codreclamo}-{datetime.now():%Y}-EMAPA-SM",
@@ -42,6 +43,7 @@ class InformeAtencionStore:
             suministro=suministro,
             destinatario=DESTINATARIO_DEFAULT,
             clasificacion=clasificacion,
+            motivo=motivo,
         )
 
     def crear_metadata(
@@ -49,10 +51,11 @@ class InformeAtencionStore:
         codreclamo: str,
         suministro: str,
         clasificacion: str | None = None,
+        motivo: str | None = None,
     ) -> InformeAtencion:
         """Crea (o reinicia) el informe con solo sus metadatos."""
         with self._lock:
-            informe = self._nuevo_informe(codreclamo, suministro, clasificacion)
+            informe = self._nuevo_informe(codreclamo, suministro, clasificacion, motivo)
             self._data[codreclamo] = informe
             logger.info("[INFORME_STORE] Metadatos creados para reclamo %s", codreclamo)
             return informe

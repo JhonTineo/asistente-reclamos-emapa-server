@@ -20,6 +20,9 @@ def set_emapa_token(token: str | None) -> None:
     """Fija el token de EMAPA para la petición en curso (solo si viene)."""
     if token and token.strip():
         emapa_token_ctx.set(token.strip())
+        logger.info("[EMAPA] Token fijado en ContextVar (primeros 20 chars): %s…", token.strip()[:20])
+    else:
+        logger.warning("[EMAPA] set_emapa_token llamado con token vacío o None")
 
 
 EMAPA_ENDPOINTS = {
@@ -61,9 +64,19 @@ def _get_url(path: str) -> str:
 def _get_headers() -> dict[str, str]:
     headers = {"Accept": "application/json"}
     # Prioridad: token de la petición (ContextVar) y, si no vino, el de .env.
-    token = emapa_token_ctx.get() or settings.emapa_access_token
+    ctx_token = emapa_token_ctx.get()
+    env_token = settings.emapa_access_token
+    token = ctx_token or env_token
+    logger.info(
+        "[EMAPA] _get_headers → ctx_token=%s | env_token=%s | usando=%s",
+        f"{ctx_token[:20]}…" if ctx_token else None,
+        f"{env_token[:20]}…" if env_token else None,
+        "ctx" if ctx_token else ("env" if env_token else "NINGUNO"),
+    )
     if token:
         headers["Authorization"] = f"Bearer {token}"
+    else:
+        logger.error("[EMAPA] ¡SIN TOKEN! La petición irá sin Authorization header")
     return headers
 
 

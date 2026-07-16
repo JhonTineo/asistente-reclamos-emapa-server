@@ -3,7 +3,7 @@ import time
 import logging
 from pathlib import Path
 from langchain_core.messages import SystemMessage
-from app.src.application.adapters.llm import get_llm
+from app.src.application.adapters.llm import get_llm, log_uso_llm
 
 logger = logging.getLogger("agent.conciliador")
 
@@ -32,10 +32,12 @@ class ConciliadorAgent:
 
         prompt = self._construir_prompt(codreclamo, clasificacion, informe_atencion, soluciones_texto)
 
+        logger.debug("[PROMPT conciliador][SYSTEM]\n%s", prompt)
         logger.info("[CONCILIADOR] Invocando LLM...")
         t_llm_inicio = time.perf_counter()
 
         response = self.llm.invoke([SystemMessage(content=prompt)])
+        log_uso_llm(logger, "conciliador", response)
         contenido = response.content if response.content else ""
 
         t_llm = time.perf_counter() - t_llm_inicio
