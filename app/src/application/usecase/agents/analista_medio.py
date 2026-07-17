@@ -10,20 +10,18 @@ from app.src.application.services.pre_proces.pre_targeta_lecturas_service import
 from app.src.application.services.pre_proces.pre_corte_reapertura_service import PreCorteReaperturaService
 from app.src.application.services.pre_proces.pre_record_facturacion_service import PreRecordFacturacionService
 from app.src.application.services.pre_proces.pre_saldo_detalle_service import PreSaldoDetalleService
-from app.src.application.services.pre_proces.problemas_normalizer import (
-    extraer_problemas,
-    MEDIOS_SOPORTADOS,
-)
+from app.src.application.services.pre_proces.problemas_normalizer import extraer_problemas
 from app.src.core.model.informe_atencion import BloqueMedio
 
 logger = logging.getLogger("agent.analista_medio")
 
 # Frase predefinida cuando un medio con detección de problemas no halló ninguno.
+# Las inspecciones NO están aquí a propósito: su resumen siempre debe narrar
+# lo observado en la visita (fecha, inspector, lecturas, hallazgos), no solo
+# si hubo o no un problema, así que siempre pasan por el LLM.
 FRASE_SIN_PROBLEMAS = {
-    "inspeccion_externa": "Realizada la inspección externa no se encontró ningún problema.",
-    "inspeccion_interna": "Realizada la inspección interna no se encontró ningún problema.",
     "tarjeta_lectura": "Revisada la tarjeta de lecturas no se encontró ninguna anomalía.",
-    "corte_reapertura": "Revisados los cortes y reaperturas no se encontró ningún problema.",
+    "corte_reapertura": "No se registran cortes, reaperturas ni prórrogas dentro de la ventana de meses analizada.",
     "record_facturacion": "Revisado el record de facturación no se encontró facturación por promedio relevante.",
     "saldo_detalle": "Revisado el saldo-detalle no se encontró cobro indebido, mora ni meses pendientes de pago.",
 }
@@ -87,9 +85,13 @@ class AnalistaMedioAgent:
         )
         return datos, problemas, ventana
 
-    def _resumen_llm(self, medio_nombre: str, datos: dict, clasificacion: str) -> str:
-        datos_texto = json.dumps(datos, ensure_ascii=False, indent=2)
-        prompt = self._construir_prompt(medio_nombre, datos_texto)
+    def _resumen_llm(self, medio_id: str, medio_nombre: str, datos: dict, clasificacion: str) -> str:
+        # 'registros' es el detalle crudo por mes/evento (solo para la tabla del
+        # frontend); se excluye del prompt para no inflar tokens con filas que
+        # ya están resumidas en los demás campos (hallazgos agregados).
+        datos_para_prompt = {k: v for k, v in datos.items() if k != "registros"}
+        datos_texto = json.dumps(datos_para_prompt, ensure_ascii=False, indent=2)
+        prompt = self._construir_prompt(medio_id, medio_nombre, datos_texto)
         human = f"Analiza los datos y genera un resumen relevante para un reclamo de: {clasificacion}"
 
         logger.info(
@@ -108,11 +110,11 @@ class AnalistaMedioAgent:
 
     def interpretar(self, medio_id: str, medio_nombre: str, datos: dict, problemas: list, clasificacion: str) -> str:
         """Fase 2 (lenta): genera el resumen en lenguaje natural. Si el medio
-        tiene detección de problemas y no halló ninguno, usa una frase
-        predefinida y evita la llamada al LLM."""
-        if medio_id in MEDIOS_SOPORTADOS and not problemas:
-            return FRASE_SIN_PROBLEMAS.get(medio_id, "No se encontró ningún problema.")
-        return self._resumen_llm(medio_nombre, datos, clasificacion)
+        tiene frase predefinida (no aplica a inspecciones) y no halló ningún
+        problema, la usa y evita la llamada al LLM."""
+        if medio_id in FRASE_SIN_PROBLEMAS and not problemas:
+            return FRASE_SIN_PROBLEMAS[medio_id]
+        return self._resumen_llm(medio_id, medio_nombre, datos, clasificacion)
     
     def _dispatch_preprocesamiento(
         self, medio_id: str, codsuc: str, codcliente: str,
@@ -139,7 +141,73 @@ class AnalistaMedioAgent:
         else:
             raise ValueError(f"Medio no soportado para preprocesamiento: {medio_id}")
 
-    def _construir_prompt(self, medio_nombre: str, datos: str) -> str:
+    def _construir_prompt(self, medio_id: str, medio_nombre: str, datos: str) -> str:
+        if medio_id == "inspeccion_externa":
+            instrucciones = [
+                "Tu tarea es redactar UN SOLO párrafo en prosa narrando lo "
+                "observado durante la inspección EXTERNA, con el tono de un "
+                "inspector redactando su informe de campo.",
+                "",
+                "REGLA ESTRICTA: usa ÚNICAMENTE los valores presentes en 'Datos "
+                "obtenidos'. NO inventes ni completes datos que no aparezcan "
+                "(no agregues lecturas, direcciones, tipo de predio, ni ningún "
+                "dato que no esté en el JSON). Si un campo está vacío o no "
+                "existe, simplemente no lo menciones.",
+                "",
+                "Estructura sugerida, incorporando solo los campos disponibles:",
+                "- Empieza con la fecha (fechainspeccion) y quién realizó la "
+                "inspección (nomresponsable): 'Con fecha [fechainspeccion], el "
+                "señor(a) [nomresponsable] realizó la inspección externa al "
+                "predio…'.",
+                "- Estado de funcionamiento del medidor (funcionamed).",
+                "- Fugas: si se detectaron (fugas) y de qué tipo (tipofugas).",
+                "- Estado de la caja del medidor (estadocaja) y de la conexión "
+                "(estconexion).",
+                "- Condiciones atípicas (atipico).",
+                "- Observaciones si las hay (observacionmed, observacionsum).",
+                "",
+                "NO menciones puntos de agua (inodoros, duchas, grifos, etc.): "
+                "eso pertenece a la inspección INTERNA y no está aquí.",
+                "Responde ÚNICAMENTE con el párrafo narrativo, sin encabezados, "
+                "listas ni conclusiones.",
+            ]
+        elif medio_id == "inspeccion_interna":
+            instrucciones = [
+                "Tu tarea es redactar UN SOLO párrafo en prosa narrando lo "
+                "observado durante la inspección INTERNA, con el tono de un "
+                "inspector redactando su informe de campo.",
+                "",
+                "REGLA ESTRICTA: usa ÚNICAMENTE los valores presentes en 'Datos "
+                "obtenidos'. NO inventes ni completes datos que no aparezcan. Si "
+                "un campo está vacío o no existe, no lo menciones.",
+                "",
+                "Estructura sugerida, incorporando solo los campos disponibles:",
+                "- Empieza con la fecha (fechainspeccion): 'En la inspección "
+                "interna realizada con fecha [fechainspeccion]…'.",
+                "- Detalla los puntos de agua encontrados sumando las cantidades "
+                "de cada aparato en 'puntos_agua' (inodoro, lavado, ducha, "
+                "urinario, bidet, grifo, cisterna, tanque, piscina), mencionando "
+                "SOLO los que tengan cantidad mayor a cero, con el formato "
+                "'cuenta con X inodoros, Y duchas, Z grifos…'.",
+                "- Estado del abastecimiento (estadoabas) y categoría del predio "
+                "(catetar) si aporta.",
+                "- Consumos atípicos (atipico).",
+                "- Observaciones de la inspección si las hay (obsinsinteriores, "
+                "observaciones, obsperrepins).",
+                "",
+                "Responde ÚNICAMENTE con el párrafo narrativo, sin encabezados, "
+                "listas ni conclusiones.",
+            ]
+        else:
+            instrucciones = [
+                "Tu tarea es:",
+                "1. Analizar los datos proporcionados",
+                "2. Generar un resumen corto (máximo 3-4 oraciones) con los hallazgos relevantes",
+                "3. Orientado a la clasificacion del reclamo {clasificacion}",
+                "Responde ÚNICAMENTE con el resumen, sin introducciones, recomendaciones ni conclusiones.",
+                "Sé conciso y enfócate en lo importante para el reclamo.",
+            ]
+
         partes_prompt = [
             "Eres un analista especializado en medios probatorios de EMAPA.",
             "",
@@ -148,11 +216,6 @@ class AnalistaMedioAgent:
             "Datos obtenidos:",
             datos,
             "",
-            "Tu tarea es:",
-            "1. Analizar los datos proporcionados",
-            "2. Generar un resumen corto (máximo 3-4 oraciones) con los hallazgos relevantes",
-            "3. Orientado a la clasificacion del reclamo {clasificacion}",
-            "Responde ÚNICAMENTE con el resumen, sin introducciones, recomendaciones ni conclusiones.",
-            "Sé conciso y enfócate en lo importante para el reclamo.",
+            *instrucciones,
         ]
         return "\n".join(partes_prompt)

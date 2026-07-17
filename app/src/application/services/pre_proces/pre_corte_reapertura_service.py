@@ -8,6 +8,7 @@ import pandas as pd
 
 from app.src.core.model.corte_reapertura import CorteReapertura, RegistroCorteReapertura
 from app.src.application.adapters.emapa_api import obtener_corte_reapertura
+from app.src.application.services.pre_proces.df_utils import df_a_registros
 
 
 logger = logging.getLogger("services.pre_corte_reapertura_service")
@@ -71,6 +72,7 @@ class PreCorteReaperturaService:
 
         df_raw = pd.DataFrame(registros)
         codcliente = str(df_raw["codcliente"].iloc[0]) if "codcliente" in df_raw.columns else None
+        total_originales = len(df_raw)
 
         # 1. Tipar año/mes y filtrar por la ventana (inner join).
         df = df_raw.copy()
@@ -81,7 +83,22 @@ class PreCorteReaperturaService:
             ventana_df["anio"] = ventana_df["anio"].astype("Int64")
             ventana_df["mes"] = ventana_df["mes"].astype("Int64")
             df = df.merge(ventana_df, on=["anio", "mes"], how="inner")
-        logger.info("[PRE_CORTE_REAPERTURA] Eventos en la ventana: %d", len(df))
+        logger.info("[PRE_CORTE_REAPERTURA] Eventos en la ventana: %d (de %d originales)", len(df), total_originales)
+
+        # Si la ventana filtró todo, devolver entidad vacía con aviso.
+        sin_registros_en_ventana = ventana and len(df) == 0 and total_originales > 0
+        if sin_registros_en_ventana:
+            logger.info(
+                "[PRE_CORTE_REAPERTURA] Sin eventos de corte/reapertura en la ventana de %d meses "
+                "(existían %d registros fuera de la ventana)",
+                len(ventana), total_originales,
+            )
+            corte = CorteReapertura(
+                codcliente=codcliente,
+                sinRegistrosEnVentana=True,
+                totalRegistrosOriginales=total_originales,
+            )
+            return corte, pd.DataFrame(columns=COLUMNAS)
 
         # 2. Limpieza: conservar solo columnas relevantes y tipar numéricos.
         df = df[[c for c in COLUMNAS if c in df.columns]].copy()
@@ -93,7 +110,12 @@ class PreCorteReaperturaService:
         df = df.sort_values(orden).reset_index(drop=True)
 
         indicadores = self._calcular_indicadores(df)
-        corte = CorteReapertura(codcliente=codcliente, **indicadores)
+        corte = CorteReapertura(
+            codcliente=codcliente,
+            totalRegistrosOriginales=total_originales,
+            registros=df_a_registros(df),
+            **indicadores,
+        )
         return corte, df
 
     def _calcular_indicadores(self, df: pd.DataFrame) -> dict:

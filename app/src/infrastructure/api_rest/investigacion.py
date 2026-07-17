@@ -288,14 +288,15 @@ async def saldo_detalle(request: BuscarReclamoRequest) -> ResumenMedio:
 
 
 # Medios cuya disponibilidad se puede verificar (función EMAPA por medio).
+# El orden define el orden de análisis en el frontend.
 _MEDIOS_VERIFICABLES = {
     "tarjeta_lectura": lambda r: obtener_tarjeta_lectura(r.codsuc, r.codcliente),
-    "corte_reapertura": lambda r: obtener_corte_reapertura(r.codsuc, r.codcliente),
-    "inspeccion_externa": lambda r: obtener_inspeccion_externa(r.codsuc, r.codcliente),
-    "inspeccion_interna": lambda r: obtener_inspeccion_interna(r.codsuc, r.codcliente),
     "record_facturacion": lambda r: obtener_record_facturacion(r.codsuc, r.codcliente, r.anio),
+    "corte_reapertura": lambda r: obtener_corte_reapertura(r.codsuc, r.codcliente),
     "saldo_detalle": lambda r: obtener_saldo_actual(r.codsuc, r.codcliente),
     "saldo_actual": lambda r: obtener_saldo_actual(r.codsuc, r.codcliente),
+    "inspeccion_externa": lambda r: obtener_inspeccion_externa(r.codsuc, r.codcliente),
+    "inspeccion_interna": lambda r: obtener_inspeccion_interna(r.codsuc, r.codcliente),
 }
 
 

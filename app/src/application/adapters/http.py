@@ -8,6 +8,13 @@ from app.src.application.adapters.config import settings
 logger = logging.getLogger("core.http")
 
 
+class EmapaSinDatosError(Exception):
+    """La API de EMAPA respondió 200 OK pero con el cuerpo vacío (sin datos
+    para los códigos consultados), en vez de un 404. Se distingue de otros
+    errores HTTP para poder mostrar un mensaje claro en vez del error crudo
+    de parseo JSON."""
+
+
 def _crear_http_client() -> httpx.Client:
     def _log_request(request: httpx.Request) -> None:
         request.extensions["t_inicio"] = time.perf_counter()
@@ -84,6 +91,14 @@ def _request_json(
                 response.status_code,
                 t_duracion,
             )
+
+            if not response.content or not response.content.strip():
+                logger.warning(
+                    "[HTTP] %s %s | respuesta vacía (status=%d): sin datos para esta consulta",
+                    method, url, response.status_code,
+                )
+                raise EmapaSinDatosError(f"Respuesta vacía de EMAPA para {url}")
+
             return response.json()
 
         except (httpx.HTTPStatusError, httpx.RequestError) as exc:

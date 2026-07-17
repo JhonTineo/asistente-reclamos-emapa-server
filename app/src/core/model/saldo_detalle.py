@@ -27,3 +27,6 @@ class SaldoDetalle:
     cobroIndebido: list[str] = field(default_factory=list)   # importe por servicio no prestado
     mora: list[str] = field(default_factory=list)            # cobro de mora además del importe del mes
     mesesNoPagados: list[str] = field(default_factory=list)  # meses con saldo pendiente
+
+    # Detalle mensual completo de la ventana analizada (para mostrar en tabla).
+    registros: list[dict] = field(default_factory=list)

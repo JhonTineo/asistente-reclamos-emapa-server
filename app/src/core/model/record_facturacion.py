@@ -28,3 +28,6 @@ class RecordFacturacion:
     # para que al LLM le lleguen únicamente los errores encontrados.
     mesesPromediados: list[str] = field(default_factory=list)  # meses facturados por promedio
     rachaPromediados: list[str] = field(default_factory=list)  # racha promedio -> lectura (posible origen del reclamo)
+
+    # Detalle mensual completo de la ventana analizada (para mostrar en tabla).
+    registros: list[dict] = field(default_factory=list)

@@ -7,6 +7,7 @@ import pandas as pd
 
 from app.src.core.model.saldo_detalle import SaldoDetalle, SaldoMensual
 from app.src.application.adapters.emapa_api import obtener_saldo_actual
+from app.src.application.services.pre_proces.df_utils import df_a_registros
 
 
 logger = logging.getLogger("services.pre_saldo_detalle_service")
@@ -108,7 +109,9 @@ class PreSaldoDetalleService:
         tipo_servicio = None
         if "tiposervicio" in df.columns and df["tiposervicio"].notna().any():
             tipo_servicio = str(df["tiposervicio"].dropna().mode().iloc[0])
-        saldo = SaldoDetalle(codcliente=codcliente, tipoServicio=tipo_servicio, **indicadores)
+        saldo = SaldoDetalle(
+            codcliente=codcliente, tipoServicio=tipo_servicio, registros=df_a_registros(df), **indicadores
+        )
         return saldo, df
 
     def _calcular_indicadores(self, df: pd.DataFrame) -> dict:

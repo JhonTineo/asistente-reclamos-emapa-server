@@ -9,6 +9,7 @@ import pandas as pd
 from app.src.core.model.record_facturacion import RecordFacturacion, RegistroFacturacion
 from app.src.core.model.indicadores.targeta_lecturas_indicadores import INDICADORES_TARJETA_LECTURA
 from app.src.application.adapters.emapa_api import obtener_record_facturacion
+from app.src.application.services.pre_proces.df_utils import df_a_registros
 
 
 logger = logging.getLogger("services.pre_record_facturacion_service")
@@ -99,7 +100,7 @@ class PreRecordFacturacionService:
         df = df.sort_values(["anio", "mes"]).reset_index(drop=True)
 
         indicadores = self._calcular_indicadores(df)
-        record = RecordFacturacion(codcliente=codcliente, **indicadores)
+        record = RecordFacturacion(codcliente=codcliente, registros=df_a_registros(df), **indicadores)
         return record, df
 
     def _calcular_indicadores(self, df: pd.DataFrame) -> dict:

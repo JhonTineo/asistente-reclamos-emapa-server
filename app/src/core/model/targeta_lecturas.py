@@ -35,3 +35,6 @@ class TargetaLecturas:
     errorServicio: list[str] = field(default_factory=list)
     # - observaciones de lectura
     obslectura: list[str] = field(default_factory=list)
+
+    # Detalle mensual completo de la ventana analizada (para mostrar en tabla).
+    registros: list[dict] = field(default_factory=list)

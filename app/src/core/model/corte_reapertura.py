@@ -18,6 +18,9 @@ class RegistroCorteReapertura:
 class CorteReapertura:
     # Escalares
     codcliente: str | None = None
+    # Indica que la API devolvió registros pero ninguno cae en la ventana analizada.
+    sinRegistrosEnVentana: bool = False
+    totalRegistrosOriginales: int = 0
     # Conteos en la ventana
     totalCortes: int = 0
     totalReaperturas: int = 0
@@ -29,3 +32,6 @@ class CorteReapertura:
     # Hallazgos
     mesesCortados: list[str] = field(default_factory=list) # meses de la ventana con servicio cortado
     reclamosPrevios: list[str] = field(default_factory=list) # observaciones que citan "Reclamo Nro. …"
+
+    # Detalle de eventos completo de la ventana analizada (para mostrar en tabla).
+    registros: list[dict] = field(default_factory=list)
