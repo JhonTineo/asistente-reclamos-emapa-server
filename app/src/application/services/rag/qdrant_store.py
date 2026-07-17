@@ -161,3 +161,68 @@ class QdrantStore:
             collection_name=target_collection,
             points_selector=PointIdsList(points=[point_id])
         )
+
+    def search_by_keyword(
+        self,
+        keyword: str,
+        collection_name: str | None = None,
+        top_k: int = 15
+    ):
+        target_collection = collection_name or self.collection_name
+        import unicodedata
+
+        def _normalize(s: str) -> str:
+            if not s:
+                return ""
+            s = unicodedata.normalize('NFKD', str(s))
+            return "".join(c for c in s if not unicodedata.combining(c)).lower()
+
+        norm_keyword = _normalize(keyword)
+
+        # 1. Búsqueda exacta (scroll por todos los puntos de la colección para subcadena sin importar mayúsculas/ tildes)
+        exact_matches = []
+        try:
+            offset = None
+            while True:
+                results, next_offset = self.client.scroll(
+                    collection_name=target_collection,
+                    limit=100,
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=False
+                )
+                for p in results:
+                    text = p.payload.get("text", "") if p.payload else ""
+                    if norm_keyword in _normalize(text):
+                        exact_matches.append({
+                            "id": p.id,
+                            "tipo_coincidencia": "exacta (palabra clave)",
+                            "score": 1.0,
+                            "payload": p.payload
+                        })
+                offset = next_offset
+                if not offset or len(results) == 0:
+                    break
+        except Exception:
+            pass
+
+        # 2. Búsqueda semántica vectorial (embeddings) como complemento
+        semantic_matches = []
+        try:
+            from app.src.application.services.rag.embeddings import EmbeddingService
+            embedder = EmbeddingService()
+            vector = embedder.encode(keyword)
+            sem_results = self.search(vector=vector, top_k=top_k, collection_name=target_collection)
+            exact_ids = {m["id"] for m in exact_matches}
+            for p in sem_results:
+                if p["id"] not in exact_ids and p.get("score", 0) > 0.45:
+                    semantic_matches.append({
+                        "id": p["id"],
+                        "tipo_coincidencia": "semántica (similitud)",
+                        "score": round(float(p.get("score", 0)), 4),
+                        "payload": p.get("payload", {})
+                    })
+        except Exception:
+            pass
+
+        return exact_matches + semantic_matches

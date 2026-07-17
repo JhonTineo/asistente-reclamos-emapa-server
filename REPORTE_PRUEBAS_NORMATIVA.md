@@ -211,3 +211,167 @@ INFO:__main__:Chunks indexados: 383
 1. **QDRANT_URL no configurado** en `docker-compose.yml` - el contenedor no podia alcanzar Qdrant
 2. **Falta auto-creacion de coleccion** en el endpoint `actualizar-articulo`
 3. **Ruta incorrecta de PDFs** en `chunk_and_index.py` - no encontraba el archivo en la ubicacion real
+
+
+
+
+Viewed chunk_and_index.py:1-34
+
+Aquí te presento una explicación clara y detallada, formateada en Markdown, sobre cómo funciona la arquitectura de gestión de la normativa actualmente en tu sistema.
+
+# Guía Completa: Funcionamiento Dual de Gestión de Normativa en Qdrant
+
+El sistema de normativa se ha diseñado con un **enfoque dual (híbrido)** para solucionar el problema de las constantes modificaciones del reglamento de la SUNASS sin perder eficiencia ni duplicar datos.
+
+---
+
+## 1. El Concepto Clave: IDs Deterministas (`UUIDv5`)
+
+Antes, cada vez que un artículo o fragmento se insertaba en la base de datos vectorial (**Qdrant**), el sistema le asignaba un identificador aleatorio (`uuid.uuid4()`). Esto provocaba que si el mismo artículo se indexaba dos veces, se crearan duplicados idénticos en la base de datos.
+
+Ahora, el sistema utiliza una función determinista (`UUIDv5` basado en DNS) utilizando una clave única formada por tres elementos:
+$$\text{Clave} = \text{Norma} + \text{Artículo} + \text{Numeral}$$
+
+* **Ejemplo:** Para el Artículo `24`, Numeral `24.1` del *Reglamento Calidad Servicios Saneamiento*, el sistema genera la clave:
+  `"Reglamento Calidad Servicios Saneamiento|art:24|num:24.1"`
+* Esta clave se convierte siempre en el mismo ID exacto (por ejemplo: `0291db76-34a7-59c7-ba80-9ea73af443e8`).
+
+> [!IMPORTANT]
+> **Efecto Upsert:** En Qdrant, si envías un punto con un ID que ya existe, Qdrant **no lo duplica**; en su lugar, **sobrescribe (reemplaza)** automáticamente el texto y el vector antiguo con la nueva información.
+
+---
+
+## 2. Los Dos Flujos de Trabajo (Cómo interactuar con el sistema)
+
+El sistema cuenta con dos flujos independientes según la necesidad de EMAPA:
+
+```mermaid
+graph TD
+    A[Gestión de Normativa SUNASS] --> B[Flujo 1: Carga Inicial Masiva]
+    A --> C[Flujo 2: Mantenimiento Granular por Texto]
+
+    B -->|Se ejecuta 1 vez| D[Subir archivo PDF / Markdown .MD]
+    D --> E[Se corta en fragmentos y genera IDs deterministas]
+    E --> F[(Qdrant: Colección sunass_reglamento)]
+
+    C -->|Uso cotidiano en Frontend| G[Escribir en campos de texto: Artículo, Numeral y Texto]
+    G --> H{¿El ID ya existe en Qdrant?}
+    H -->|SÍ| I[ACTUALIZA el artículo existente]
+    H -->|NO| J[INSERTA el artículo nuevo]
+    I --> F
+    J --> F
+```
+
+---
+
+### Flujo 1: Carga Inicial Masiva (Vía Archivo `.pdf` o `.md`)
+* **¿Cuándo se usa?** Solo la primera vez al montar el servidor, o si la SUNASS emitiera un documento completamente nuevo desde cero de 300 páginas y quisieran reemplazar toda la base de datos de un golpe.
+
+* **¿Qué endpoint se usa?** `POST /normativa/vectorizar` (recibe un archivo `.md`) o el script `chunk_and_index.py` (recibe un `.pdf`).
+* **¿Cómo funciona?**
+  1. Lee todo el texto del archivo de golpe.
+  2. Lo divide por artículos y numerales (`legal_chunker.py`).
+  3. A cada numeral le calcula su **ID determinista** y genera su vector con el modelo de embeddings.
+  4. Sube todos los puntos a Qdrant.
+
+---
+
+### Flujo 2: Mantenimiento Dinámico y Granular (Vía Campos de Texto)
+* **¿Cuándo se usa?** Es el **flujo principal para el personal de EMAPA en el día a día**. Cuando la SUNASS modifica un par de artículos del reglamento, o cuando agregan un nuevo numeral que antes no existía. **No se sube ningún archivo ni documento.**
+* **¿Qué endpoint se usa?** `POST /normativa/actualizar-articulo`
+* **¿Cómo funciona desde el Frontend / Usuario?**
+  El usuario desde su interfaz web llena un formulario simple de tres campos de texto:
+  * **Artículo:** `18`
+  * **Numeral:** `18.2`
+  * **Texto del Artículo:** `"El usuario podrá interponer el recurso de reconsideración dentro de los 15 días hábiles..."`
+
+#### Lógica interna del servidor al recibir estos textos:
+1. **Cálculo instantáneo:** El servidor toma `"18"` y `"18.2"` y calcula su ID determinista (`UUIDv5`).
+2. **Consulta silenciosa a Qdrant:** Verifica si ese ID ya existe en la colección.
+3. **Generación de Vector:** Convierte el texto que escribió el usuario en un vector numérico (embedding).
+4. **Guardado inteligente (Upsert):**
+   * Si el artículo `18.2` **ya existía**, Qdrant reemplaza el texto viejo por el nuevo que escribió el usuario (`"operacion": "ACTUALIZADO (MODIFICADO)"`).
+   * Si el artículo `18.2` **no existía** (porque la norma añadió un numeral nuevo al reglamento), Qdrant lo agrega como un nuevo registro listo para ser buscado por el agente de Inteligencia Artificial (`"operacion": "CREADO (INSERTADO)"`).
+
+---
+
+## 3. Resumen de Endpoints Disponibles (`/normativa`)
+
+| Método | Endpoint | Entrada requerida | Propósito |
+| :--- | :--- | :--- | :--- |
+| **POST** | `/normativa/actualizar-articulo` | **JSON (Textos):** `article`, `numeral`, `text` | **Modificar o Insertar** un artículo individual sin duplicar y sin subir archivos. |
+| **POST** | `/normativa/buscar-articulo` | **JSON (Textos):** `article`, `numeral` | **Consultar** qué texto está guardado actualmente en Qdrant para un artículo específico. |
+| **POST** | `/normativa/eliminar-articulo` | **JSON (Textos):** `article`, `numeral` | **Eliminar** de Qdrant un artículo que haya sido derogado formalmente por la norma. |
+| **POST** | `/normativa/vectorizar` | **Archivo:** `.md` | **Carga masiva** opcional desde un archivo de texto en formato Markdown completo. |
+
+
+
+
+Viewed chunk_and_index.py:1-34
+
+Hemos creado exactamente **3 nuevos endpoints REST** dentro del archivo `embedding_docs.py`, todos ubicados bajo el prefijo `/normativa` para que el personal o el Frontend de EMAPA puedan gestionar el reglamento mediante campos de texto:
+
+---
+
+### 1. `POST /normativa/actualizar-articulo` (El Principal: Modificar o Insertar)
+Es el endpoint estrella de nuestra implementación. Sirve tanto para **corregir/modificar** un artículo existente como para **agregar** un artículo nuevo al reglamento.
+
+* **¿Qué JSON de texto recibe?**
+  ```json
+  {
+    "article": "24",
+    "numeral": "24.1",
+    "text": "Texto completo del artículo o numeral...",
+    "norma": "Reglamento Calidad Servicios Saneamiento",
+    "source": "Modificación EMAPA (API)",
+    "coleccion": "sunass_reglamento"
+  }
+  ```
+* **¿Qué hace exactamente internamente?**
+  1. Calcula su **ID determinista (`UUIDv5`)** al instante en base a la norma, artículo y numeral.
+  2. Consulta a la base de datos Qdrant si ya existe ese ID.
+  3. Convierte el nuevo `text` en un vector numérico (embedding).
+  4. Realiza un **Upsert** (sobrescritura sin duplicados):
+     * Si el artículo ya existía -> Lo reemplaza y responde: `"operacion": "ACTUALIZADO (MODIFICADO)"`.
+     * Si el artículo no existía -> Lo agrega y responde: `"operacion": "CREADO (INSERTADO)"`.
+
+---
+
+### 2. `POST /normativa/buscar-articulo` (Consultar / Verificar)
+Sirve para inspeccionar qué información o texto está guardado actualmente en Qdrant para un artículo específico.
+
+* **¿Qué JSON de texto recibe?**
+  ```json
+  {
+    "article": "24",
+    "numeral": "24.1",
+    "coleccion": "sunass_reglamento"
+  }
+  ```
+* **¿Qué hace exactamente?**
+  * Busca en Qdrant filtrando por los campos del payload (`article` y `numeral`).
+  * Te devuelve cuántos registros encontró (`"encontrados"`), el texto almacenado y el **`id_determinista_calculado`**.
+
+---
+
+### 3. `POST /normativa/eliminar-articulo` (Derogar / Borrar)
+Sirve para eliminar de la base de datos vectorial algún artículo o numeral que haya sido formalmente derogado de la norma.
+
+* **¿Qué JSON de texto recibe?**
+  ```json
+  {
+    "article": "24",
+    "numeral": "24.1",
+    "coleccion": "sunass_reglamento"
+  }
+  ```
+  *(También le puedes pasar directamente `"point_id": "c860243c-..."` si ya lo conoces).*
+* **¿Qué hace exactamente?**
+  * Calcula el ID del artículo y lo elimina físicamente de la colección en Qdrant devolviendo `"operacion": "ELIMINADO"`.
+
+---
+
+*(Nota: El cuarto endpoint que ves arriba del todo en Swagger, `POST /normativa/vectorizar`, es el endpoint antiguo que ya venía en tu código antes de que empezáramos, el cual servía para subir archivos completos de golpe).*
+
+
+

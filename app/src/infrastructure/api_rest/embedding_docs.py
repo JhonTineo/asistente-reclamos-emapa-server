@@ -63,6 +63,12 @@ class EliminarArticuloRequest(BaseModel):
     coleccion: str | None = "sunass_reglamento"
 
 
+class BuscarPalabraClaveRequest(BaseModel):
+    query: str
+    coleccion: str | None = "sunass_reglamento"
+    top_k: int | None = 15
+
+
 @router.post("/buscar-articulo")
 async def buscar_articulo(request: BuscarArticuloRequest):
     qdrant = QdrantStore()
@@ -151,4 +157,26 @@ async def eliminar_articulo(request: EliminarArticuloRequest):
         "operacion": "ELIMINADO",
         "id_eliminado": point_id,
         "coleccion": request.coleccion or "sunass_reglamento"
+    }
+
+
+@router.post("/buscar-palabra-clave")
+async def buscar_palabra_clave(request: BuscarPalabraClaveRequest):
+    qdrant = QdrantStore()
+    resultados = qdrant.search_by_keyword(
+        keyword=request.query,
+        collection_name=request.coleccion,
+        top_k=request.top_k or 15
+    )
+    exactos = [r for r in resultados if "exacta" in r.get("tipo_coincidencia", "")]
+    semanticos = [r for r in resultados if "semántica" in r.get("tipo_coincidencia", "")]
+
+    return {
+        "status": "ok",
+        "coleccion": request.coleccion or "sunass_reglamento",
+        "palabra_clave_buscada": request.query,
+        "total_encontrados": len(resultados),
+        "coincidencias_exactas": len(exactos),
+        "coincidencias_semanticas": len(semanticos),
+        "puntos": resultados
     }

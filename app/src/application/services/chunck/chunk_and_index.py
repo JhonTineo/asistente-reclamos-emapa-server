@@ -143,3 +143,4 @@ if __name__ == "__main__":
 
     for pdf in pdfs:
         build_index(pdf)
+        
