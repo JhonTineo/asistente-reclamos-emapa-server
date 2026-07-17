@@ -54,6 +54,18 @@ CONSULTA_POR_TIPO = {
 }
 
 
+def _concepto(detalle: str) -> str:
+    """Extrae el concepto del hallazgo (lo que va antes de ': detectado en...'),
+    que es mucho más específico que `tipo` (el grupo). `tipo` agrupa varios
+    conceptos distintos (p.ej. "Consumo excesivo" y "No registro consumo y/o
+    lectura" caen ambos en un mismo grupo), así que usar solo la query del
+    grupo hace que hallazgos muy distintos disparen la MISMA búsqueda vectorial
+    y traigan artículos que no tratan del hallazgo real. Si no hay ':' (caso de
+    saldo-detalle, cuyo detalle ya es una oración completa), se usa el texto
+    completo."""
+    return detalle.split(":", 1)[0].strip()
+
+
 class FundamentacionNormativaAgent:
 
     def __init__(self, model: str | None = None):
@@ -63,8 +75,14 @@ class FundamentacionNormativaAgent:
     # ------------------------------------------------------------------ #
     # 1) Búsqueda vectorial
     # ------------------------------------------------------------------ #
-    def buscar_articulos(self, tipo: str, detalle: str) -> list[dict]:
-        query = CONSULTA_POR_TIPO.get(tipo, detalle)
+    def buscar_articulos(self, problema: ProblemaNormado, contexto: str = "") -> list[dict]:
+        concepto_general = CONSULTA_POR_TIPO.get(problema.tipo, "")
+        concepto_especifico = _concepto(problema.detalle)
+        # El concepto específico va primero (mayor peso semántico); luego el
+        # concepto general del grupo, y por último el motivo del reclamo, que
+        # aporta el contexto real del caso (p.ej. "fuga reparada") sin el cual
+        # no se pueden recuperar los artículos que tratan ese contexto.
+        query = f"{concepto_especifico}. {concepto_general}. {contexto}".strip(". ")
         resultados = self.retriever.retrieve(
             query=query,
             top_k=TOP_K,
@@ -81,6 +99,7 @@ class FundamentacionNormativaAgent:
         problema: ProblemaNormado,
         articulos: list[dict],
         clasificacion: str = "",
+        contexto: str = "",
     ) -> dict:
         # El numeral (p.ej. "92.2") ya incluye el nº de artículo; si no hay
         # numeral, se cita el artículo (p.ej. "108").
@@ -93,23 +112,25 @@ class FundamentacionNormativaAgent:
         system = (
             "Eres un analista normativo de EMAPA. Determinas, según el "
             "Reglamento de Calidad SUNASS, qué corresponde hacer ante un "
-            "hallazgo y de quién es la responsabilidad.\n"
+            "hallazgo.\n"
             "Reglas:\n"
             "- Basáte ÚNICAMENTE en los artículos proporcionados. No inventes "
             "normas.\n"
-            "- Si los artículos no permiten determinar la responsabilidad ni que acción tomar, usa "
-            "\"no_determinable\".\n"
+            "- Si los artículos no permiten determinar qué acción tomar, usa "
+            "\"no_determinable\" en accion.\n"
             "- Cita el artículo/numeral en que te apoyas.\n"
             "Responde SOLO con un JSON válido con las claves: accion, "
-            "responsable, base_legal, justificacion.\n"
-            "responsable debe ser uno de: \"cliente\", \"empresa\", "
-            "\"no_determinable\"."
+            "base_legal, justificacion."
         )
 
         human = (
-            f"Hallazgo detectado: {problema.detalle}\n"
+            (f"Motivo del reclamo (lo que dice el cliente): {contexto}\n\n" if contexto else "")
+            + f"Hallazgo detectado: {problema.detalle}\n"
             f"Tipo de reclamo: {clasificacion or 'no especificado'}\n\n"
             f"Artículos del reglamento (recuperados):\n{articulos_texto}\n\n"
+            "Ten en cuenta el motivo del reclamo para que tu conclusión sea "
+            "coherente con lo que realmente ocurrió (p.ej. si el cliente indica "
+            "que ya reparó una fuga, evalúa la facturación considerando eso).\n\n"
             "Devuelve SOLO el JSON."
         )
 
@@ -164,10 +185,10 @@ class FundamentacionNormativaAgent:
     # ------------------------------------------------------------------ #
     # Fases separadas (para orquestación en streaming)
     # ------------------------------------------------------------------ #
-    def fundamentar_articulos(self, problema: ProblemaNormado) -> list[dict]:
+    def fundamentar_articulos(self, problema: ProblemaNormado, contexto: str = "") -> list[dict]:
         """Fase 1: busca los artículos aplicables y los asigna al problema.
         Devuelve los artículos (que se utilizan en la interpretación)."""
-        articulos = self.buscar_articulos(problema.tipo, problema.detalle)
+        articulos = self.buscar_articulos(problema, contexto)
         problema.articulos = self.articulos_a_payload(articulos)
         return articulos
 
@@ -176,20 +197,19 @@ class FundamentacionNormativaAgent:
         problema: ProblemaNormado,
         articulos: list[dict],
         clasificacion: str = "",
+        contexto: str = "",
     ) -> ProblemaNormado:
-        """Fase 2: infierencia acción/responsable/base_legal a partir de los
-        artículos hallados y rellena el problema in-place."""
+        """Fase 2: infierencia acción/base_legal a partir de los artículos
+        hallados y rellena el problema in-place."""
         if not articulos:
             problema.accion = (
                 "No se hallaron artículos aplicables con relevancia suficiente."
             )
-            problema.responsable = "no_determinable"
             problema.base_legal = None
             return problema
 
-        interp = self.interpretar(problema, articulos, clasificacion)
+        interp = self.interpretar(problema, articulos, clasificacion, contexto)
         problema.accion = interp.get("accion")
-        problema.responsable = interp.get("responsable", "no_determinable")
         problema.base_legal = interp.get("base_legal")
         return problema
 
@@ -200,16 +220,18 @@ class FundamentacionNormativaAgent:
         self,
         problema: ProblemaNormado,
         clasificacion: str = "",
+        contexto: str = "",
     ) -> ProblemaNormado:
-        articulos = self.fundamentar_articulos(problema)
-        self.fundamentar_interpretacion(problema, articulos, clasificacion)
+        articulos = self.fundamentar_articulos(problema, contexto)
+        self.fundamentar_interpretacion(problema, articulos, clasificacion, contexto)
         return problema
 
     def fundamentar_todos(
         self,
         problemas: list[ProblemaNormado],
         clasificacion: str = "",
+        contexto: str = "",
     ) -> list[ProblemaNormado]:
         for problema in problemas:
-            self.fundamentar(problema, clasificacion)
+            self.fundamentar(problema, clasificacion, contexto)
         return problemas

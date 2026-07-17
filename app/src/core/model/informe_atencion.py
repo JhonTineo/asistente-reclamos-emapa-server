@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from app.src.core.model.reclamo import Reclamo
+
 
 @dataclass
 class ProblemaNormado:
@@ -50,17 +52,24 @@ class InformeAtencion:
     numero: str
     fecha: datetime
     asunto: str
-    reclamo: str
+    reclamo: str                       # código del reclamo (codreclamo)
     suministro: str
     destinatario: str | None = None
-    clasificacion: str | None = None
-    motivo: str | None = None          # lo que reclama el cliente (JSON de búsqueda)
+    datos_reclamo: Reclamo | None = None
     objetivos: list["ObjetivoInvestigacion"] = field(default_factory=list)  # paso 2
     # --- cuerpo (se llena por medio, paso 3-4) ---
     bloques: list[BloqueMedio] = field(default_factory=list)
     ventana_meses: list[tuple[int, int]] = field(default_factory=list)
     veredicto: str | None = None       # "FUNDADO" | "INFUNDADO" (puerta lógica)
     conclusion: str | None = None      # texto de la conclusión (paso final)
+
+    @property
+    def clasificacion(self) -> str | None:
+        return self.datos_reclamo.clasificacion_reclamo if self.datos_reclamo else None
+
+    @property
+    def motivo(self) -> str | None:
+        return self.datos_reclamo.motivo_reclamo if self.datos_reclamo else None
 
     def agregar_bloque(self, bloque: BloqueMedio) -> None:
         self.bloques.append(bloque)

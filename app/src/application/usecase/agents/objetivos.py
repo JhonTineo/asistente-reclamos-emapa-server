@@ -39,6 +39,9 @@ MEDIOS = {
     "record_facturacion": (
         "Facturación de cada mes, tipo de facturación (promedio o lectura), cambios de facturación y observaciones."
     ),
+    "saldo_detalle": (
+        "Pagos por mes: cobro indebido por servicio no prestado, cobro de mora y meses pendientes de pago."
+    ),
 }
 
 

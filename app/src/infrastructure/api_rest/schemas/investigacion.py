@@ -63,6 +63,15 @@ class InformeResponse(BaseModel):
     tiempo: float
 
 
+class InformePreviewRequest(BaseModel):
+    codreclamo: str = Field(description="Código del reclamo (clave del informe en el store)")
+
+
+class InformePreviewResponse(BaseModel):
+    codreclamo: str
+    informe: str
+
+
 class ConciliacionRequest(BaseModel):
     codsuc: str = Field(description="Código de sucursal")
     codcliente: str = Field(description="Código de cliente")
@@ -104,6 +113,18 @@ class BuscarReclamoRequest(BaseModel):
     modelo: str | None = None
 
 
+class ReclamoSchema(BaseModel):
+    codcliente: str | None = None
+    reclamante: str | None = None
+    propietario: str | None = None
+    tipo_reclamo: str | None = None
+    clasificacion_reclamo: str | None = None
+    motivo_reclamo: str | None = None
+    meses_reclamados: str | None = None
+    fecha_recepcion: str | None = None
+    estado_reclamo: str | None = None
+
+
 class InformeMetadata(BaseModel):
     numero: str
     fecha: str
@@ -111,6 +132,7 @@ class InformeMetadata(BaseModel):
     reclamo: str
     suministro: str
     destinatario: str | None = None
+    datos_reclamo: ReclamoSchema | None = None
 
 
 class BuscarReclamoResponse(BaseModel):

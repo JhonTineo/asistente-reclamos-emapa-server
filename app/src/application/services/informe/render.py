@@ -30,13 +30,11 @@ def _render_bloque(indice: int, bloque: BloqueMedio) -> str:
     if bloque.tiene_problemas:
         lineas.append("   Se detalla a continuación:")
         for p in bloque.problemas:
-            responsable = p.responsable or "no_determinable"
             base = f" ({p.base_legal})" if p.base_legal else ""
             accion = p.accion or "Sin acción determinada."
             lineas.append(
                 f"   - {p.detalle}\n"
-                f"     Acción: {accion}\n"
-                f"     Responsabilidad: {responsable}{base}"
+                f"     Acción: {accion}{base}"
             )
 
     return "\n".join(lineas)
@@ -66,6 +64,6 @@ def construir_texto_informe(informe: InformeAtencion) -> str:
     partes = ["\n".join(cabecera), "\n\n".join(cuerpo)]
 
     if informe.conclusion:
-        partes.append("\nEn consecuencia, " + informe.conclusion)
+        partes.append("\nCONCLUSIÓN:\n" + informe.conclusion)
 
     return "\n".join(partes).strip()

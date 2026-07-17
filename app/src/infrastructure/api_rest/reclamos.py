@@ -5,9 +5,12 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from app.src.application.usecase.agents.analizador import AnalizadorAgent
 from app.src.application.usecase.agents.clasificador_rapido import clasificar_rapido
-from app.src.infrastructure.api_rest.schemas.investigacion import BuscarReclamoResponse, InformeMetadata
+from app.src.infrastructure.api_rest.schemas.investigacion import (
+    BuscarReclamoResponse, InformeMetadata, ReclamoSchema,
+)
 from app.src.application.adapters.emapa_api import buscar_reclamo_emapa
 from app.src.application.services.informe.informe_store import informe_store
+from app.src.core.model.reclamo import Reclamo
 from app.src.infrastructure.api_rest.deps import usar_token_emapa, requerir_token_emapa
 
 logger = logging.getLogger("api.clasificador")
@@ -103,13 +106,26 @@ async def buscar_reclamo(
     motivo = _campo_reclamo(datos, "motivo")
     clasificacion = _campo_reclamo(datos, "desCodReclamo")
 
+    # Entidad de dominio Reclamo: datos de EMAPA que el resto de la
+    # investigación necesita, ya tipados (se arma una sola vez aquí).
+    datos_reclamo = Reclamo(
+        codcliente=_campo_reclamo(datos, "codcliente") or None,
+        reclamante=_campo_reclamo(datos, "reclamante") or None,
+        propietario=_campo_reclamo(datos, "propietario") or None,
+        tipo_reclamo=_campo_reclamo(datos, "descTipoReclamo") or None,
+        clasificacion_reclamo=clasificacion or None,
+        motivo_reclamo=motivo or None,
+        meses_reclamados=_campo_reclamo(datos, "mesanio") or None,
+        fecha_recepcion=_campo_reclamo(datos, "fecharec") or None,
+        estado_reclamo=_campo_reclamo(datos, "descEstadoRec") or None,
+    )
+
     # Se crean los metadatos del informe de atención y quedan en el
     # store, listos para ir llenándose con cada medio analizado.
     informe = informe_store.crear_metadata(
         codreclamo=codreclamo,
         suministro=codcliente,
-        clasificacion=clasificacion or None,
-        motivo=motivo,
+        datos_reclamo=datos_reclamo,
     )
     # Se guarda el token con el que se buscó el reclamo para reutilizarlo en
     # las consultas de investigación de este mismo reclamo.
@@ -125,6 +141,7 @@ async def buscar_reclamo(
             reclamo=informe.reclamo,
             suministro=informe.suministro,
             destinatario=informe.destinatario,
+            datos_reclamo=ReclamoSchema(**vars(informe.datos_reclamo)) if informe.datos_reclamo else None,
         ),
         tiempo=tiempo,
     )

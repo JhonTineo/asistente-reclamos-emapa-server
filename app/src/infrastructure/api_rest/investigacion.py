@@ -14,6 +14,8 @@ from app.src.infrastructure.api_rest.schemas.investigacion import (
     ProblemaNormadoSchema,
     InformeRequest,
     InformeResponse,
+    InformePreviewRequest,
+    InformePreviewResponse,
     ProblemaInforme,
     ConciliacionRequest,
     ConciliacionResponse,
@@ -377,17 +379,17 @@ async def medios_disponibles(request: MediosDisponiblesRequest) -> MediosDisponi
     return MediosDisponiblesResponse(codreclamo=request.codreclamo, medios=list(medios), tiempo=tiempo)
 
 
-@router.post("/investigacion/informe", response_model=InformeResponse)
-async def generar_informe(request: InformeRequest) -> InformeResponse:
+@router.post("/investigacion/conclusion", response_model=InformeResponse)
+async def generar_conclusion(request: InformeRequest) -> InformeResponse:
     """
-    Cierra el informe de atención: recupera el informe (con los bloques ya
+    Concluye el informe de atención: recupera el informe (con los bloques ya
     llenados por cada medio), fundamenta normativamente cada problema
     detectado y devuelve el texto final en lenguaje natural.
     """
     t_inicio = time.perf_counter()
 
     logger.info("=" * 60)
-    logger.info("[API /investigacion/informe] codreclamo=%s", request.codreclamo)
+    logger.info("[API /investigacion/conclusion] codreclamo=%s", request.codreclamo)
 
     informe = informe_store.obtener(request.codreclamo)
     if informe is None:
@@ -395,7 +397,7 @@ async def generar_informe(request: InformeRequest) -> InformeResponse:
             status_code=404,
             detail=(
                 f"No hay un informe en curso para el reclamo {request.codreclamo}. "
-                "Busque el reclamo y analice al menos un medio antes de generarlo."
+                "Busque el reclamo y analice al menos un medio antes de concluirlo."
             ),
         )
 
@@ -406,7 +408,7 @@ async def generar_informe(request: InformeRequest) -> InformeResponse:
     problemas_resp: list[ProblemaInforme] = []
     total_problemas = sum(len(b.problemas) for b in informe.bloques)
     logger.info(
-        "[API /investigacion/informe] Fundamentando %d problema(s) en %d bloque(s)",
+        "[API /investigacion/conclusion] Fundamentando %d problema(s) en %d bloque(s)",
         total_problemas, len(informe.bloques),
     )
     idx = 0
@@ -414,10 +416,10 @@ async def generar_informe(request: InformeRequest) -> InformeResponse:
         for problema in bloque.problemas:
             idx += 1
             logger.info(
-                "[API /investigacion/informe] Problema %d/%d | medio=%s | tipo=%s",
+                "[API /investigacion/conclusion] Problema %d/%d | medio=%s | tipo=%s",
                 idx, total_problemas, bloque.medio_id, problema.tipo,
             )
-            fundamentador.fundamentar(problema, clasificacion)
+            fundamentador.fundamentar(problema, clasificacion, contexto=informe.motivo or "")
             problemas_resp.append(
                 ProblemaInforme(
                     medio_id=bloque.medio_id,
@@ -436,7 +438,7 @@ async def generar_informe(request: InformeRequest) -> InformeResponse:
 
     tiempo = time.perf_counter() - t_inicio
     logger.info(
-        "[API /investigacion/informe] COMPLETADO | veredicto=%s | bloques=%d | problemas=%d | tiempo=%.2fs",
+        "[API /investigacion/conclusion] COMPLETADO | veredicto=%s | bloques=%d | problemas=%d | tiempo=%.2fs",
         veredicto, len(informe.bloques), len(problemas_resp), tiempo,
     )
     logger.info("=" * 60)
@@ -449,9 +451,29 @@ async def generar_informe(request: InformeRequest) -> InformeResponse:
     )
 
 
-@router.post("/investigacion/informe/stream")
-async def generar_informe_stream(request: InformeRequest) -> StreamingResponse:
-    """Cierra el informe en streaming (NDJSON). Por cada problema de cada medio
+@router.post("/investigacion/informe/preview", response_model=InformePreviewResponse)
+async def informe_preview(request: InformePreviewRequest) -> InformePreviewResponse:
+    """
+    Devuelve el texto del informe con los bloques registrados hasta el momento
+    (metadatos + resumen de cada medio ya analizado), sin fundamentación
+    normativa ni conclusión. No llama al LLM: es solo el renderizado del estado
+    actual del informe en el store. Sirve para mostrar un borrador en vivo
+    mientras se van analizando los medios probatorios (p.ej. con "Investigar
+    todo"), y para obtener la cabecera del informe apenas se busca el reclamo.
+    """
+    informe = informe_store.obtener(request.codreclamo)
+    if informe is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No hay un informe en curso para el reclamo {request.codreclamo}. Busque el reclamo primero.",
+        )
+    texto = construir_texto_informe(informe)
+    return InformePreviewResponse(codreclamo=request.codreclamo, informe=texto)
+
+
+@router.post("/investigacion/conclusion/stream")
+async def generar_conclusion_stream(request: InformeRequest) -> StreamingResponse:
+    """Concluye el informe en streaming (NDJSON). Por cada problema de cada medio
     emite dos eventos a medida que se producen:
 
     1. ``articulos``: los artículos SUNASS recuperados para ese problema.
@@ -463,7 +485,7 @@ async def generar_informe_stream(request: InformeRequest) -> StreamingResponse:
     async def generador():
         t_inicio = time.perf_counter()
         logger.info("=" * 60)
-        logger.info("[API /investigacion/informe/stream] codreclamo=%s", request.codreclamo)
+        logger.info("[API /investigacion/conclusion/stream] codreclamo=%s", request.codreclamo)
 
         informe = informe_store.obtener(request.codreclamo)
         if informe is None:
@@ -471,7 +493,7 @@ async def generar_informe_stream(request: InformeRequest) -> StreamingResponse:
                 "evento": "error",
                 "error": (
                     f"No hay un informe en curso para el reclamo {request.codreclamo}. "
-                    "Busque el reclamo y analice al menos un medio antes de generarlo."
+                    "Busque el reclamo y analice al menos un medio antes de concluirlo."
                 ),
             }, ensure_ascii=False) + "\n"
             return
@@ -491,7 +513,7 @@ async def generar_informe_stream(request: InformeRequest) -> StreamingResponse:
                 for problema in bloque.problemas:
                     # --- Fase 1: recuperación de artículos -------------------
                     articulos = await run_in_threadpool(
-                        fundamentador.fundamentar_articulos, problema
+                        fundamentador.fundamentar_articulos, problema, informe.motivo or "",
                     )
                     yield json.dumps({
                         "evento": "articulos",
@@ -505,7 +527,7 @@ async def generar_informe_stream(request: InformeRequest) -> StreamingResponse:
                     # --- Fase 2: inferencia del LLM --------------------------
                     await run_in_threadpool(
                         fundamentador.fundamentar_interpretacion,
-                        problema, articulos, clasificacion,
+                        problema, articulos, clasificacion, informe.motivo or "",
                     )
                     yield json.dumps({
                         "evento": "fundamentacion",
@@ -551,12 +573,12 @@ async def generar_informe_stream(request: InformeRequest) -> StreamingResponse:
             }, ensure_ascii=False) + "\n"
 
             logger.info(
-                "[API /investigacion/informe/stream] COMPLETADO | bloques=%d | problemas=%d | tiempo=%.2fs",
+                "[API /investigacion/conclusion/stream] COMPLETADO | bloques=%d | problemas=%d | tiempo=%.2fs",
                 len(informe.bloques), len(problemas_resp), tiempo,
             )
             logger.info("=" * 60)
         except Exception as e:  # noqa: BLE001
-            logger.exception("[API /investigacion/informe/stream] ERROR")
+            logger.exception("[API /investigacion/conclusion/stream] ERROR")
             yield json.dumps({"evento": "error", "error": str(e)}, ensure_ascii=False) + "\n"
 
     return StreamingResponse(generador(), media_type="application/x-ndjson")

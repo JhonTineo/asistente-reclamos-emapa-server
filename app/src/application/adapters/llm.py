@@ -144,3 +144,69 @@ def listar_modelos() -> list[str]:
     except Exception as exc:
         logger.warning("No se pudo listar modelos de Ollama: %s", exc)
         return []
+
+
+# Tiempo que el modelo queda residente en memoria sin recibir peticiones antes
+# de que Ollama lo descargue por su cuenta (no hay temporizador propio aquí).
+KEEP_ALIVE_INACTIVIDAD = "5m"
+
+
+def modelos_cargados() -> list[str]:
+    """Modelos actualmente residentes en memoria (RAM/VRAM) según Ollama."""
+    ollama_url = _resolver_ollama_base_url().rstrip("/")
+    endpoint = f"{ollama_url}/api/ps"
+    try:
+        response = httpx.get(endpoint, timeout=20.0)
+        response.raise_for_status()
+        payload = response.json()
+        return [m.get("name") for m in payload.get("models", []) if m.get("name")]
+    except Exception as exc:
+        logger.warning("No se pudo consultar modelos cargados de Ollama: %s", exc)
+        return []
+
+
+def _set_keep_alive(model: str, keep_alive: str | int) -> dict:
+    """Pide a Ollama cargar/descargar `model` sin generar tokens.
+
+    Se omite la clave `prompt` (no se manda vacía) para que /api/generate solo
+    cargue el modelo en memoria y responda de inmediato con done=true."""
+    ollama_url = _resolver_ollama_base_url().rstrip("/")
+    endpoint = f"{ollama_url}/api/generate"
+    payload = {"model": model, "keep_alive": keep_alive}
+
+    t_inicio = time.perf_counter()
+    try:
+        response = httpx.post(endpoint, json=payload, timeout=300.0)
+        response.raise_for_status()
+        data = response.json()
+        tiempo = time.perf_counter() - t_inicio
+        logger.info(
+            "[OLLAMA] '%s' keep_alive=%s | done=%s | tiempo=%.2fs",
+            model, keep_alive, data.get("done"), tiempo,
+        )
+        return {
+            "modelo": model,
+            "ok": bool(data.get("done")),
+            "en_memoria": model in modelos_cargados(),
+            "tiempo": tiempo,
+        }
+    except Exception as exc:
+        logger.warning("[OLLAMA] Fallo keep_alive=%s para '%s': %s", keep_alive, model, exc)
+        return {
+            "modelo": model,
+            "ok": False,
+            "en_memoria": False,
+            "tiempo": time.perf_counter() - t_inicio,
+            "error": str(exc),
+        }
+
+
+def cargar_modelo(model: str) -> dict:
+    """Precarga el modelo en memoria (keep_alive=5m). Ollama lo descarga solo
+    tras 5 minutos de inactividad; no hay temporizador propio en el backend."""
+    return _set_keep_alive(model, KEEP_ALIVE_INACTIVIDAD)
+
+
+def descargar_modelo(model: str) -> dict:
+    """Libera el modelo de memoria de inmediato (keep_alive=0)."""
+    return _set_keep_alive(model, 0)

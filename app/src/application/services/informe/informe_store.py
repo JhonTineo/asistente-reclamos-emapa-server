@@ -10,6 +10,7 @@ import threading
 from datetime import datetime
 
 from app.src.core.model.informe_atencion import InformeAtencion, BloqueMedio
+from app.src.core.model.reclamo import Reclamo
 
 logger = logging.getLogger("services.informe_store")
 
@@ -32,8 +33,7 @@ class InformeAtencionStore:
         self,
         codreclamo: str,
         suministro: str,
-        clasificacion: str | None,
-        motivo: str | None = None,
+        datos_reclamo: Reclamo | None = None,
     ) -> InformeAtencion:
         return InformeAtencion(
             numero=f"{codreclamo}-{datetime.now():%Y}-EMAPA-SM",
@@ -42,20 +42,18 @@ class InformeAtencionStore:
             reclamo=codreclamo,
             suministro=suministro,
             destinatario=DESTINATARIO_DEFAULT,
-            clasificacion=clasificacion,
-            motivo=motivo,
+            datos_reclamo=datos_reclamo,
         )
 
     def crear_metadata(
         self,
         codreclamo: str,
         suministro: str,
-        clasificacion: str | None = None,
-        motivo: str | None = None,
+        datos_reclamo: Reclamo | None = None,
     ) -> InformeAtencion:
         """Crea (o reinicia) el informe con solo sus metadatos."""
         with self._lock:
-            informe = self._nuevo_informe(codreclamo, suministro, clasificacion, motivo)
+            informe = self._nuevo_informe(codreclamo, suministro, datos_reclamo)
             self._data[codreclamo] = informe
             logger.info("[INFORME_STORE] Metadatos creados para reclamo %s", codreclamo)
             return informe
@@ -89,13 +87,17 @@ class InformeAtencionStore:
                     "[INFORME_STORE] Informe %s inexistente; creando al vuelo",
                     codreclamo,
                 )
-                informe = self._nuevo_informe(
-                    codreclamo, suministro or codreclamo, clasificacion
-                )
+                datos_reclamo = Reclamo(clasificacion_reclamo=clasificacion) if clasificacion else None
+                informe = self._nuevo_informe(codreclamo, suministro or codreclamo, datos_reclamo)
                 self._data[codreclamo] = informe
 
+            # `clasificacion` es de solo lectura (se deriva de datos_reclamo);
+            # si aún no se conocía, se completa aquí sobre la misma entidad.
             if clasificacion and not informe.clasificacion:
-                informe.clasificacion = clasificacion
+                if informe.datos_reclamo is None:
+                    informe.datos_reclamo = Reclamo(clasificacion_reclamo=clasificacion)
+                else:
+                    informe.datos_reclamo.clasificacion_reclamo = clasificacion
 
             # Reemplaza el bloque del mismo medio si ya se había analizado.
             informe.bloques = [

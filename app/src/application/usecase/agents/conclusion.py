@@ -24,10 +24,6 @@ logger = logging.getLogger("agent.conclusion")
 
 RESULTADOS_VALIDOS = {"problema_empresa", "sin_problema", "no_evaluable"}
 
-# Tope defensivo de la evidencia (por si el LLM ignora la instrucción de
-# brevedad y copia el resumen completo del medio como "evidencia").
-_MAX_CHARS_EVIDENCIA = 100
-
 
 class ConclusionAgent:
 
@@ -50,8 +46,8 @@ class ConclusionAgent:
             )
             return informe.veredicto
 
-        hallazgos = self._resumir_hallazgos(informe)
-        evaluaciones = self._evaluar_objetivos(informe, hallazgos)
+        hallazgos_por_medio = self._hallazgos_por_medio(informe)
+        evaluaciones = self._evaluar_objetivos(informe, hallazgos_por_medio)
 
         # Vuelca la evaluación (por id de objetivo) sobre cada objetivo.
         for obj in informe.objetivos:
@@ -66,7 +62,12 @@ class ConclusionAgent:
         veredicto = "FUNDADO" if con_problema else "INFUNDADO"
 
         informe.veredicto = veredicto
-        informe.conclusion = self._construir_conclusion(veredicto, determinantes, con_problema)
+        # El veredicto lo fija la puerta lógica (arriba); el LLM SOLO redacta el
+        # párrafo que lo fundamenta (no puede cambiarlo). Si el LLM falla, se usa
+        # la plantilla determinista como respaldo.
+        informe.conclusion = self._redactar_conclusion(
+            informe, veredicto, determinantes, con_problema, hallazgos_por_medio
+        )
 
         logger.info(
             "[CONCLUSION] veredicto=%s | determinantes=%d | con_problema_empresa=%d",
@@ -83,32 +84,58 @@ class ConclusionAgent:
     # Evaluación de objetivos (LLM, tarea acotada)
     # ------------------------------------------------------------------ #
     @staticmethod
-    def _resumir_hallazgos(informe: InformeAtencion) -> str:
-        lineas: list[str] = []
+    def _hallazgos_por_medio(informe: InformeAtencion) -> dict[str, str]:
+        """medio_id -> texto de hallazgos de ESE medio (resumen + problemas).
+        Se mantiene separado por medio para que, al evaluar un objetivo que
+        apunta a un medio concreto, el LLM reciba SOLO lo relevante y no
+        termine citando como evidencia el hallazgo de otro medio sin relación."""
+        por_medio: dict[str, str] = {}
         for bloque in informe.bloques:
-            lineas.append(f"[{bloque.medio_id}] {bloque.medio_nombre}: {bloque.resumen}")
+            lineas = [f"[{bloque.medio_id}] {bloque.medio_nombre}: {bloque.resumen}"]
             for p in bloque.problemas:
-                responsable = p.responsable or "no_determinable"
-                lineas.append(f"    · {p.detalle} (responsabilidad: {responsable})")
-        return "\n".join(lineas) if lineas else "(sin hallazgos registrados)"
+                accion = f" · acción: {p.accion}" if p.accion else ""
+                lineas.append(f"    · {p.detalle}{accion}")
+            por_medio[bloque.medio_id] = "\n".join(lineas)
+        return por_medio
 
-    def _evaluar_objetivos(self, informe: InformeAtencion, hallazgos: str) -> dict[int, dict]:
-        objetivos_texto = "\n".join(
-            f"{o.id}. {o.descripcion}" + (f" [medio: {o.medio}]" if o.medio else "")
-            for o in informe.objetivos
+    def _evaluar_objetivos(
+        self, informe: InformeAtencion, hallazgos_por_medio: dict[str, str],
+    ) -> dict[int, dict]:
+        todos_los_hallazgos = (
+            "\n".join(hallazgos_por_medio.values()) or "(sin hallazgos registrados)"
         )
+
+        # Cada objetivo se lista junto a SOLO los hallazgos de su medio (si lo
+        # tiene asignado); si no tiene medio asignado, recibe todos los
+        # hallazgos como contexto general. Así se evita que la evaluación de
+        # un objetivo se apoye en hallazgos de un medio no relacionado.
+        bloques_objetivo = []
+        for o in informe.objetivos:
+            etiqueta = f"{o.id}. {o.descripcion}" + (f" [medio: {o.medio}]" if o.medio else "")
+            hallazgos_obj = (
+                hallazgos_por_medio.get(o.medio, "(el medio aún no fue analizado)")
+                if o.medio else todos_los_hallazgos
+            )
+            bloques_objetivo.append(
+                f"{etiqueta}\nHallazgos del medio asignado a este objetivo:\n{hallazgos_obj}"
+            )
+        objetivos_texto = "\n\n".join(bloques_objetivo)
 
         system = (
             "Eres un analista de reclamos de EMAPA. Evalúas cada objetivo de la "
-            "investigación contra los hallazgos de los medios probatorios.\n"
+            "investigación contra LOS HALLAZGOS QUE SE LISTAN DEBAJO DE ESE MISMO "
+            "OBJETIVO (no contra los de otros objetivos).\n"
             "Para cada objetivo responde uno de estos resultados:\n"
-            "- \"problema_empresa\": los hallazgos muestran un problema atribuible a "
-            "la EMPRESA relacionado con el objetivo (p.ej. error de medición, medidor "
-            "defectuoso, lectura mal registrada).\n"
+            "- \"problema_empresa\": los hallazgos de SU medio muestran un problema "
+            "atribuible a la EMPRESA relacionado con el objetivo (p.ej. error de "
+            "medición, medidor defectuoso, lectura mal registrada).\n"
             "- \"sin_problema\": no se halló tal problema (todo correcto, o el problema "
             "es responsabilidad del cliente).\n"
-            "- \"no_evaluable\": los hallazgos no permiten evaluar el objetivo.\n"
-            "Básate ÚNICAMENTE en los hallazgos proporcionados. No inventes.\n"
+            "- \"no_evaluable\": los hallazgos de su medio no permiten evaluar el "
+            "objetivo (p.ej. el medio aún no fue analizado).\n"
+            "Básate ÚNICAMENTE en los hallazgos listados debajo de cada objetivo. "
+            "NUNCA uses como evidencia un hallazgo de un medio distinto al asignado "
+            "al objetivo. No inventes.\n"
             "Responde SOLO con un JSON: una lista de objetos con las claves "
             "\"id\" (número del objetivo), \"resultado\" y \"evidencia\".\n"
             "\"evidencia\" debe ser una frase MUY BREVE (máximo 12 palabras) citando el "
@@ -118,8 +145,8 @@ class ConclusionAgent:
         )
         human = (
             f"Motivo del reclamo:\n{informe.motivo or 'no especificado'}\n\n"
-            f"Objetivos de la investigación:\n{objetivos_texto}\n\n"
-            f"Hallazgos de la investigación:\n{hallazgos}\n\n"
+            f"Objetivos de la investigación (cada uno con sus hallazgos relevantes):\n"
+            f"{objetivos_texto}\n\n"
             "Devuelve SOLO el JSON."
         )
 
@@ -154,8 +181,6 @@ class ConclusionAgent:
             except (TypeError, ValueError):
                 continue
             evidencia = (str(item.get("evidencia") or "")).strip()
-            if len(evidencia) > _MAX_CHARS_EVIDENCIA:
-                evidencia = evidencia[:_MAX_CHARS_EVIDENCIA].rstrip() + "…"
             evaluaciones[oid] = {
                 "resultado": item.get("resultado"),
                 "evidencia": evidencia or None,
@@ -163,7 +188,96 @@ class ConclusionAgent:
         return evaluaciones
 
     # ------------------------------------------------------------------ #
-    # Texto de conclusión (determinista, coherente con la puerta lógica)
+    # Redacción de la conclusión (LLM, coherente con la puerta lógica)
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _contexto_normativo(informe: InformeAtencion) -> str:
+        """Reúne, por cada problema hallado, su detalle + responsable + acción +
+        base legal + el texto de los artículos citados, para que el LLM pueda
+        redactar la conclusión citando la norma (no solo repetir el objetivo)."""
+        lineas: list[str] = []
+        for bloque in informe.bloques:
+            for p in bloque.problemas:
+                partes = [f"- [{bloque.medio_id}] {p.detalle}"]
+                if p.responsable:
+                    partes.append(f"  responsable: {p.responsable}")
+                if p.accion:
+                    partes.append(f"  acción: {p.accion}")
+                if p.base_legal:
+                    partes.append(f"  base legal: {p.base_legal}")
+                for art in (p.articulos or []):
+                    texto = (art.get("texto") or "").strip()
+                    if texto:
+                        num = art.get("numeral") or art.get("article") or ""
+                        partes.append(f"  Art. {num}: {texto}")
+                lineas.append("\n".join(partes))
+        return "\n".join(lineas) if lineas else "(sin problemas fundamentados)"
+
+    def _redactar_conclusion(
+        self,
+        informe: InformeAtencion,
+        veredicto: str,
+        determinantes: list[ObjetivoInvestigacion],
+        con_problema: list[ObjetivoInvestigacion],
+        hallazgos_por_medio: dict[str, str],
+    ) -> str:
+        """Pide al LLM el párrafo de conclusión. El veredicto YA está decidido
+        por la puerta lógica; el modelo solo lo fundamenta (no puede cambiarlo).
+        Ante cualquier fallo, cae a la plantilla determinista."""
+        objetivos_texto = "\n".join(
+            f"{o.id}. {o.descripcion} "
+            f"[determinante={'sí' if o.determinante else 'no'}, "
+            f"resultado={o.resultado or 'no_evaluable'}"
+            + (f", evidencia: {o.evidencia}" if o.evidencia else "")
+            + "]"
+            for o in informe.objetivos
+        )
+        contexto_normativo = self._contexto_normativo(informe)
+
+        system = (
+            "Eres un analista de reclamos de EMAPA que redacta la CONCLUSIÓN de un "
+            "informe de atención, según el Reglamento de Calidad SUNASS.\n"
+            "IMPORTANTE: el veredicto ya fue determinado por una regla y NO puedes "
+            "cambiarlo; tu tarea es redactar el párrafo que lo fundamenta.\n"
+            "Reglas de redacción:\n"
+            "- Escribe UN párrafo formal y claro (sin viñetas ni JSON).\n"
+            "- Fundamenta con los hallazgos y los artículos citados que se te dan; "
+            "cita el artículo/numeral cuando corresponda. NO inventes artículos ni "
+            "cifras que no estén en el contexto.\n"
+            "- Sé coherente con el motivo del reclamo (p.ej. si el cliente reparó una "
+            "fuga, considéralo al explicar la facturación que corresponde).\n"
+            "- Cierra la conclusión declarando expresamente que el reclamo se declara "
+            f"{veredicto}.\n"
+            "Responde SOLO con el párrafo de conclusión, sin encabezados."
+        )
+        human = (
+            f"Veredicto ya determinado (NO modificar): {veredicto}\n\n"
+            f"Motivo del reclamo:\n{informe.motivo or 'no especificado'}\n\n"
+            f"Objetivos de la investigación y su resultado:\n{objetivos_texto}\n\n"
+            "Redacta la conclusión."
+        )
+
+        logger.debug("[PROMPT conclusion_redaccion][SYSTEM]\n%s", system)
+        logger.debug("[PROMPT conclusion_redaccion][HUMAN]\n%s", human)
+
+        try:
+            response = self.llm.invoke([
+                SystemMessage(content=system),
+                HumanMessage(content=human),
+            ])
+            log_uso_llm(logger, "conclusion_redaccion", response)
+            texto = (response.content or "").strip()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[CONCLUSION] Falló la redacción con LLM: %s", e)
+            texto = ""
+
+        if not texto:
+            logger.warning("[CONCLUSION] Redacción LLM vacía; uso plantilla de respaldo")
+            return self._construir_conclusion(veredicto, determinantes, con_problema)
+        return texto
+
+    # ------------------------------------------------------------------ #
+    # Texto de conclusión (determinista, respaldo si falla el LLM)
     # ------------------------------------------------------------------ #
     @staticmethod
     def _construir_conclusion(
@@ -177,16 +291,17 @@ class ConclusionAgent:
                 for o in con_problema
             )
             return (
-                "el reclamo se declara FUNDADO, por cuanto la investigación halló al "
-                f"menos un problema atribuible a la empresa: {motivos}."
+                "En consecuencia, el reclamo se declara FUNDADO, por cuanto la "
+                f"investigación halló al menos un problema atribuible a la empresa: {motivos}."
             )
         if determinantes:
             detalle = "; ".join(o.descripcion for o in determinantes)
             return (
-                "el reclamo se declara INFUNDADO, por cuanto no se hallaron problemas "
-                f"atribuibles a la empresa en las verificaciones determinantes ({detalle})."
+                "En consecuencia, el reclamo se declara INFUNDADO, por cuanto no se "
+                f"hallaron problemas atribuibles a la empresa en las verificaciones "
+                f"determinantes ({detalle})."
             )
         return (
-            "el reclamo se declara INFUNDADO, por cuanto no se hallaron problemas "
-            "atribuibles a la empresa en la investigación."
+            "En consecuencia, el reclamo se declara INFUNDADO, por cuanto no se "
+            "hallaron problemas atribuibles a la empresa en la investigación."
         )
