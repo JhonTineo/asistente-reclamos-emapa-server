@@ -587,26 +587,42 @@ async def generar_conclusion_stream(request: InformeRequest) -> StreamingRespons
 @router.post("/conciliacion/propuesta", response_model=ConciliacionResponse)
 async def generar_propuesta(request: ConciliacionRequest) -> ConciliacionResponse:
     """
-    Genera la propuesta de conciliación a partir del informe de atención.
+    Genera la propuesta de conciliación a partir de la CONCLUSIÓN del informe de
+    atención (leída del store), no del texto completo del informe.
     """
     t_inicio = time.perf_counter()
 
     logger.info("=" * 60)
-    logger.info("[API /conciliacion/propuesta] Solicitud recibida")
-    logger.info("[API /conciliacion/propuesta] codreclamo=%s | clasificacion=%s",
-                request.codreclamo, request.clasificacion)
-    logger.info("[API /conciliacion/propuesta] Longitud informe: %d caracteres", len(request.informe_atencion))
+    logger.info("[API /conciliacion/propuesta] codreclamo=%s", request.codreclamo)
+
+    informe = informe_store.obtener(request.codreclamo)
+    if informe is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No hay un informe en curso para el reclamo {request.codreclamo}. "
+                "Genere el informe de atención antes de la propuesta de conciliación."
+            ),
+        )
+    if not informe.conclusion or not informe.veredicto:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "El informe aún no tiene conclusión con veredicto. Genere el "
+                "informe (paso de conclusión) antes de la propuesta."
+            ),
+        )
 
     conciliador = ConciliadorAgent(model=request.modelo)
-    resultado = conciliador.generar_propuesta(
-        codreclamo=request.codreclamo,
-        clasificacion=request.clasificacion,
-        informe_atencion=request.informe_atencion,
+    resultado = await run_in_threadpool(
+        conciliador.generar_propuesta,
+        request.codreclamo, informe.veredicto, informe.conclusion, informe.numero,
     )
 
     tiempo = time.perf_counter() - t_inicio
 
-    logger.info("[API /conciliacion/propuesta] COMPLETADO | tiempo=%.2fs", tiempo)
+    logger.info("[API /conciliacion/propuesta] COMPLETADO | veredicto=%s | tiempo=%.2fs",
+                informe.veredicto, tiempo)
     logger.info("=" * 60)
 
     return ConciliacionResponse(
@@ -619,21 +635,40 @@ async def generar_propuesta(request: ConciliacionRequest) -> ConciliacionRespons
 @router.post("/resolucion", response_model=ResolucionResponse)
 async def generar_resolucion(request: ResolucionRequest) -> ResolucionResponse:
     """
-    Genera la resolución final del reclamo (fundada o infundada).
-    El modelo determina automáticamente si es fundada o infundada.
+    Genera la resolución final del reclamo. El tipo (FUNDADO/INFUNDADO) NO lo
+    decide el LLM: se toma del veredicto ya fijado en el informe (paso de
+    conclusión); el LLM solo redacta los considerandos que lo fundamentan,
+    usando los datos del reclamo y la conclusión de la investigación (ambos
+    leídos del informe en el store) más la propuesta de conciliación de la
+    empresa y la postura del cliente.
     """
     t_inicio = time.perf_counter()
 
     logger.info("=" * 60)
-    logger.info("[API /resolucion] Solicitud recibida")
     logger.info("[API /resolucion] codreclamo=%s", request.codreclamo)
 
+    informe = informe_store.obtener(request.codreclamo)
+    if informe is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No hay un informe en curso para el reclamo {request.codreclamo}. "
+                "Genere el informe de atención antes de la resolución."
+            ),
+        )
+    if not informe.conclusion or not informe.veredicto:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "El informe aún no tiene conclusión con veredicto. Genere el "
+                "informe (paso de conclusión) antes de la resolución."
+            ),
+        )
+
     resolucion_agent = ResolucionAgent(model=request.modelo)
-    resultado = resolucion_agent.generar_resolucion(
-        codreclamo=request.codreclamo,
-        informe_atencion=request.informe_atencion,
-        propuesta_conciliacion=request.propuesta_conciliacion,
-        observaciones=request.observaciones,
+    resultado = await run_in_threadpool(
+        resolucion_agent.generar_resolucion,
+        informe, request.propuesta_conciliacion, request.propuesta_reclamante, request.observaciones,
     )
 
     tiempo = time.perf_counter() - t_inicio

@@ -73,11 +73,13 @@ class InformePreviewResponse(BaseModel):
 
 
 class ConciliacionRequest(BaseModel):
-    codsuc: str = Field(description="Código de sucursal")
-    codcliente: str = Field(description="Código de cliente")
-    codreclamo: str = Field(description="Código del reclamo")
-    clasificacion: str = Field(description="Clasificación del reclamo")
-    informe_atencion: str = Field(description="Informe de atención generado en la investigación")
+    codreclamo: str = Field(description="Código del reclamo (clave del informe en el store)")
+    # Campos legados que el frontend aún puede enviar; ya no se usan: la propuesta
+    # se arma desde la conclusión del informe guardado en el store.
+    codsuc: str | None = None
+    codcliente: str | None = None
+    clasificacion: str | None = None
+    informe_atencion: str | None = None
     modelo: str | None = None
 
 
@@ -88,13 +90,16 @@ class ConciliacionResponse(BaseModel):
 
 
 class ResolucionRequest(BaseModel):
-    codsuc: str = Field(description="Código de sucursal")
-    codcliente: str = Field(description="Código de cliente")
-    codreclamo: str = Field(description="Código del reclamo")
-    informe_atencion: str = Field(description="Informe de atención de la investigación")
-    propuesta_conciliacion: str = Field(description="Propuesta de conciliación")
+    codreclamo: str = Field(description="Código del reclamo (clave del informe en el store)")
+    propuesta_conciliacion: str = Field(description="Propuesta de conciliación de la empresa")
+    propuesta_reclamante: str | None = Field(default=None, description="Postura/propuesta del cliente frente a la conciliación")
     observaciones: str | None = Field(default=None, description="Observaciones adicionales")
     modelo: str | None = None
+    # Campos legados que el frontend aún puede enviar; ya no se usan: el
+    # reclamo y la conclusión se leen del informe guardado en el store.
+    codsuc: str | None = None
+    codcliente: str | None = None
+    informe_atencion: str | None = None
 
 
 class ResolucionResponse(BaseModel):

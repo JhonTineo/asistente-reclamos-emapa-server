@@ -1,51 +1,44 @@
-import json
 import time
 import logging
-from pathlib import Path
 from langchain_core.messages import SystemMessage
 from app.src.application.adapters.llm import get_llm, log_uso_llm
 
 logger = logging.getLogger("agent.conciliador")
 
-SOLUCIONES_PATH = Path(__file__).parent.parent / "storage" / "soluciones.json"
-
-
-def _cargar_soluciones() -> dict:
-    return json.loads(SOLUCIONES_PATH.read_text(encoding="utf-8"))
-
 
 class ConciliadorAgent:
+    """Redacta la propuesta de conciliación a partir de la CONCLUSIÓN del informe
+    de atención (que ya describe los hallazgos frente a los objetivos y declara
+    FUNDADO/INFUNDADO). El agente no re-analiza el informe completo: solo reformula
+    la conclusión como propuesta formal de la empresa y cierra con la declaración
+    del veredicto. El veredicto lo fija el informe; el LLM no puede cambiarlo."""
+
     def __init__(self, model: str | None = None):
         self.model = model
         self.llm = get_llm(model=model)
 
-    def generar_propuesta(self, codreclamo: str, clasificacion: str, informe_atencion: str) -> dict:
+    def generar_propuesta(
+        self,
+        codreclamo: str,
+        veredicto: str,
+        conclusion: str,
+        numero_informe: str,
+    ) -> dict:
         t_inicio = time.perf_counter()
 
         logger.info("=" * 60)
-        logger.info("[CONCILIADOR] INICIO - Generando propuesta")
-        logger.info("[CONCILIADOR] codreclamo=%s | clasificacion=%s", codreclamo, clasificacion)
-        logger.info("[CONCILIADOR] Longitud informe: %d caracteres", len(informe_atencion))
+        logger.info("[CONCILIADOR] INICIO | codreclamo=%s | veredicto=%s", codreclamo, veredicto)
 
-        soluciones = _cargar_soluciones()
-        soluciones_texto = self._formatear_soluciones(soluciones)
-
-        prompt = self._construir_prompt(codreclamo, clasificacion, informe_atencion, soluciones_texto)
-
+        prompt = self._construir_prompt(veredicto, conclusion, numero_informe)
         logger.debug("[PROMPT conciliador][SYSTEM]\n%s", prompt)
         logger.info("[CONCILIADOR] Invocando LLM...")
-        t_llm_inicio = time.perf_counter()
 
         response = self.llm.invoke([SystemMessage(content=prompt)])
         log_uso_llm(logger, "conciliador", response)
-        contenido = response.content if response.content else ""
+        contenido = response.content.strip() if response.content else ""
 
-        t_llm = time.perf_counter() - t_llm_inicio
         t_duracion = time.perf_counter() - t_inicio
-
-        logger.info("[CONCILIADOR] LLM completado (%.2fs)", t_llm)
-        logger.info("[CONCILIADOR] Propuesta generada (%d caracteres)", len(contenido))
-        logger.info("[CONCILIADOR] COMPLETADO | tiempo=%.2fs", t_duracion)
+        logger.info("[CONCILIADOR] COMPLETADO | %d caracteres | tiempo=%.2fs", len(contenido), t_duracion)
         logger.info("=" * 60)
 
         return {
@@ -53,49 +46,25 @@ class ConciliadorAgent:
             "tiempo": t_duracion,
         }
 
-    def _formatear_soluciones(self, soluciones: dict) -> str:
-        lineas = ["=== SOLUCIONES DISPONIBLES ===\n"]
-
-        lineas.append("RESPONSABILIDAD DE LA EMPRESA:")
-        for sol in soluciones.get("responsabilidad_empresa", []):
-            lineas.append(f"  - Si {sol['causa']}: {sol['accion']}")
-
-        lineas.append("\nRESPONSABILIDAD DEL CLIENTE:")
-        for sol in soluciones.get("responsabilidad_cliente", []):
-            lineas.append(f"  - Si {sol['causa']}: {sol['accion']}")
-
-        lineas.append("\nRESPONSABILIDAD COMPARTIDA:")
-        for sol in soluciones.get("compartido", []):
-            lineas.append(f"  - Si {sol['causa']}: Empresa: {sol['accion_empresa']}, Cliente: {sol['accion_cliente']}")
-
-        return "\n".join(lineas)
-
-    def _construir_prompt(self, codreclamo: str, clasificacion: str, informe: str, soluciones: str) -> str:
+    @staticmethod
+    def _construir_prompt(veredicto: str, conclusion: str, numero_informe: str) -> str:
+        veredicto = (veredicto or "").strip().upper() or "INFUNDADO"
+        cierre = (
+            f"Por tanto, la empresa propone declarar {veredicto} el presente "
+            f"reclamo, en base al Informe de Atención N° {numero_informe}."
+        )
         return (
-            f"Eres un agente especialista en conciliación de reclamos de EMAPA.\n\n"
-            f"Tu tarea es analizar el informe de atención y generar una propuesta de conciliación.\n\n"
-            f"Código de Reclamo: {codreclamo}\n"
-            f"Clasificación: {clasificacion}\n\n"
-            f"{soluciones}\n\n"
-            f"=== INFORME DE ATENCIÓN ===\n"
-            f"{informe}\n\n"
-            f"=== FORMATO DE LA PROPUESTA ===\n"
-            f"Según el informe de atención al reclamo se obtuvieron los siguientes hallazgos:\n"
-            f"- (Hallazgo 1 con responsabilidad identificada)\n"
-            f"- (Hallazgo 2 con responsabilidad identificada)\n"
-            f"- (etc.)\n\n"
-            f"Por tanto se propone las siguientes acciones:\n"
-            f"- La empresa debe: (acción si es responsabilidad de la empresa)\n"
-            f"- El cliente debe: (acción si es responsabilidad del cliente)\n"
-            f"- La empresa debe: / El cliente debe: (acción si es compartida)\n\n"
-            f"=== INSTRUCCIONES ===\n"
-            f"1. Lee el informe línea por línea e identifica cada hallazgo significativo\n"
-            f"2. Clasifica cada hallazgo como:\n"
-            f"   - RESPONSABILIDAD DE LA EMPRESA: Si fue causado por error, omisión o negligencia de la empresa\n"
-            f"   - RESPONSABILIDAD DEL CLIENTE: Si fue causado por acciones, instalaciones o negligencia del cliente\n"
-            f"   - RESPONSABILIDAD COMPARTIDA: Si ambos tienen parte de la responsabilidad\n"
-            f"3. Para cada hallazgo, propón la acción correspondiente usando las soluciones disponibles\n"
-            f"4. Usa un lenguaje profesional y claro\n"
-            f"5. Sé justo y objetivo en la distribución de responsabilidades\n\n"
-            f"Responde ÚNICAMENTE con la propuesta en el formato especificado."
+            "Eres un agente de conciliación de EMAPA. Redactas la PROPUESTA DE "
+            "CONCILIACIÓN que la empresa presenta al usuario, a partir de la "
+            "conclusión del informe de atención.\n\n"
+            f"El veredicto ya fue determinado y NO puedes cambiarlo: {veredicto}.\n\n"
+            "La propuesta debe:\n"
+            "1. Explicar de forma clara y formal, en uno o dos párrafos, los "
+            "hallazgos de la investigación respecto a lo reclamado, tomándolos de "
+            "la conclusión (no inventes cifras ni artículos que no estén en ella).\n"
+            f"2. Cerrar EXACTAMENTE con esta oración: \"{cierre}\"\n\n"
+            "=== CONCLUSIÓN DEL INFORME DE ATENCIÓN ===\n"
+            f"{conclusion}\n\n"
+            "Responde ÚNICAMENTE con la propuesta redactada, sin encabezados ni "
+            "comentarios adicionales."
         )
