@@ -13,6 +13,11 @@ from app.src.application.adapters.config import settings
 logger = logging.getLogger("core.llm")
 
 
+class ModeloNoCargadoError(RuntimeError):
+    """No hay ningún modelo de chat cargado en memoria de Ollama. El llamador
+    debe encender un modelo (POST /modelos/cargar) antes de continuar."""
+
+
 def _crear_http_client() -> httpx.Client:
     def _log_request(request: httpx.Request) -> None:
         request.extensions["t_inicio"] = time.perf_counter()
@@ -79,23 +84,28 @@ def _resolver_ollama_base_url() -> str:
         return fallback_url
 
 
+def _sin_embeddings(nombres: list[str]) -> list[str]:
+    """Descarta modelos de solo-embeddings (p.ej. nomic-embed-text): Ollama
+    rechaza con 400 cualquier /api/chat contra ellos."""
+    return [m for m in nombres if "embed" not in m.lower()]
+
+
 def _resolver_modelo(model: str | None = None) -> str:
-    desired_model = model or os.getenv("OLLAMA_GENERATOR_MODEL", settings.ollama_generator_model)
-    disponibles = listar_modelos()
+    """Determina qué modelo usar para chat. No hay ningún nombre fijo en
+    config: si no viene explícito, se usa el que YA esté cargado en memoria
+    de Ollama. Si no hay ninguno cargado, falla con ModeloNoCargadoError en
+    vez de elegir uno solo (el usuario debe encender un modelo primero)."""
+    if model:
+        return model
 
-    if not disponibles:
-        return desired_model
+    cargados = _sin_embeddings(modelos_cargados())
+    if cargados:
+        return cargados[0]
 
-    if desired_model in disponibles:
-        return desired_model
-
-    logger.warning(
-        "Modelo configurado '%s' no disponible. Usando modelo detectado '%s'. Disponibles=%s",
-        desired_model,
-        disponibles[0],
-        disponibles,
+    raise ModeloNoCargadoError(
+        "No hay ningún modelo de chat cargado en memoria. Selecciona un "
+        "modelo y enciéndelo antes de continuar."
     )
-    return disponibles[0]
 
 
 def get_llm(model: str | None = None):

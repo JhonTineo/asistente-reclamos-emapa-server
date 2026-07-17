@@ -12,19 +12,16 @@ from app.src.application.adapters.llm import (
     cargar_modelo,
     descargar_modelo,
 )
-from app.src.application.adapters.config import settings
 
 router = APIRouter(prefix="/modelos", tags=["modelos"])
 
 
 @router.get("", response_model=ModelosListResponse)
 def listar() -> ModelosListResponse:
-    modelos = listar_modelos()
-
-    if not modelos:
-        modelos = [settings.ollama_generator_model]
-
-    return ModelosListResponse(modelos=[ModeloResponse(id=m) for m in modelos])
+    """Modelos que Ollama tiene descargados (no implica que estén cargados en
+    memoria; para eso ver /modelos/cargados). Sin ningún nombre fijo de
+    respaldo: si Ollama no responde, devuelve la lista vacía tal cual."""
+    return ModelosListResponse(modelos=[ModeloResponse(id=m) for m in listar_modelos()])
 
 
 @router.get("/cargados", response_model=ModelosCargadosResponse)
