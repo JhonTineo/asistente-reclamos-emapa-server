@@ -21,7 +21,7 @@ logger = logging.getLogger("agent.analista_medio")
 # si hubo o no un problema, así que siempre pasan por el LLM.
 FRASE_SIN_PROBLEMAS = {
     "tarjeta_lectura": "Revisada la tarjeta de lecturas no se encontró ninguna anomalía.",
-    "corte_reapertura": "No se registran cortes, reaperturas ni prórrogas dentro de la ventana de meses analizada.",
+    "corte_reapertura": "Revisados los cortes y reaperturas no se encontró ningún problema.",
     "record_facturacion": "Revisado el record de facturación no se encontró facturación por promedio relevante.",
     "saldo_detalle": "Revisado el saldo-detalle no se encontró cobro indebido, mora ni meses pendientes de pago.",
 }
@@ -165,9 +165,6 @@ class AnalistaMedioAgent:
                 "(estconexion).",
                 "- Condiciones atípicas (atipico).",
                 "- Observaciones si las hay (observacionmed, observacionsum).",
-                "",
-                "NO menciones puntos de agua (inodoros, duchas, grifos, etc.): "
-                "eso pertenece a la inspección INTERNA y no está aquí.",
                 "Responde ÚNICAMENTE con el párrafo narrativo, sin encabezados, "
                 "listas ni conclusiones.",
             ]
