@@ -79,9 +79,11 @@ def build_index(pdf_path):
                 chunk["text"],
             )
 
+            # Crear un ID basado en el articulo y numeral para que las actualizaciones sobre el mismo articulo lo sobreescriban
+            unique_str = f"{chunk.get('article', '')}_{chunk.get('numeral', '')}"
             points.append(
                 {
-                    "id": str(uuid.uuid4()),
+                    "id": str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_str)),
                     "vector": embedding,
                     "payload": {
 

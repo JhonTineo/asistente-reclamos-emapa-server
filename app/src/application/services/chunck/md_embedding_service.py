@@ -34,9 +34,10 @@ def indexar_en_qdrant(
     qdrant = QdrantStore()
     qdrant.create_collection(coleccion, embedder.dimension)
     points = []
+    import uuid
     for i, (chunk, vector, meta) in enumerate(zip(chunks, vectores, metadata)):
         punto = {
-            "id": i + 1,
+            "id": str(uuid.uuid5(uuid.NAMESPACE_DNS, chunk)),
             "vector": vector,
             "payload": {
                 "tipo": meta.get("tipo", ""),
