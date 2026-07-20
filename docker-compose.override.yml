@@ -15,3 +15,8 @@ services:
   agent:
     ports:
       - "8000:8000"
+    # Hot-reload: monta el codigo local sobre el de la imagen. NO va en
+    # docker-compose.yml porque Coolify borra los artefactos tras el build y
+    # el mount taparia el codigo con una carpeta vacia (crash del contenedor).
+    volumes:
+      - ./app:/code/app

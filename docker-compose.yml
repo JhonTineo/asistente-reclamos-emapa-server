@@ -32,5 +32,3 @@ services:
     env_file:
       - .env
     working_dir: /code
-    volumes:
-      - ./app:/code/app
