@@ -1,0 +1,17 @@
+# Solo para desarrollo LOCAL.
+# docker compose lo combina automaticamente con docker-compose.yml al hacer
+# `docker compose up`. Coolify NO lo usa (solo lee docker-compose.yml), asi que
+# aqui publicamos los puertos al host para poder acceder desde localhost.
+services:
+  qdrant:
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+
+  ollama:
+    ports:
+      - "11434:11434"
+
+  agent:
+    ports:
+      - "8000:8000"
