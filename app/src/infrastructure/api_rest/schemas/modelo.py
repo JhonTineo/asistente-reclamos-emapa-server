@@ -17,10 +17,15 @@ class ProveedorResponse(BaseModel):
     tipo: str                      # "ollama" | "openai_compat"
     requiere_key: bool             # si el usuario debe ingresar una API key
     modelos: list[str] = Field(default_factory=list)
+    disponible: bool = True        # false = no cumple requisitos para elegirse
+    motivo_no_disponible: str | None = None
 
 
 class ProveedoresListResponse(BaseModel):
     proveedores: list[ProveedorResponse]
+    # Proveedor que el frontend debe preseleccionar cuando el usuario todavía
+    # no configuró nada (sin localStorage previo).
+    proveedor_default: str
 
 
 class ModelosCargadosResponse(BaseModel):

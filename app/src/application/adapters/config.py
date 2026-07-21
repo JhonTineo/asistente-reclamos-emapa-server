@@ -34,6 +34,12 @@ class Settings(BaseSettings):
 
     ollama_base_url: str = "http://ollama:11434"
 
+    # --- Requisitos de hardware para habilitar inferencia LOCAL (chat) ---
+    # No aplica a los embeddings (mucho más livianos, siempre corren en Ollama
+    # local). Ajustables por env sin tocar código, p.ej. en un VPS con GPU.
+    ollama_requiere_gpu: bool = True
+    ollama_min_ram_gb: float = 8.0
+
     qdrant_url: str = "http://127.0.0.1:6333"
     qdrant_collection_name: str = "sunass_reglamento"
 

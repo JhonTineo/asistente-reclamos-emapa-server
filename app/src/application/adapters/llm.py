@@ -16,6 +16,7 @@ from app.src.application.adapters.proveedores import (
     proveedor_por_id,
     get_llm_ctx,
 )
+from app.src.application.adapters.hardware import hardware_apto_para_local
 
 logger = logging.getLogger("core.llm")
 
@@ -23,6 +24,13 @@ logger = logging.getLogger("core.llm")
 class ModeloNoCargadoError(RuntimeError):
     """No hay ningún modelo de chat cargado en memoria de Ollama. El llamador
     debe encender un modelo (POST /modelos/cargar) antes de continuar."""
+
+
+class InferenciaLocalNoDisponibleError(RuntimeError):
+    """El servidor no cumple los requisitos para ofrecer inferencia LOCAL de
+    chat (hardware insuficiente, Ollama sin conexión, o sin modelos de chat
+    descargados). No aplica a embeddings, que siguen corriendo en Ollama local
+    sin este chequeo."""
 
 
 def _catalogo_externo() -> dict[str, Proveedor]:
@@ -163,12 +171,27 @@ def get_llm(model: str | None = None):
         ctx = get_llm_ctx()
         # La key la manda el frontend (X-LLM-Api-Key); si no vino, se usa la de
         # entorno del proveedor como fallback opcional.
-        api_key = ctx.get("api_key") or prov.api_key_env
+        key_frontend = ctx.get("api_key")
+        api_key = key_frontend or prov.api_key_env
+        logger.info(
+            "[LLM] proveedor=%s | modelo=%s | key_origen=%s | key_sufijo=...%s",
+            prov.id, modelo,
+            "frontend" if key_frontend else "env (fallback)",
+            api_key[-4:] if api_key else "(vacia)",
+        )
         return ChatOpenAI(
             model=modelo,
             api_key=api_key,
             base_url=prov.base_url,
             temperature=0,
+        )
+
+    # Defensa en profundidad: aunque el frontend no debería dejar elegir local
+    # si no está disponible, se valida también aquí antes de generar.
+    apto, motivo = local_disponible()
+    if not apto:
+        raise InferenciaLocalNoDisponibleError(
+            f"Inferencia local no disponible: {motivo}"
         )
 
     return ChatOllama(
@@ -236,6 +259,27 @@ def ollama_online() -> bool:
         return response.status_code == 200
     except Exception:
         return False
+
+
+def local_disponible() -> tuple[bool, str | None]:
+    """Si la inferencia LOCAL de chat puede ofrecerse en este servidor.
+    Requiere: hardware apto (GPU + RAM según config), Ollama en línea, y al
+    menos un modelo de CHAT descargado (los de solo-embeddings no cuentan).
+    Devuelve (disponible, motivo_si_no)."""
+    apto, motivo = hardware_apto_para_local(
+        min_ram_gb=settings.ollama_min_ram_gb,
+        requiere_gpu=settings.ollama_requiere_gpu,
+    )
+    if not apto:
+        return False, motivo
+
+    if not ollama_online():
+        return False, "El servidor Ollama no responde."
+
+    if not _sin_embeddings(listar_modelos_locales()):
+        return False, "No hay modelos de chat descargados en Ollama (solo embeddings, si acaso)."
+
+    return True, None
 
 
 def modelos_cargados_locales() -> list[str]:

@@ -1,5 +1,6 @@
 import logging
 
+import openai
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -7,7 +8,7 @@ from app.src.infrastructure.api_rest.modelos import router as modelos_router
 from app.src.infrastructure.api_rest.investigacion import router as investigacion_router
 from app.src.infrastructure.api_rest.reclamos import router as reclamos_router
 from app.src.infrastructure.api_rest.embedding_docs import router as embedding_docs_router
-from app.src.application.adapters.llm import ModeloNoCargadoError
+from app.src.application.adapters.llm import ModeloNoCargadoError, InferenciaLocalNoDisponibleError
 
 
 logging.basicConfig(
@@ -58,6 +59,67 @@ async def modelo_no_cargado_handler(request: Request, exc: ModeloNoCargadoError)
     de CORSMiddleware y el navegador la reporta como bloqueo CORS en vez de
     mostrar el error real. Ver /modelos/cargar para encender un modelo."""
     return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(InferenciaLocalNoDisponibleError)
+async def inferencia_local_no_disponible_handler(
+    request: Request, exc: InferenciaLocalNoDisponibleError
+) -> JSONResponse:
+    """El servidor no cumple los requisitos de hardware/estado para ofrecer
+    inferencia local (ver GET /modelos/proveedores para el detalle expuesto al
+    frontend, que debería impedir seleccionar 'local' en ese caso)."""
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+def _mensaje_proveedor_externo(exc: openai.APIStatusError) -> str:
+    """Extrae el mensaje legible que el proveedor (OpenRouter/OpenAI/Gemini)
+    manda en el body del error, en vez del dump crudo de la excepción."""
+    try:
+        body = exc.response.json()
+        return (
+            body.get("error", {}).get("message")
+            or body.get("error", {}).get("metadata", {}).get("raw")
+            or str(exc)
+        )
+    except Exception:
+        return str(exc)
+
+
+@app.exception_handler(openai.RateLimitError)
+async def rate_limit_handler(request: Request, exc: openai.RateLimitError) -> JSONResponse:
+    """El proveedor externo (frecuente en modelos ':free' de OpenRouter) está
+    saturado. Se distingue del 500 genérico para que el frontend pueda avisar
+    "prueba otro modelo" en vez de un error interno opaco."""
+    msg = _mensaje_proveedor_externo(exc)
+    logger.warning("[LLM] Rate limit del proveedor externo: %s", msg)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": f"El proveedor de inferencia está saturado (límite de uso alcanzado): {msg}"},
+    )
+
+
+@app.exception_handler(openai.AuthenticationError)
+async def auth_error_handler(request: Request, exc: openai.AuthenticationError) -> JSONResponse:
+    """La API key del proveedor (la que manda el frontend, o el fallback del
+    backend) es inválida, venció o no tiene permisos."""
+    msg = _mensaje_proveedor_externo(exc)
+    logger.warning("[LLM] Error de autenticación del proveedor externo: %s", msg)
+    return JSONResponse(
+        status_code=401,
+        content={"detail": f"API key del proveedor de inferencia inválida o sin permisos: {msg}"},
+    )
+
+
+@app.exception_handler(openai.APIStatusError)
+async def api_status_error_handler(request: Request, exc: openai.APIStatusError) -> JSONResponse:
+    """Cualquier otro error HTTP del proveedor externo (400, 402 sin crédito,
+    5xx del propio proveedor, etc.), con el mensaje real en vez de un 500 opaco."""
+    msg = _mensaje_proveedor_externo(exc)
+    logger.warning("[LLM] Error del proveedor externo (status=%s): %s", exc.status_code, msg)
+    return JSONResponse(
+        status_code=exc.status_code if 400 <= exc.status_code < 600 else 502,
+        content={"detail": f"Error del proveedor de inferencia: {msg}"},
+    )
 
 
 @app.exception_handler(Exception)
