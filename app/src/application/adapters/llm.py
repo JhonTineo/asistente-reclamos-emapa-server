@@ -7,6 +7,7 @@ import os
 from urllib.parse import urlsplit, urlunsplit
 
 from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
 
 from app.src.application.adapters.config import settings
 
@@ -16,6 +17,19 @@ logger = logging.getLogger("core.llm")
 class ModeloNoCargadoError(RuntimeError):
     """No hay ningún modelo de chat cargado en memoria de Ollama. El llamador
     debe encender un modelo (POST /modelos/cargar) antes de continuar."""
+
+
+def _modelos_openrouter() -> list[str]:
+    """Ids de modelos externos (OpenRouter) que se exponen en la lista, solo si
+    hay API key configurada. A diferencia de Ollama, no viven en RAM del
+    servidor: la inferencia ocurre en la nube de OpenRouter."""
+    if not settings.openrouter_api_key:
+        return []
+    return [m.strip() for m in settings.openrouter_models.split(",") if m.strip()]
+
+
+def _es_openrouter(model: str | None) -> bool:
+    return bool(model) and model in _modelos_openrouter()
 
 
 def _crear_http_client() -> httpx.Client:
@@ -109,8 +123,21 @@ def _resolver_modelo(model: str | None = None) -> str:
 
 
 def get_llm(model: str | None = None):
+    modelo = _resolver_modelo(model)
+
+    # Modelo externo: la inferencia corre en OpenRouter (no consume el VPS).
+    # OpenRouter es compatible con la API de OpenAI, por eso usamos ChatOpenAI
+    # apuntando su base_url.
+    if _es_openrouter(modelo):
+        return ChatOpenAI(
+            model=modelo,
+            api_key=settings.openrouter_api_key,
+            base_url=settings.openrouter_base_url,
+            temperature=0,
+        )
+
     return ChatOllama(
-        model=_resolver_modelo(model),
+        model=modelo,
         base_url=_resolver_ollama_base_url(),
         temperature=0,
         num_ctx=4096
@@ -150,10 +177,14 @@ def listar_modelos() -> list[str]:
         response.raise_for_status()
         payload = response.json()
         models = payload.get("models", [])
-        return [m.get("name") for m in models if m.get("name")]
+        ollama = [m.get("name") for m in models if m.get("name")]
     except Exception as exc:
         logger.warning("No se pudo listar modelos de Ollama: %s", exc)
-        return []
+        ollama = []
+
+    # Agregamos los modelos externos (OpenRouter) al final de la lista de Ollama
+    # para que el frontend los ofrezca como una opción más.
+    return ollama + _modelos_openrouter()
 
 
 # Tiempo que el modelo queda residente en memoria sin recibir peticiones antes
@@ -165,14 +196,18 @@ def modelos_cargados() -> list[str]:
     """Modelos actualmente residentes en memoria (RAM/VRAM) según Ollama."""
     ollama_url = _resolver_ollama_base_url().rstrip("/")
     endpoint = f"{ollama_url}/api/ps"
+    cargados: list[str] = []
     try:
         response = httpx.get(endpoint, timeout=20.0)
         response.raise_for_status()
         payload = response.json()
-        return [m.get("name") for m in payload.get("models", []) if m.get("name")]
+        cargados = [m.get("name") for m in payload.get("models", []) if m.get("name")]
     except Exception as exc:
         logger.warning("No se pudo consultar modelos cargados de Ollama: %s", exc)
-        return []
+
+    # Los modelos de OpenRouter siempre están "listos" (viven en la nube, no en
+    # RAM): se reportan como cargados para que el frontend los muestre activos.
+    return cargados + _modelos_openrouter()
 
 
 def _set_keep_alive(model: str, keep_alive: str | int) -> dict:
@@ -214,9 +249,15 @@ def _set_keep_alive(model: str, keep_alive: str | int) -> dict:
 def cargar_modelo(model: str) -> dict:
     """Precarga el modelo en memoria (keep_alive=5m). Ollama lo descarga solo
     tras 5 minutos de inactividad; no hay temporizador propio en el backend."""
+    # OpenRouter no carga nada en RAM: la operación es un no-op exitoso.
+    if _es_openrouter(model):
+        return {"modelo": model, "ok": True, "en_memoria": True, "tiempo": 0.0}
     return _set_keep_alive(model, KEEP_ALIVE_INACTIVIDAD)
 
 
 def descargar_modelo(model: str) -> dict:
     """Libera el modelo de memoria de inmediato (keep_alive=0)."""
+    # OpenRouter no ocupa RAM del servidor: nada que liberar.
+    if _es_openrouter(model):
+        return {"modelo": model, "ok": True, "en_memoria": False, "tiempo": 0.0}
     return _set_keep_alive(model, 0)

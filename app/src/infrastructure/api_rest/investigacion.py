@@ -118,10 +118,8 @@ def _stream_analisis_medio(
     medio_nombre: str,
 ) -> StreamingResponse:
     """Analiza un medio en streaming (NDJSON). Emite dos eventos:
-
-    1. ``preprocesamiento``: datos y problemas por reglas (sale de inmediato).
-    2. ``resumen``: interpretación del LLM en lenguaje natural (sale al final).
-
+    1. ``preprocesamiento``: datos y problemas por reglas .
+    2. ``resumen``: interpretación del LLM en lenguaje natural .
     El bloque se registra en el informe recién cuando se tiene el resumen.
     """
 
@@ -136,15 +134,12 @@ def _stream_analisis_medio(
             "[API /investigacion/%s/stream] codsuc=%s | codcliente=%s | codreclamo=%s",
             medio_id, request.codsuc, request.codcliente, request.codreclamo,
         )
-
-        # Lee la ventana actual del informe (si existe).
+        # Lee la ventana de meses de analisis del informe (si existe).
         informe = informe_store.obtener(request.codreclamo)
         ventana_actual = informe.ventana_meses if informe else []
-
         analista = AnalistaMedioAgent(model=request.modelo)
-
         try:
-            # --- Fase 1: preprocesamiento (rápido) ---------------------------
+            # --- Fase 1: preprocesamiento  ---------------------------
             datos, problemas, ventana = await run_in_threadpool(
                 analista.preprocesar,
                 medio_id, medio_nombre, request.codsuc, request.codcliente,
@@ -161,12 +156,11 @@ def _stream_analisis_medio(
             }
             yield json.dumps(evento_pre, ensure_ascii=False) + "\n"
 
-            # --- Fase 2: interpretación LLM (lento) --------------------------
+            # --- Fase 2: interpretación LLM  --------------------------
             resumen = await run_in_threadpool(
                 analista.interpretar,
                 medio_id, medio_nombre, datos, problemas, request.clasificacion,
             )
-
             bloque = BloqueMedio(
                 medio_id=medio_id,
                 medio_nombre=medio_nombre,
