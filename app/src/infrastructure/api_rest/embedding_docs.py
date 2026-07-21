@@ -23,6 +23,16 @@ REGLAMENTO_COLLECTION = "sunass_reglamento"
 # se indexó, para que el score coseno sea significativo.
 retriever = Retriever()
 
+def extract_article_number(article_str: str) -> str:
+    if not article_str:
+        return ""
+    # Si contiene la palabra ARTICULO o similar, extrae solo el número/identificador
+    match = re.search(r"ART[IÍ]CULO\s+(\w+)", article_str, re.I)
+    if match:
+        return match.group(1)
+    return article_str.strip()
+
+
 class BuscarPalabraClaveRequest(BaseModel):
     query: str
     coleccion: str | None = "sunass_reglamento"
@@ -248,7 +258,9 @@ async def actualizar_articulo(request: ActualizarArticuloRequest):
     from app.src.application.services.rag.embeddings import EmbeddingService
     embedder = EmbeddingService()
     
-    unique_str = f"{request.article}_{request.numeral if request.numeral else 'None'}"
+    art_clean = extract_article_number(request.article)
+    num_clean = request.numeral if request.numeral else None
+    unique_str = f"{art_clean}_{num_clean if num_clean else 'None'}"
     point_id = request.id or str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_str))
     
     vector = embedder.encode(request.text)
@@ -258,8 +270,8 @@ async def actualizar_articulo(request: ActualizarArticuloRequest):
         "titulo": request.titulo,
         "capitulo": request.capitulo,
         "subcapitulo": request.subcapitulo,
-        "article": request.article,
-        "numeral": request.numeral,
+        "article": art_clean,
+        "numeral": num_clean,
         "text": request.text,
         "palabras_clave": request.palabras_clave
     }
@@ -284,7 +296,9 @@ async def actualizar_articulo(request: ActualizarArticuloRequest):
 @router.post("/buscar-articulo")
 async def buscar_articulo(request: BuscarArticuloExactoRequest):
     qdrant = QdrantStore()
-    unique_str = f"{request.article}_{request.numeral if request.numeral else 'None'}"
+    art_clean = extract_article_number(request.article)
+    num_clean = request.numeral if request.numeral else None
+    unique_str = f"{art_clean}_{num_clean if num_clean else 'None'}"
     point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_str))
     
     # Obtener todos los puntos (QdrantStore.get_all) o filtrar por ID
@@ -293,7 +307,7 @@ async def buscar_articulo(request: BuscarArticuloExactoRequest):
     
     if not punto:
         # Intento de fallback iterando payload
-        punto = next((p for p in puntos if p["payload"].get("article") == request.article and p["payload"].get("numeral") == request.numeral), None)
+        punto = next((p for p in puntos if extract_article_number(p["payload"].get("article", "")) == art_clean and p["payload"].get("numeral") == num_clean), None)
         if not punto:
             raise HTTPException(status_code=404, detail="Artículo no encontrado")
             
@@ -334,7 +348,9 @@ async def eliminar_articulo(request: EliminarArticuloRequest):
     else:
         if not request.article:
             raise HTTPException(status_code=400, detail="Debe proveer article y numeral, o point_id.")
-        unique_str = f"{request.article}_{request.numeral if request.numeral else 'None'}"
+        art_clean = extract_article_number(request.article)
+        num_clean = request.numeral if request.numeral else None
+        unique_str = f"{art_clean}_{num_clean if num_clean else 'None'}"
         punto_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_str))
     
     qdrant.delete(point_id=punto_id, collection_name=request.coleccion)
