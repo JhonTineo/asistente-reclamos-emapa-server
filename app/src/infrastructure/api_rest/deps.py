@@ -5,9 +5,30 @@ import logging
 from fastapi import Request, HTTPException
 
 from app.src.application.adapters.emapa_api import set_emapa_token, emapa_token_ctx
+from app.src.application.adapters.proveedores import set_llm_ctx
 from app.src.application.services.informe.informe_store import informe_store
 
 logger = logging.getLogger("api.deps")
+
+
+async def usar_config_llm(request: Request) -> None:
+    """Fija, para la petición en curso, el proveedor de LLM y su API key tomados
+    de los headers ``X-LLM-Provider`` y ``X-LLM-Api-Key`` que envía el frontend.
+
+    Si no vienen, ``get_llm`` infiere el proveedor por el id del modelo y usa la
+    key de entorno como fallback (comportamiento previo intacto).
+
+    Debe ser ``async def`` para correr en el mismo event-loop que el endpoint y
+    que el ContextVar sea visible en toda la cadena de llamadas.
+    """
+    proveedor = request.headers.get("X-LLM-Provider")
+    api_key = request.headers.get("X-LLM-Api-Key")
+    set_llm_ctx(proveedor, api_key)
+    logger.info(
+        "[LLM] proveedor=%s | api_key=%s",
+        proveedor or "(auto)",
+        "sí" if api_key else "no (fallback env)",
+    )
 
 
 async def usar_token_emapa(request: Request) -> None:

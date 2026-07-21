@@ -209,9 +209,25 @@ class FundamentacionNormativaAgent:
             return problema
 
         interp = self.interpretar(problema, articulos, clasificacion, contexto)
-        problema.accion = interp.get("accion")
-        problema.base_legal = interp.get("base_legal")
+        problema.accion = self._a_texto(interp.get("accion"))
+        problema.base_legal = self._a_texto(interp.get("base_legal"))
         return problema
+
+    @staticmethod
+    def _a_texto(valor) -> str | None:
+        """Normaliza un campo que el LLM a veces devuelve como lista en vez de
+        string. Distintos modelos (sobre todo los de OpenRouter) devuelven, por
+        ejemplo, base_legal=[] o ["Art. 92.2", "Art. 91"] en lugar de un string.
+        Une las listas y trata la lista vacía como None, para que encaje con el
+        schema (str | None) sin romper la validación."""
+        if valor is None:
+            return None
+        if isinstance(valor, str):
+            return valor or None
+        if isinstance(valor, (list, tuple)):
+            partes = [str(v).strip() for v in valor if str(v).strip()]
+            return ", ".join(partes) or None
+        return str(valor)
 
     # ------------------------------------------------------------------ #
     # Fundamentación completa (artículos + interpretación)

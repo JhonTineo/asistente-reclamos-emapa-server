@@ -3,10 +3,24 @@ from pydantic import BaseModel, Field
 
 class ModeloResponse(BaseModel):
     id: str
+    # "local" = corre en Ollama (VPS) | "externo" = corre en la nube (OpenRouter)
+    tipo: str = "local"
 
 
 class ModelosListResponse(BaseModel):
     modelos: list[ModeloResponse]
+
+
+class ProveedorResponse(BaseModel):
+    id: str                        # "local" | "openrouter" | "openai" | "gemini"
+    label: str                     # nombre visible
+    tipo: str                      # "ollama" | "openai_compat"
+    requiere_key: bool             # si el usuario debe ingresar una API key
+    modelos: list[str] = Field(default_factory=list)
+
+
+class ProveedoresListResponse(BaseModel):
+    proveedores: list[ProveedorResponse]
 
 
 class ModelosCargadosResponse(BaseModel):

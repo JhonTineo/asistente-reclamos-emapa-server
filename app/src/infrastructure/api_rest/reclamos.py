@@ -12,11 +12,11 @@ from app.src.application.adapters.emapa_api import buscar_reclamo_emapa
 from app.src.application.adapters.http import EmapaSinDatosError
 from app.src.application.services.informe.informe_store import informe_store
 from app.src.core.model.reclamo import Reclamo
-from app.src.infrastructure.api_rest.deps import usar_token_emapa, requerir_token_emapa
+from app.src.infrastructure.api_rest.deps import usar_token_emapa, requerir_token_emapa, usar_config_llm
 
 logger = logging.getLogger("api.clasificador")
 
-router = APIRouter(prefix="/reclamos", tags=["reclamos"], dependencies=[Depends(usar_token_emapa)])
+router = APIRouter(prefix="/reclamos", tags=["reclamos"], dependencies=[Depends(usar_token_emapa), Depends(usar_config_llm)])
 
 
 class ClasificarResponse(BaseModel):

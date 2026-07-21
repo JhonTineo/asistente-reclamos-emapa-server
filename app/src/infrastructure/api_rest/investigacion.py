@@ -4,7 +4,7 @@ import logging
 import json
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
-from app.src.infrastructure.api_rest.deps import usar_token_emapa, asegurar_token_emapa
+from app.src.infrastructure.api_rest.deps import usar_token_emapa, asegurar_token_emapa, usar_config_llm
 from starlette.concurrency import run_in_threadpool
 from app.src.application.services.pre_proces.pre_inspeccion_externa_service import PreInspeccionExternaService
 from app.src.infrastructure.api_rest.schemas.investigacion import (
@@ -52,7 +52,7 @@ from app.src.application.adapters.emapa_api import (
 
 logger = logging.getLogger("api.investigacion")
 
-router = APIRouter(prefix="", tags=["investigacion"], dependencies=[Depends(usar_token_emapa)])
+router = APIRouter(prefix="", tags=["investigacion"], dependencies=[Depends(usar_token_emapa), Depends(usar_config_llm)])
 
 
 async def _analizar_medio_y_registrar(
