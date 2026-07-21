@@ -1,13 +1,15 @@
 import logging
 import re
 import uuid
-from fastapi import APIRouter, UploadFile, File, HTTPException
+import os
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from pydantic import BaseModel, Field
 from app.src.application.services.chunck.md_embedding_service import (
     parse_md_to_chunks,
     generar_embeddings,
     indexar_en_qdrant
 )
+from app.src.application.services.chunck.chunk_and_index import build_index
 from app.src.application.services.rag.retriever import Retriever
 from app.src.application.services.rag.qdrant_store import QdrantStore
 
@@ -28,9 +30,9 @@ class BuscarPalabraClaveRequest(BaseModel):
 
 class ActualizarArticuloRequest(BaseModel):
     id: str | None = None
-    articulo: str = Field(..., description="Número de artículo, ej: ARTÍCULO 42")
+    article: str = Field(..., description="Número de artículo, ej: ARTÍCULO 42")
     numeral: str | None = Field(None, description="Numeral, ej: 42.1")
-    texto: str = Field(..., description="Contenido completo del texto")
+    text: str = Field(..., description="Contenido completo del texto")
     palabras_clave: list[str] | None = []
     titulo: str | None = ""
     capitulo: str | None = ""
@@ -39,7 +41,13 @@ class ActualizarArticuloRequest(BaseModel):
     coleccion: str | None = "sunass_reglamento"
 
 class EliminarArticuloRequest(BaseModel):
-    articulo: str = Field(..., description="Número de artículo, ej: ARTÍCULO 42")
+    article: str = Field(None, description="Número de artículo, ej: ARTÍCULO 42")
+    numeral: str | None = Field(None, description="Numeral, ej: 42.1")
+    point_id: str | None = Field(None, description="ID directo del punto a eliminar")
+    coleccion: str | None = "sunass_reglamento"
+
+class BuscarArticuloExactoRequest(BaseModel):
+    article: str = Field(..., description="Número de artículo, ej: ARTÍCULO 42")
     numeral: str | None = Field(None, description="Numeral, ej: 42.1")
     coleccion: str | None = "sunass_reglamento"
 
@@ -106,6 +114,53 @@ async def vectorizar(file: UploadFile = File(...)):
         "chunks_procesados": len(chunks),
         "indexados": indexados
     }
+
+
+@router.post("/vectorizar-pdf")
+async def vectorizar_pdf(
+    file: UploadFile = File(...),
+    coleccion: str = Form(...),
+    norma: str = Form(...),
+    is_el_peruano: bool = Form(False)
+):
+    if not file.filename.lower().endswith('.pdf'):
+        raise HTTPException(
+            status_code=400,
+            detail="El archivo debe ser un PDF."
+        )
+
+    # Save temp file
+    temp_path = f"/tmp/{uuid.uuid4()}_{file.filename}"
+    try:
+        with open(temp_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+            
+        logger.info(f"Procesando PDF: {file.filename} (Coleccion: {coleccion}, Norma: {norma}, Formato El Peruano: {is_el_peruano})")
+        
+        # Build index (extracts text, chunks, vectorizes, upserts to Qdrant)
+        build_index(
+            pdf_path=temp_path,
+            coleccion=coleccion,
+            norma=norma,
+            is_el_peruano=is_el_peruano
+        )
+        
+        return {
+            "status": "ok",
+            "message": "PDF procesado y vectorizado exitosamente.",
+            "coleccion": coleccion,
+            "norma": norma
+        }
+    except Exception as e:
+        logger.error(f"Error procesando PDF: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error procesando el PDF: {str(e)}"
+        )
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
 
 @router.post("/buscar", response_model=BuscarNormativaResponse)
@@ -193,19 +248,19 @@ async def actualizar_articulo(request: ActualizarArticuloRequest):
     from app.src.application.services.rag.embeddings import EmbeddingService
     embedder = EmbeddingService()
     
-    unique_str = f"{request.articulo}_{request.numeral if request.numeral else 'None'}"
+    unique_str = f"{request.article}_{request.numeral if request.numeral else 'None'}"
     point_id = request.id or str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_str))
     
-    vector = embedder.encode(request.texto)
+    vector = embedder.encode(request.text)
     
     payload = {
         "norma": request.norma,
         "titulo": request.titulo,
         "capitulo": request.capitulo,
         "subcapitulo": request.subcapitulo,
-        "article": request.articulo,
+        "article": request.article,
         "numeral": request.numeral,
-        "text": request.texto,
+        "text": request.text,
         "palabras_clave": request.palabras_clave
     }
     
@@ -222,7 +277,32 @@ async def actualizar_articulo(request: ActualizarArticuloRequest):
         "status": "ok",
         "mensaje": "Artículo actualizado/agregado correctamente.",
         "id": point_id,
+        "id_determinista_calculado": point_id,
         "payload": payload
+    }
+
+@router.post("/buscar-articulo")
+async def buscar_articulo(request: BuscarArticuloExactoRequest):
+    qdrant = QdrantStore()
+    unique_str = f"{request.article}_{request.numeral if request.numeral else 'None'}"
+    point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_str))
+    
+    # Obtener todos los puntos (QdrantStore.get_all) o filtrar por ID
+    puntos = qdrant.get_all(collection_name=request.coleccion)
+    punto = next((p for p in puntos if p["id"] == point_id), None)
+    
+    if not punto:
+        # Intento de fallback iterando payload
+        punto = next((p for p in puntos if p["payload"].get("article") == request.article and p["payload"].get("numeral") == request.numeral), None)
+        if not punto:
+            raise HTTPException(status_code=404, detail="Artículo no encontrado")
+            
+    return {
+        "status": "ok",
+        "id_determinista_calculado": point_id,
+        "id_real": punto["id"],
+        "texto_guardado": punto["payload"].get("text", punto["payload"].get("texto", "")),
+        "payload": punto["payload"]
     }
 
 @router.get("/listar-articulos")
@@ -236,15 +316,30 @@ async def listar_articulos(coleccion: str = "sunass_reglamento"):
         "puntos": puntos
     }
 
-@router.delete("/eliminar-articulo")
+@router.get("/listar-documentos")
+async def listar_documentos():
+    qdrant = QdrantStore()
+    colecciones = qdrant.get_collections()
+    return {
+        "status": "ok",
+        "total": len(colecciones),
+        "documentos": colecciones
+    }
+
+@router.post("/eliminar-articulo")
 async def eliminar_articulo(request: EliminarArticuloRequest):
     qdrant = QdrantStore()
-    unique_str = f"{request.articulo}_{request.numeral if request.numeral else 'None'}"
-    punto_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_str))
+    if request.point_id:
+        punto_id = request.point_id
+    else:
+        if not request.article:
+            raise HTTPException(status_code=400, detail="Debe proveer article y numeral, o point_id.")
+        unique_str = f"{request.article}_{request.numeral if request.numeral else 'None'}"
+        punto_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_str))
     
     qdrant.delete(point_id=punto_id, collection_name=request.coleccion)
     return {
         "status": "ok",
-        "mensaje": f"Artículo '{request.articulo}' (numeral: {request.numeral}) eliminado lógicamente (estado=inactivo) de la colección {request.coleccion}.",
+        "mensaje": f"Artículo (ID: {punto_id}) eliminado físicamente/lógicamente de la colección {request.coleccion}.",
         "id_calculado": punto_id
     }

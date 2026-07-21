@@ -50,6 +50,13 @@ class QdrantStore:
         except Exception:
             return False
 
+    def get_collections(self) -> list[str]:
+        try:
+            collections = self.client.get_collections()
+            return [c.name for c in collections.collections]
+        except Exception:
+            return []
+
     def upsert(
         self,
         points,
