@@ -27,12 +27,13 @@ FOOTER_PATTERNS = [
 ]
 
 
-def is_header_or_footer(text):
-
+def is_header_or_footer(text, is_el_peruano=True):
+    if not is_el_peruano:
+        return False
+    
     text = text.strip()
 
     for pattern in HEADER_PATTERNS:
-
         if re.search(pattern, text, re.IGNORECASE):
             return True
 
@@ -48,14 +49,14 @@ def clean_text(text):
     return text.strip()
 
 
-def extract_document_structure(pdf_path):
+def extract_document_structure(pdf_path, is_el_peruano=True):
 
     doc = fitz.open(pdf_path)
 
     document = []
 
     for page in doc:
-      if page.number == 0:
+      if page.number == 0 and is_el_peruano:
 
         crop = fitz.Rect(
             page.rect.x0,
@@ -98,7 +99,7 @@ def extract_document_structure(pdf_path):
             if text == "":
                 continue
 
-            if is_header_or_footer(text):
+            if is_header_or_footer(text, is_el_peruano):
                 continue
 
             x0, y0, x1, y1 = block["bbox"]
