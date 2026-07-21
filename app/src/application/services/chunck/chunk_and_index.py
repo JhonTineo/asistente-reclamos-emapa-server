@@ -29,10 +29,10 @@ ARTICLE_NUMBER_RE = re.compile(
 )
 
 
-def extract_articles(pdf_path):
+def extract_articles(pdf_path, is_el_peruano=True):
     """PDF -> bloques ordenados -> articulos estructurados y limpios."""
 
-    blocks = extract_document_structure(pdf_path)
+    blocks = extract_document_structure(pdf_path, is_el_peruano=is_el_peruano)
 
     articles = parse_document(blocks)
 
@@ -44,15 +44,15 @@ def extract_articles(pdf_path):
     return articles
 
 
-def build_index(pdf_path):
-    articles = extract_articles(pdf_path)
+def build_index(pdf_path, coleccion="sunass_reglamento", norma="Reglamento Calidad Servicios Saneamiento", is_el_peruano=True):
+    articles = extract_articles(pdf_path, is_el_peruano=is_el_peruano)
 
     embedder = EmbeddingService()
 
     qdrant = QdrantStore()
 
     qdrant.create_collection(
-        collection_name="sunass_reglamento",
+        collection_name=coleccion,
         dimension=embedder.dimension
     )
 
@@ -79,14 +79,16 @@ def build_index(pdf_path):
                 chunk["text"],
             )
 
+            # Crear un ID basado en el articulo y numeral para que las actualizaciones sobre el mismo articulo lo sobreescriban
+            unique_str = f"{chunk.get('article', '')}_{chunk.get('numeral', '')}"
             points.append(
                 {
-                    "id": str(uuid.uuid4()),
+                    "id": str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_str)),
                     "vector": embedding,
                     "payload": {
 
                         "norma":
-                        "Reglamento Calidad Servicios Saneamiento",
+                        norma,
 
                         "source":
                         os.path.basename(pdf_path),
@@ -121,7 +123,7 @@ def build_index(pdf_path):
     ):
 
         qdrant.upsert(
-            collection_name="sunass_reglamento",
+            collection_name=coleccion,
             points=points[i:i + batch_size]
         )
 
