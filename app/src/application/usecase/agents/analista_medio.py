@@ -26,6 +26,16 @@ FRASE_SIN_PROBLEMAS = {
     "saldo_detalle": "Revisado el saldo-detalle no se encontró cobro indebido, mora ni meses pendientes de pago.",
 }
 
+# Campos de cabecera del suministro que existen SOLO para el informe de
+# sustentación (dirección, titular, ficha del medidor…). No aportan al resumen
+# de atención del medio y se excluyen del prompt del LLM para no gastar tokens
+# ni tentar al modelo a mencionarlos. Siguen llegando al frontend vía asdict.
+CAMPOS_SOLO_DOCUMENTO = frozenset({
+    "propietario", "direccion", "categoria", "diametro", "marca_medidor",
+    "tipo_medidor", "nro_medidor", "fecha_instalacion_medidor",
+    "fecha_instalacion_conexion", "fecha_verificacion", "tipo_verificacion",
+})
+
 
 class AnalistaMedioAgent:
     def __init__(self, model: str | None = None):
@@ -95,8 +105,10 @@ class AnalistaMedioAgent:
                      enfoque: str | None = None) -> str:
         # 'registros' es el detalle crudo por mes/evento (solo para la tabla del
         # frontend); se excluye del prompt para no inflar tokens con filas que
-        # ya están resumidas en los demás campos (hallazgos agregados).
-        datos_para_prompt = {k: v for k, v in datos.items() if k != "registros"}
+        # ya están resumidas en los demás campos (hallazgos agregados). Los
+        # campos de cabecera solo-documento se excluyen por el mismo motivo.
+        omitir = CAMPOS_SOLO_DOCUMENTO | {"registros"}
+        datos_para_prompt = {k: v for k, v in datos.items() if k not in omitir}
         datos_texto = json.dumps(datos_para_prompt, ensure_ascii=False, indent=2)
         prompt = self._construir_prompt(medio_id, medio_nombre, datos_texto)
         human = f"Analiza los datos y genera un resumen relevante para un reclamo de: {clasificacion}"

@@ -15,6 +15,9 @@ class RegistroFacturacion:
     nromed: str | None = None            # medidor
     estadoservicio: str | None = None
     fechareg: str | None = None          # fecha de registro (desempate cronológico)
+    impdeudareclamo: float | None = None  # >0 -> el mes tiene un reclamo asociado (RECLAMADO)
+    c_impmesrebaja: float | None = None   # rebaja aplicada al mes (REFACTURADO)
+    c_diarebaja: str | None = None        # fecha de la rebaja
 
 
 @dataclass

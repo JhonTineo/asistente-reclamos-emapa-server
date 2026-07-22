@@ -10,6 +10,7 @@ class Reclamo:
     codcliente: str | None = None
     reclamante: str | None = None
     propietario: str | None = None
+    dni: str | None = None                     # dniCliente / nrodocident (DNI/CE del titular)
     tipo_reclamo: str | None = None            # descTipoReclamo
     clasificacion_reclamo: str | None = None   # desCodReclamo
     motivo_reclamo: str | None = None          # motivo

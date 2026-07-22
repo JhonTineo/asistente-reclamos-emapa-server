@@ -1,5 +1,6 @@
 import logging
 import time
+from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -8,11 +9,13 @@ from app.src.infrastructure.api_rest.schemas.investigacion import (
     BuscarReclamoResponse, InformeMetadata, ReclamoSchema,
     InformeCompletoResponse, ObjetivoInvestigacionSchema,
     ResumenMedio, ProblemaNormadoSchema, ProblemaInforme,
+    SustentacionResponse,
 )
 from app.src.application.adapters.emapa_api import buscar_reclamo_emapa
 from app.src.application.adapters.http import EmapaSinDatosError
 from app.src.application.services.informe.informe_store import informe_store, ReclamoEnAtencionError
 from app.src.application.services.informe.render import construir_texto_informe
+from app.src.application.services.informe.sustentacion import construir_sustentacion
 from app.src.core.model.reclamo import Reclamo
 from app.src.infrastructure.api_rest.deps import usar_token_emapa, requerir_token_emapa, usar_config_llm
 
@@ -123,6 +126,7 @@ async def buscar_reclamo(
         codcliente=_campo_reclamo(datos, "codcliente") or None,
         reclamante=_campo_reclamo(datos, "reclamante") or None,
         propietario=_campo_reclamo(datos, "propietario") or None,
+        dni=_campo_reclamo(datos, "dniCliente") or _campo_reclamo(datos, "nrodocident") or None,
         tipo_reclamo=_campo_reclamo(datos, "descTipoReclamo") or None,
         clasificacion_reclamo=clasificacion or None,
         motivo_reclamo=motivo or None,
@@ -249,6 +253,25 @@ async def obtener_informe_completo(codreclamo: str) -> InformeCompletoResponse:
         resolucion=informe.resolucion,
         informe_texto=construir_texto_informe(informe),
     )
+
+
+@router.get("/{codreclamo}/sustentacion", response_model=SustentacionResponse)
+async def obtener_sustentacion(codreclamo: str) -> SustentacionResponse:
+    """
+    Ensambla el Informe de Sustentación del Régimen de Facturación a partir de
+    lo ya analizado en memoria (tarjeta de lecturas + record de facturación +
+    datos del reclamo). Lectura pura: no llama a EMAPA ni al LLM. Devuelve la
+    estructura tabular que el frontend convierte en .docx. 404 si no hay informe
+    en curso para el reclamo.
+    """
+    informe = informe_store.obtener(codreclamo)
+    if informe is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No hay un informe en curso para el reclamo {codreclamo}.",
+        )
+    data = construir_sustentacion(informe)
+    return SustentacionResponse(codreclamo=codreclamo, **asdict(data))
 
 
 @router.delete("/{codreclamo}", response_model=FinalizarAtencionResponse)

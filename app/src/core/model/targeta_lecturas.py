@@ -14,6 +14,9 @@ class LecturaMensual:
     estadolectura: str | None = None       # Validar que el estado de la lectura sea normal
     nromed: str | None = None              # nº de medidor (para detectar cambio/reinstalación)
     obslectura: str | None = None
+    desestadolectura: str | None = None    # texto de estadolectura (p.ej. "LECTURA NORMAL")
+    desestadoservicio: str | None = None   # texto de estadoservicio
+    desestadomed: str | None = None        # texto de estadomed
 
 
 @dataclass
@@ -23,6 +26,17 @@ class TargetaLecturas:
     nomtar: str | None = None
     destipoactividad: str | None = None
     tipopromedio: str | None = None
+    propietario: str | None = None                  # propietariocabecera — titular del predio (NOMBRE DEL USUARIO)
+    direccion: str | None = None                    # descodcallecabecera + " " + nrocallecabecera
+    categoria: str | None = None                    # catetarcabecera (código de categoría tarifaria)
+    diametro: str | None = None                     # descoddiametrocabecera
+    marca_medidor: str | None = None                # desmarcamedcabecera
+    tipo_medidor: str | None = None                 # destipomedcabecera (lo más cercano a "modelo" que trae EMAPA)
+    nro_medidor: str | None = None                  # nromedcabecera
+    fecha_instalacion_medidor: str | None = None    # fechainsmedcabecera
+    fecha_instalacion_conexion: str | None = None   # fechainsconagucabecera (nacimiento de la conexión de agua)
+    fecha_verificacion: str | None = None           # fechacontrslaborcabecera / fechacontrscampocabecera (suele venir null)
+    tipo_verificacion: str | None = None            # desresultadocontrastacioncabecera (suele venir null)
 
     # Hallazgos detectados en la ventana de análisis.
     # - consumo atípico (> 2× promedio) · doble consumo (igual entre dos meses concecutivos)

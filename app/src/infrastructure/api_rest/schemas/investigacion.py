@@ -122,6 +122,7 @@ class ReclamoSchema(BaseModel):
     codcliente: str | None = None
     reclamante: str | None = None
     propietario: str | None = None
+    dni: str | None = None
     tipo_reclamo: str | None = None
     clasificacion_reclamo: str | None = None
     motivo_reclamo: str | None = None
@@ -209,6 +210,82 @@ class ActualizarConclusionResponse(BaseModel):
     codreclamo: str
     conclusion: str
     informe_texto: str
+
+
+# --- Informe de Sustentación del Régimen de Facturación (documento aparte) ---
+class CategoriaUsoSchema(BaseModel):
+    codigo: str
+    nombre: str
+    unidades: int | None = None
+    es_cliente: bool = False
+
+
+class LecturaHitoSchema(BaseModel):
+    fecha: str | None = None
+    lectura: float | None = None
+    observacion: str | None = None
+
+
+class FilaHistoricoSchema(BaseModel):
+    mes_anio: str | None = None
+    modalidad: str | None = None
+    volumen: float | None = None
+    marca: str | None = None
+
+
+class ClientePredioSchema(BaseModel):
+    suministro: str | None = None
+    nombre_usuario: str | None = None
+    dni: str | None = None
+    direccion: str | None = None
+    mes_facturacion: str | None = None
+    categorias: list[CategoriaUsoSchema] = Field(default_factory=list)
+
+
+class FacturacionEvaluadaSchema(BaseModel):
+    modalidad: str | None = None
+    volumen_facturado: float | None = None
+    lectura_anterior: LecturaHitoSchema = Field(default_factory=LecturaHitoSchema)
+    lectura_actual: LecturaHitoSchema = Field(default_factory=LecturaHitoSchema)
+
+
+class ValoresCalculadosSchema(BaseModel):
+    dif_lecturas: float | None = None
+    promedio_historico: float | None = None
+    consumo_asignado: float | None = None
+    meses_promedio: str | None = None
+    observacion_consumo: str | None = None
+
+
+class FichaMedidorSchema(BaseModel):
+    nro_serie: str | None = None
+    estado: str | None = None
+    marca: str | None = None
+    modelo: str | None = None
+    diametro: str | None = None
+    modelo_homologacion: str | None = None
+    nro_certificado: str | None = None
+    fecha_instalacion: str | None = None
+    fecha_verificacion: str | None = None
+    tipo_verificacion: str | None = None
+    solicitante: str | None = None
+    uvm: str | None = None
+
+
+class ConexionSchema(BaseModel):
+    fecha_nacimiento: str | None = None
+    fecha_instalacion_medidor: str | None = None
+    nro_acta: str | None = None
+
+
+class SustentacionResponse(BaseModel):
+    codreclamo: str
+    cliente: ClientePredioSchema = Field(default_factory=ClientePredioSchema)
+    facturacion: FacturacionEvaluadaSchema = Field(default_factory=FacturacionEvaluadaSchema)
+    valores: ValoresCalculadosSchema = Field(default_factory=ValoresCalculadosSchema)
+    historico: list[FilaHistoricoSchema] = Field(default_factory=list)
+    medidor: FichaMedidorSchema = Field(default_factory=FichaMedidorSchema)
+    conexion: ConexionSchema = Field(default_factory=ConexionSchema)
 
 
 class ActualizarPropuestaRequest(BaseModel):

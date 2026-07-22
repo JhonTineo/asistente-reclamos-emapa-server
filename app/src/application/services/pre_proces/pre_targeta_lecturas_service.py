@@ -129,12 +129,33 @@ class PreTargetaLecturasService:
 
 
 
+        # Dirección física del predio: calle + número (columnas de cabecera).
+        # EMAPA la reparte en dos campos; se unen aquí para el informe.
+        calle = _primer("descodcallecabecera")
+        numero = _primer("nrocallecabecera")
+        direccion = " ".join(p.strip() for p in (calle, numero) if p and p.strip()) or None
+
         indicadores = self._calcular_indicadores(df)
         targeta = TargetaLecturas(
             codcliente=_primer("codcliente"),
             nomtar=_primer("nomtar"),
             destipoactividad=_primer("destipoactividad"),
             tipopromedio=tipopromedio,
+            # --- Cabecera del suministro (para el informe de sustentación) ---
+            # Constantes por suministro: se toman de la primera fila no nula.
+            propietario=_primer("propietariocabecera"),
+            direccion=direccion,
+            categoria=_primer("catetarcabecera"),
+            diametro=_primer("descoddiametrocabecera"),
+            marca_medidor=_primer("desmarcamedcabecera"),
+            tipo_medidor=_primer("destipomedcabecera"),
+            nro_medidor=_primer("nromedcabecera"),
+            fecha_instalacion_medidor=_primer("fechainsmedcabecera"),
+            fecha_instalacion_conexion=_primer("fechainsconagucabecera"),
+            # Verificación/contrastación: EMAPA la reparte en dos campos y suele
+            # venir vacía; se toma el primero que exista.
+            fecha_verificacion=_primer("fechacontrslaborcabecera") or _primer("fechacontrscampocabecera"),
+            tipo_verificacion=_primer("desresultadocontrastacioncabecera"),
             registros=df_a_registros(df),
             **indicadores,
         )
