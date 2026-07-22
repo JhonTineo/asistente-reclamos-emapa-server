@@ -8,6 +8,8 @@ from app.src.infrastructure.api_rest.deps import usar_token_emapa, usar_config_l
 from app.src.infrastructure.api_rest.schemas.investigacion import (
     ResolucionRequest,
     ResolucionResponse,
+    ActualizarResolucionTextoRequest,
+    ActualizarResolucionTextoResponse,
 )
 from app.src.application.usecase.agents.resolucion import ResolucionAgent
 from app.src.application.services.informe.informe_store import informe_store
@@ -76,3 +78,15 @@ async def generar_resolucion(request: ResolucionRequest) -> ResolucionResponse:
         resolucion=resultado["resolucion"],
         tiempo=tiempo,
     )
+
+
+@router.patch("", response_model=ActualizarResolucionTextoResponse)
+async def actualizar_resolucion(request: ActualizarResolucionTextoRequest) -> ActualizarResolucionTextoResponse:
+    """Edita a mano el texto de la resolución, sin invocar al LLM."""
+    actualizado = informe_store.actualizar_resolucion(request.codreclamo, request.resolucion)
+    if not actualizado:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No hay un informe en curso para el reclamo {request.codreclamo}.",
+        )
+    return ActualizarResolucionTextoResponse(codreclamo=request.codreclamo, resolucion=request.resolucion)

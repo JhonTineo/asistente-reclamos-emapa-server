@@ -1,5 +1,7 @@
 # API — Asistente de Reclamos EMAPA
 
+**Versión 1.0** — primera versión estable de esta documentación.
+
 Guía para el equipo frontend: qué hace cada endpoint, en qué orden llamarlos y
 qué esperar de cada uno. Para el detalle exhaustivo de tipos (todos los campos,
 sus tipos exactos y validaciones) usa siempre el Swagger autogenerado en
@@ -22,60 +24,75 @@ El backend expone dos procesos de negocio independientes:
    otros) que sustentan legalmente las conclusiones del paso anterior.
 
 Todos los endpoints devuelven JSON (salvo los de streaming, que devuelven
-NDJSON — ver [sección 5](#5-endpoints-con-streaming-ndjson)).
+NDJSON — ver [sección 6](#6-endpoints-con-streaming-ndjson)).
 
 ---
 
-## 2. Autenticación
+## 2. Autenticación y sesión
 
-Dos headers controlan el contexto de cada petición. Ninguno es un login del
+Tres piezas de contexto controlan cada petición. Ninguna es un login del
 usuario final: son configuración por-petición.
 
-| Header | Para qué sirve | Obligatorio |
+| Header / parámetro | Para qué sirve | Obligatorio |
 |---|---|---|
 | `Authorization: Bearer <token-emapa>` | Token del sistema EMAPA con el que el backend consulta reclamos, tarjetas de lectura, etc. | **Sí**, solo en `GET /reclamos/reclamo/...` (es el punto de entrada del flujo). En el resto de endpoints es opcional: si no llega, el backend reutiliza el token guardado al buscar el reclamo (o el de `.env` en desarrollo). |
 | `X-LLM-Provider` | Proveedor de inferencia a usar (`local`, `openrouter`, `openai`, `gemini`). Ver `GET /modelos/proveedores`. | No — si no llega, se infiere del id del modelo. |
 | `X-LLM-Api-Key` | API key del proveedor externo elegido. El backend nunca expone sus propias keys; el frontend manda la del usuario. | No — hay un fallback de key en el servidor para desarrollo. |
+| `sesion_id` (query param en `GET /reclamos/reclamo/...`) | Identificador de la pestaña/sesión del frontend que abre el reclamo (ver [sección 3](#3-ciclo-de-vida-del-informe-en-memoria)). | No, pero sin él no hay protección contra doble atención simultánea. |
 
-**Importante:** el token de EMAPA se guarda en el backend asociado al
-`codreclamo` cuando se llama a `GET /reclamos/reclamo/...`. Todos los pasos
-posteriores del flujo (investigación, conciliación, resolución) pueden omitir
-el header `Authorization` y el backend recupera el token guardado — pero solo
-si el server no se reinició entretanto (el store es en memoria).
+El token de EMAPA se guarda en el backend asociado al `codreclamo` cuando se
+llama a `GET /reclamos/reclamo/...`. Todos los pasos posteriores del flujo
+(investigación, conciliación, resolución) pueden omitir el header
+`Authorization` y el backend recupera el token guardado — pero solo si el
+informe de ese reclamo sigue en memoria (ver sección siguiente).
 
 ---
 
-## 3. Flujo típico de uso
+## 3. Ciclo de vida del informe en memoria
+
+El backend mantiene el estado de cada atención (`InformeAtencion`) **en
+memoria del proceso**, indexado por `codreclamo` — no hay base de datos
+todavía. Entender su ciclo de vida es clave para no perder trabajo:
 
 ```
-1. GET  /reclamos/reclamo/{codsede}/{codsuc}/{codreclamo}/{codcliente}
-        └─ guarda el token EMAPA y crea el informe (vacío) en el store
-2. POST /investigacion/objetivos              ─┐
-   POST /investigacion/medios-disponibles      ┘  en paralelo
-   POST /investigacion/<medio>[/stream]          (uno por cada medio a analizar)
-3. POST /investigacion/conclusion[/stream]
-        └─ requiere al menos un medio analizado
-4. POST /conciliacion/propuesta
-        └─ requiere que el informe tenga conclusión + veredicto (paso 3)
-5. POST /resolucion
-        └─ requiere conclusión + veredicto (paso 3); usa la propuesta del paso 4
+crear ──► editar/analizar ──► (recargar página) ──► cerrar
+ │              │                     │                │
+ GET             POST/PATCH            GET              DELETE
+ /reclamos/      /investigacion/...    /reclamos/{cod}   /reclamos/{cod}
+ reclamo/...     /conciliacion/...     /informe          
+                 /resolucion
 ```
 
-Los pasos 2 y 3 tienen **dos variantes** (ver [sección 5](#5-endpoints-con-streaming-ndjson)):
+1. **Crear** — `GET /reclamos/reclamo/{codsede}/{codsuc}/{codreclamo}/{codcliente}`
+   crea el informe vacío (o lo reutiliza si ya existía) y guarda el token EMAPA.
+2. **Editar/analizar** — cada paso del flujo (investigar un medio, generar
+   objetivos, concluir, proponer conciliación, resolver) va llenando el mismo
+   informe en memoria. Los endpoints `PATCH` permiten editar a mano el
+   resumen de un medio, la conclusión, la propuesta o la resolución, sin
+   invocar al LLM ni borrar lo demás (ver [4.2](#42-investigacion--prefix-investigacion),
+   [4.3](#43-conciliacion--prefix-conciliacion), [4.4](#44-resolucion--prefix-resolucion)).
+3. **Recargar la página** — `GET /reclamos/{codreclamo}/informe` es una
+   lectura pura (sin efectos secundarios) que devuelve todo el estado
+   estructurado guardado hasta el momento. El frontend la usa para reconstruir
+   la cola de reclamos en atención tras un refresh del navegador.
+4. **Cerrar** — `DELETE /reclamos/{codreclamo}` libera el informe y el token
+   de la memoria. Se llama al terminar el flujo completo (tras guardar la
+   resolución), para no acumular informes de reclamos ya resueltos
+   indefinidamente.
 
-- **`/stream`** (NDJSON) — para cuando hay un usuario mirando la pantalla: el
-  frontend muestra progreso en vivo (preprocesamiento → resumen del LLM).
-- **sin `/stream`** — para flujos automatizados sin usuario presente (p.ej. al
-  registrarse un reclamo web, disparar objetivos + análisis de medios
-  automáticamente): se espera el resultado completo de una sola vez.
+**Protección contra doble atención simultánea:** si dos pestañas/ventanas
+intentan atender el mismo `codreclamo` a la vez, la segunda búsqueda
+(`GET /reclamos/reclamo/...`) responde `409` — a menos que mande el mismo
+`sesion_id` que registró la primera (en cuyo caso se interpreta como la misma
+pestaña recargando, y se refresca la metadata sin perder el avance ya hecho).
+El frontend genera un `sesion_id` propio por cada pestaña de su cola de
+reclamos y lo manda como query param.
 
-`GET /investigacion/informe/preview` puede llamarse en cualquier momento del
-paso 2 para obtener el texto del informe con lo que se ha analizado hasta
-ahora.
-
-La **Gestión de Normativa** es independiente de este flujo — se usa para
-mantener la base de conocimiento que consume `FundamentacionNormativaAgent`
-en el paso de conclusión.
+**Límite importante:** todo esto vive en memoria del proceso. Si el servidor
+se reinicia, se pierde el estado de todas las atenciones en curso — no hay
+persistencia a disco todavía. Esto es aceptable en el despliegue actual
+porque el backend no se redespliega con frecuencia, pero es una limitación a
+tener presente.
 
 ---
 
@@ -85,8 +102,10 @@ en el paso de conclusión.
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| GET | `/reclamos/reclamo/{codsede}/{codsuc}/{codreclamo}/{codcliente}` | Busca el reclamo en EMAPA, guarda el token y crea el informe en el store. **Punto de entrada del flujo.** |
+| GET | `/reclamos/reclamo/{codsede}/{codsuc}/{codreclamo}/{codcliente}?sesion_id=` | Busca el reclamo en EMAPA, guarda el token y crea (o reutiliza) el informe en el store. **Punto de entrada del flujo.** `409` si otra sesión ya lo está atendiendo. |
 | POST | `/reclamos/clasificar-rapido` | Clasificación por reglas (sin LLM), pensada para reclamos web. Si ya viene `des_cod_reclamo`, lo respeta. |
+| GET | `/reclamos/{codreclamo}/informe` | Lectura pura de todo el informe en memoria (metadata, resúmenes por medio, objetivos, conclusión, propuesta, resolución, texto renderizado). Para rehidratar el frontend tras un refresh. `404` si no hay nada en memoria. |
+| DELETE | `/reclamos/{codreclamo}` | Cierra la atención: libera el informe y el token de la memoria. |
 
 <details>
 <summary>Ejemplo — <code>GET /reclamos/reclamo/...</code></summary>
@@ -120,7 +139,32 @@ Respuesta (200):
 ```
 Si el reclamo no existe, `datos` es `null` y `error` trae el mensaje (la
 respuesta sigue siendo 200 — el frontend debe chequear `error`, no el status
-code, para este endpoint en particular).
+code, para este endpoint en particular). Si el reclamo ya lo está atendiendo
+otra sesión, la respuesta es `409` con `{"detail": "El reclamo ... ya se está
+atendiendo en otra ventana."}`.
+</details>
+
+<details>
+<summary>Ejemplo — <code>GET /reclamos/{codreclamo}/informe</code></summary>
+
+Respuesta (200):
+```json
+{
+  "codreclamo": "000456",
+  "informe": { "numero": "...", "fecha": "...", "asunto": "...", "reclamo": "...", "suministro": "...", "destinatario": "...", "datos_reclamo": { "...": "..." } },
+  "objetivos": [{ "id": 1, "descripcion": "...", "medio": "tarjeta_lectura", "determinante": true }],
+  "resumenes": [{ "medio_id": "tarjeta_lectura", "medio_nombre": "Tarjeta de Lecturas", "resumen": "...", "datos": {}, "problemas": [] }],
+  "ventana_meses": [[2025, 1], [2025, 2]],
+  "veredicto": "FUNDADO",
+  "conclusion": "texto de la conclusión...",
+  "problemas": [{ "medio_id": "...", "tipo": "...", "detalle": "...", "accion": "...", "responsable": "...", "base_legal": "..." }],
+  "propuesta_conciliacion": "texto de la propuesta...",
+  "resolucion": "texto de la resolución...",
+  "informe_texto": "INFORME N.º ... (texto completo renderizado)"
+}
+```
+Cualquier campo puede venir vacío/`null` si esa parte del flujo aún no se
+ejecutó — el frontend usa esto para reconstruir cada sección de a poco.
 </details>
 
 ---
@@ -134,15 +178,22 @@ Medios probatorios analizables: `inspeccion-externa`, `inspeccion-interna`,
 |---|---|---|---|
 | POST | `/investigacion/{medio}/stream` | `interactivo` | Analiza un medio con progreso en vivo (NDJSON). |
 | POST | `/investigacion/{medio}` | `automatizacion` | Analiza un medio, espera el resultado completo. |
+| PATCH | `/investigacion/{medio}/resumen` | — | Edita a mano el resumen de un medio ya analizado (sin LLM). No borra conclusión/propuesta/resolución ya generadas. |
 | POST | `/investigacion/objetivos` | — | Genera los objetivos de investigación a partir del motivo guardado. |
 | POST | `/investigacion/medios-disponibles` | — | Verifica en paralelo qué medios traen datos en EMAPA (sin LLM, para habilitar/deshabilitar pestañas en el front). |
 | GET | `/investigacion/informe/preview` | — | Texto del informe con lo analizado hasta ahora (sin LLM). |
 | POST | `/investigacion/conclusion/stream` | `interactivo` | Fundamenta y concluye el informe, con eventos en vivo por cada problema. |
 | POST | `/investigacion/conclusion` | `automatizacion` | Igual, pero espera el resultado completo. |
+| PATCH | `/investigacion/conclusion` | — | Edita a mano el párrafo de conclusión (sin LLM, sin tocar el veredicto). |
 
 **Orden importa:** `corte-reapertura`, `record-facturacion` y
 `saldo-detalle` requieren que `tarjeta-lectura` se haya analizado antes (fija
 la ventana de meses que los demás reutilizan).
+
+**Edición manual vs. regenerar:** los endpoints `PATCH` no invocan al LLM ni
+invalidan nada aguas abajo — el usuario decide si corrige el texto a mano o
+vuelve a llamar al `POST` correspondiente para regenerarlo con IA usando los
+datos ya actualizados.
 
 <details>
 <summary>Ejemplo — <code>POST /investigacion/tarjeta-lectura</code></summary>
@@ -174,11 +225,34 @@ Response (200):
 </details>
 
 <details>
-<summary>Ejemplo — <code>POST /investigacion/conclusion</code></summary>
+<summary>Ejemplo — <code>PATCH /investigacion/tarjeta-lectura/resumen</code></summary>
 
 Request:
 ```json
+{ "codreclamo": "000456", "resumen": "texto corregido a mano..." }
+```
+Response (200):
+```json
+{
+  "codreclamo": "000456",
+  "medio_id": "tarjeta_lectura",
+  "resumen": "texto corregido a mano...",
+  "informe_texto": "INFORME N.º ... (texto completo re-renderizado con el resumen ya actualizado)"
+}
+```
+`404` si ese medio todavía no se analizó (no hay bloque que editar).
+</details>
+
+<details>
+<summary>Ejemplo — <code>POST /investigacion/conclusion</code> y <code>PATCH /investigacion/conclusion</code></summary>
+
+`POST` (genera con IA):
+```json
 { "codreclamo": "000456", "clasificacion": "CONSUMO ELEVADO", "modelo": "qwen3:8b" }
+```
+`PATCH` (edición manual):
+```json
+{ "codreclamo": "000456", "conclusion": "texto de conclusión corregido a mano..." }
 ```
 Errores:
 - `404` — no hay informe en curso para ese `codreclamo` (no se buscó el reclamo).
@@ -193,10 +267,8 @@ Errores:
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| POST | `/conciliacion/propuesta` | Genera la propuesta de conciliación a partir de la conclusión ya guardada en el informe. |
-
-Requiere que el informe tenga `conclusion` y `veredicto` (paso previo: 
-`POST /investigacion/conclusion[/stream]`). Si no, responde `409`.
+| POST | `/conciliacion/propuesta` | Genera la propuesta de conciliación a partir de la conclusión ya guardada en el informe. Requiere `conclusion` + `veredicto` (`409` si no). |
+| PATCH | `/conciliacion/propuesta` | Edita a mano el texto de la propuesta (sin LLM). |
 
 ---
 
@@ -204,9 +276,10 @@ Requiere que el informe tenga `conclusion` y `veredicto` (paso previo:
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| POST | `/resolucion` | Genera la resolución final (considerandos redactados por el LLM; el veredicto FUNDADO/INFUNDADO ya viene fijado por la conclusión, no lo decide el LLM). |
+| POST | `/resolucion` | Genera la resolución final (considerandos redactados por el LLM; el veredicto FUNDADO/INFUNDADO ya viene fijado por la conclusión, no lo decide el LLM). Requiere `conclusion` + `veredicto` (`409` si no). |
+| PATCH | `/resolucion` | Edita a mano el texto de la resolución (sin LLM). |
 
-Request:
+Request de `POST /resolucion`:
 ```json
 {
   "codreclamo": "000456",
@@ -216,8 +289,10 @@ Request:
   "modelo": "qwen3:8b"
 }
 ```
-Igual que conciliación, requiere `conclusion` + `veredicto` ya generados
-(`409` si no).
+Request de `PATCH /resolucion`:
+```json
+{ "codreclamo": "000456", "resolucion": "texto corregido a mano..." }
+```
 
 ---
 
@@ -262,7 +337,48 @@ Igual que conciliación, requiere `conclusion` + `veredicto` ya generados
 
 ---
 
-## 5. Endpoints con streaming (NDJSON)
+## 5. Flujo típico de uso
+
+```
+1. GET    /reclamos/reclamo/{codsede}/{codsuc}/{codreclamo}/{codcliente}?sesion_id=
+          └─ guarda el token EMAPA y crea (o reutiliza) el informe en el store
+2. POST   /investigacion/objetivos              ─┐
+   POST   /investigacion/medios-disponibles      ┘  en paralelo
+   POST   /investigacion/<medio>[/stream]          (uno por cada medio a analizar)
+   PATCH  /investigacion/<medio>/resumen           (opcional: corregir a mano)
+3. POST   /investigacion/conclusion[/stream]
+          └─ requiere al menos un medio analizado
+   PATCH  /investigacion/conclusion                (opcional: corregir a mano)
+4. POST   /conciliacion/propuesta
+          └─ requiere que el informe tenga conclusión + veredicto (paso 3)
+   PATCH  /conciliacion/propuesta                  (opcional: corregir a mano)
+5. POST   /resolucion
+          └─ requiere conclusión + veredicto (paso 3); usa la propuesta del paso 4
+   PATCH  /resolucion                              (opcional: corregir a mano)
+6. DELETE /reclamos/{codreclamo}
+          └─ cierra la atención (tras guardar/exportar la resolución)
+```
+
+Los pasos 2 y 3 tienen **dos variantes** (ver [sección 6](#6-endpoints-con-streaming-ndjson)):
+
+- **`/stream`** (NDJSON) — para cuando hay un usuario mirando la pantalla: el
+  frontend muestra progreso en vivo (preprocesamiento → resumen del LLM).
+- **sin `/stream`** — para flujos automatizados sin usuario presente (p.ej. al
+  registrarse un reclamo web, disparar objetivos + análisis de medios
+  automáticamente): se espera el resultado completo de una sola vez.
+
+`GET /investigacion/informe/preview` puede llamarse en cualquier momento del
+paso 2 para obtener el texto del informe con lo que se ha analizado hasta
+ahora. `GET /reclamos/{codreclamo}/informe` (sección 3) devuelve lo mismo
+más estructurado, y sirve además para rehidratar el frontend tras un refresh.
+
+La **Gestión de Normativa** (sección 4.6) es independiente de este flujo — se
+usa para mantener la base de conocimiento que consume
+`FundamentacionNormativaAgent` en el paso de conclusión.
+
+---
+
+## 6. Endpoints con streaming (NDJSON)
 
 Los endpoints `/stream` responden `Content-Type: application/x-ndjson`: una
 línea JSON por evento (no un solo JSON al final). Léelos con un lector de
@@ -292,30 +408,34 @@ error viene en el payload, no en el status code).
 
 ---
 
-## 6. Modelos de datos compartidos
+## 7. Modelos de datos compartidos
 
-- **`Informe`** (server-side, en memoria, indexado por `codreclamo`) — el
-  estado central del flujo: metadatos del reclamo, bloques por medio
-  analizado, objetivos, conclusión, veredicto. Se pierde si el server se
-  reinicia (no hay persistencia en disco todavía).
+- **`InformeAtencion`** (server-side, en memoria, indexado por `codreclamo`) —
+  el estado central del flujo: metadatos del reclamo, `bloques` por medio
+  analizado, `objetivos`, `conclusion`, `veredicto`, `propuesta_conciliacion`,
+  `resolucion`, y `sesion_id` (dueño actual, ver sección 3). Se pierde si el
+  servidor se reinicia (no hay persistencia en disco todavía).
 - **`ReclamoSchema`** — datos del reclamante/propietario/motivo, tal como
   vienen de EMAPA.
 - **`ProblemaNormadoSchema`** — un hallazgo detectado en un medio: `tipo`,
   `detalle`, `articulos` (recuperados por RAG), y tras la conclusión también
   `accion`, `responsable`, `base_legal`.
+- **`ResumenMedio`** — el aporte de un medio al informe: `medio_id`,
+  `medio_nombre`, `resumen` (editable a mano), `datos` (crudos de EMAPA),
+  `problemas` (lista de `ProblemaNormadoSchema`).
 
 Los tipos exactos (opcionalidad, defaults) están en Swagger — esta sección es
 solo el mapa mental de cómo se relacionan.
 
 ---
 
-## 7. Códigos de error comunes
+## 8. Códigos de error comunes
 
 | Código | Cuándo aparece | Qué hacer en el frontend |
 |---|---|---|
 | `401` | Falta el token EMAPA en `GET /reclamos/reclamo/...`. | Pedir/renovar el token. |
-| `404` | No hay informe en curso para el `codreclamo` (objetivos, medios, conclusión, conciliación, resolución, buscar-articulo). | Guiar al usuario a buscar el reclamo primero. |
-| `409` | Se pide conciliación o resolución sin que la conclusión tenga `veredicto` aún. | Bloquear el botón hasta que el paso de conclusión termine. |
+| `404` | No hay informe en curso para el `codreclamo` (objetivos, medios, conclusión, conciliación, resolución, ediciones `PATCH`, `GET /reclamos/{cod}/informe`, `buscar-articulo`). | Guiar al usuario a buscar el reclamo primero, o quitarlo de la cola si es una rehidratación fallida. |
+| `409` | (a) Se pide conciliación o resolución sin que la conclusión tenga `veredicto` aún. (b) Se busca un reclamo que ya está siendo atendido por otra sesión (`sesion_id` distinto). | (a) Bloquear el botón hasta que el paso de conclusión termine. (b) Avisar al usuario y no reintentar automáticamente. |
 | `400` | Body inválido (p.ej. `texto` vacío en búsqueda normativa, colección duplicada al subir un documento). | Mensaje de validación en el form. |
 | `503` | El índice vectorial (Qdrant) no responde en `/normativa/busqueda`. | Reintentar / avisar que la búsqueda normativa está caída. |
 | `503` / `401` (LLM) | El proveedor de inferencia externo está saturado o la API key es inválida (`X-LLM-Api-Key`). El backend distingue estos casos del 500 genérico. | Sugerir cambiar de modelo/proveedor. |

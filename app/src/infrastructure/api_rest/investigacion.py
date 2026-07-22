@@ -25,6 +25,10 @@ from app.src.infrastructure.api_rest.schemas.investigacion import (
     MediosDisponiblesRequest,
     MediosDisponiblesResponse,
     MedioDisponible,
+    ActualizarResumenRequest,
+    ActualizarResumenResponse,
+    ActualizarConclusionRequest,
+    ActualizarConclusionResponse,
 )
 from app.src.application.usecase.agents.fundamentacion_normativa import FundamentacionNormativaAgent
 from app.src.application.usecase.agents.objetivos import ObjetivosAgent
@@ -332,6 +336,31 @@ async def saldo_detalle(request: BuscarReclamoRequest) -> ResumenMedio:
     return await _analizar_medio_y_registrar(request, "saldo_detalle", "Saldo Detalle")
 
 
+@router.patch("/{medio}/resumen", response_model=ActualizarResumenResponse)
+async def actualizar_resumen(medio: str, request: ActualizarResumenRequest) -> ActualizarResumenResponse:
+    """
+    Edita a mano el resumen (texto narrativo) de un medio ya analizado, sin
+    tocar los problemas detectados ni invocar al LLM. No borra la conclusión,
+    propuesta o resolución ya generadas: el usuario decide si las edita él
+    mismo o las vuelve a generar con este resumen actualizado. Devuelve el
+    informe re-renderizado para refrescar la sección de informe de atención.
+    """
+    medio_id = medio.replace("-", "_")
+    actualizado = informe_store.actualizar_resumen(request.codreclamo, medio_id, request.resumen)
+    if not actualizado:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No hay un bloque analizado para el medio '{medio}' en el reclamo {request.codreclamo}.",
+        )
+    informe = informe_store.obtener(request.codreclamo)
+    return ActualizarResumenResponse(
+        codreclamo=request.codreclamo,
+        medio_id=medio_id,
+        resumen=request.resumen,
+        informe_texto=construir_texto_informe(informe),
+    )
+
+
 # Medios cuya disponibilidad se puede verificar (función EMAPA por medio).
 # El orden define el orden de análisis en el frontend.
 _MEDIOS_VERIFICABLES = {
@@ -503,6 +532,27 @@ async def generar_conclusion(request: InformeRequest) -> InformeResponse:
         informe=texto,
         problemas=problemas_resp,
         tiempo=tiempo,
+    )
+
+
+@router.patch("/conclusion", response_model=ActualizarConclusionResponse)
+async def actualizar_conclusion(request: ActualizarConclusionRequest) -> ActualizarConclusionResponse:
+    """
+    Edita a mano el párrafo de conclusión, sin tocar el veredicto ni invocar
+    al LLM. Devuelve el informe re-renderizado para refrescar la sección de
+    informe de atención con el nuevo texto.
+    """
+    actualizado = informe_store.actualizar_conclusion(request.codreclamo, request.conclusion)
+    if not actualizado:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No hay un informe en curso para el reclamo {request.codreclamo}.",
+        )
+    informe = informe_store.obtener(request.codreclamo)
+    return ActualizarConclusionResponse(
+        codreclamo=request.codreclamo,
+        conclusion=request.conclusion,
+        informe_texto=construir_texto_informe(informe),
     )
 
 

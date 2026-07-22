@@ -8,6 +8,8 @@ from app.src.infrastructure.api_rest.deps import usar_token_emapa, usar_config_l
 from app.src.infrastructure.api_rest.schemas.investigacion import (
     ConciliacionRequest,
     ConciliacionResponse,
+    ActualizarPropuestaRequest,
+    ActualizarPropuestaResponse,
 )
 from app.src.application.usecase.agents.conciliador import ConciliadorAgent
 from app.src.application.services.informe.informe_store import informe_store
@@ -71,3 +73,15 @@ async def generar_propuesta(request: ConciliacionRequest) -> ConciliacionRespons
         propuesta=resultado["propuesta"],
         tiempo=tiempo,
     )
+
+
+@router.patch("/propuesta", response_model=ActualizarPropuestaResponse)
+async def actualizar_propuesta(request: ActualizarPropuestaRequest) -> ActualizarPropuestaResponse:
+    """Edita a mano el texto de la propuesta de conciliación, sin invocar al LLM."""
+    actualizado = informe_store.actualizar_propuesta(request.codreclamo, request.propuesta)
+    if not actualizado:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No hay un informe en curso para el reclamo {request.codreclamo}.",
+        )
+    return ActualizarPropuestaResponse(codreclamo=request.codreclamo, propuesta=request.propuesta)

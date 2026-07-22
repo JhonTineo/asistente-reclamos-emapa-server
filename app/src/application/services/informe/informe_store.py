@@ -122,6 +122,59 @@ class InformeAtencionStore:
         """Token con el que se buscó el reclamo, o None si no se guardó."""
         return self._tokens.get(codreclamo)
 
+    def actualizar_resumen(self, codreclamo: str, medio_id: str, resumen: str) -> bool:
+        """Edita a mano el resumen (texto narrativo) de un medio ya analizado,
+        sin tocar los `problemas` estructurados de ese bloque. NO borra la
+        conclusión/propuesta/resolución ya generadas (el usuario decide si las
+        edita él mismo o las vuelve a generar con este resumen actualizado).
+        Devuelve False si no hay informe o no hay bloque para ese medio."""
+        with self._lock:
+            informe = self._data.get(codreclamo)
+            if informe is None:
+                return False
+            bloque = next((b for b in informe.bloques if b.medio_id == medio_id), None)
+            if bloque is None:
+                return False
+            bloque.resumen = resumen
+            logger.info(
+                "[INFORME_STORE] Resumen editado a mano: reclamo=%s medio=%s",
+                codreclamo, medio_id,
+            )
+            return True
+
+    def actualizar_conclusion(self, codreclamo: str, texto: str) -> bool:
+        """Edita a mano el párrafo de conclusión, sin tocar el veredicto ni
+        regenerar nada. Devuelve False si no hay informe para ese reclamo."""
+        with self._lock:
+            informe = self._data.get(codreclamo)
+            if informe is None:
+                return False
+            informe.conclusion = texto
+            logger.info("[INFORME_STORE] Conclusión editada a mano: reclamo=%s", codreclamo)
+            return True
+
+    def actualizar_propuesta(self, codreclamo: str, texto: str) -> bool:
+        """Edita a mano el texto de la propuesta de conciliación. Devuelve
+        False si no hay informe para ese reclamo."""
+        with self._lock:
+            informe = self._data.get(codreclamo)
+            if informe is None:
+                return False
+            informe.propuesta_conciliacion = texto
+            logger.info("[INFORME_STORE] Propuesta editada a mano: reclamo=%s", codreclamo)
+            return True
+
+    def actualizar_resolucion(self, codreclamo: str, texto: str) -> bool:
+        """Edita a mano el texto de la resolución. Devuelve False si no hay
+        informe para ese reclamo."""
+        with self._lock:
+            informe = self._data.get(codreclamo)
+            if informe is None:
+                return False
+            informe.resolucion = texto
+            logger.info("[INFORME_STORE] Resolución editada a mano: reclamo=%s", codreclamo)
+            return True
+
     def registrar_bloque(
         self,
         codreclamo: str,

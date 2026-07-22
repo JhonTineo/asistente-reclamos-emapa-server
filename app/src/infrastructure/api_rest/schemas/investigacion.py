@@ -187,6 +187,50 @@ class MediosDisponiblesResponse(BaseModel):
     tiempo: float
 
 
+# --- Edición manual de textos ya generados (sin invocar al LLM) ---
+class ActualizarResumenRequest(BaseModel):
+    codreclamo: str = Field(description="Código del reclamo (clave del informe en el store)")
+    resumen: str = Field(description="Nuevo texto del resumen (edición manual)")
+
+
+class ActualizarResumenResponse(BaseModel):
+    codreclamo: str
+    medio_id: str
+    resumen: str
+    informe_texto: str
+
+
+class ActualizarConclusionRequest(BaseModel):
+    codreclamo: str = Field(description="Código del reclamo (clave del informe en el store)")
+    conclusion: str = Field(description="Nuevo texto de la conclusión (edición manual)")
+
+
+class ActualizarConclusionResponse(BaseModel):
+    codreclamo: str
+    conclusion: str
+    informe_texto: str
+
+
+class ActualizarPropuestaRequest(BaseModel):
+    codreclamo: str = Field(description="Código del reclamo (clave del informe en el store)")
+    propuesta: str = Field(description="Nuevo texto de la propuesta de conciliación (edición manual)")
+
+
+class ActualizarPropuestaResponse(BaseModel):
+    codreclamo: str
+    propuesta: str
+
+
+class ActualizarResolucionTextoRequest(BaseModel):
+    codreclamo: str = Field(description="Código del reclamo (clave del informe en el store)")
+    resolucion: str = Field(description="Nuevo texto de la resolución (edición manual)")
+
+
+class ActualizarResolucionTextoResponse(BaseModel):
+    codreclamo: str
+    resolucion: str
+
+
 # --- Recuperación del informe completo (rehidratación tras recargar la página) ---
 class InformeCompletoResponse(BaseModel):
     codreclamo: str
