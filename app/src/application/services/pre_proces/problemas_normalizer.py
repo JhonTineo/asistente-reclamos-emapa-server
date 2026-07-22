@@ -32,6 +32,7 @@ GRUPOS_TARJETA = (
     "errorLecturas",
     "errorReinstalacion",
     "errorServicio",
+    "fugaReparada",
 )
 
 # Grupos de hallazgos del saldo-detalle (campos de la entidad).

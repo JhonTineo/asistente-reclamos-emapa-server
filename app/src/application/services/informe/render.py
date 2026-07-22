@@ -25,19 +25,11 @@ def _fecha_es(fecha) -> str:
 
 
 def _render_bloque(indice: int, bloque: BloqueMedio) -> str:
-    lineas = [f"{indice}. {bloque.medio_nombre}: {bloque.resumen}"]
-
-    if bloque.tiene_problemas:
-        lineas.append("   Se detalla a continuación:")
-        for p in bloque.problemas:
-            base = f" ({p.base_legal})" if p.base_legal else ""
-            accion = p.accion or "Sin acción determinada."
-            lineas.append(
-                f"   - {p.detalle}\n"
-                f"     Acción: {accion}{base}"
-            )
-
-    return "\n".join(lineas)
+    # El detalle problema-por-problema (acción/base legal) no se renderiza en
+    # el texto: el resumen del medio ya lo narra en prosa, y la conclusión
+    # cierra con el veredicto. Esos datos siguen disponibles estructurados en
+    # bloque.problemas (respuesta de la API) para quien los necesite aparte.
+    return f"{indice}. {bloque.medio_nombre}: {bloque.resumen}"
 
 
 def construir_texto_informe(informe: InformeAtencion) -> str:
@@ -64,6 +56,8 @@ def construir_texto_informe(informe: InformeAtencion) -> str:
     partes = ["\n".join(cabecera), "\n\n".join(cuerpo)]
 
     if informe.conclusion:
-        partes.append("\nCONCLUSIÓN:\n" + informe.conclusion)
+        # Sin título: la conclusión es un párrafo que arranca con "En
+        # consecuencia, ..." a continuación de los hallazgos, como el informe real.
+        partes.append("\n" + informe.conclusion)
 
     return "\n".join(partes).strip()

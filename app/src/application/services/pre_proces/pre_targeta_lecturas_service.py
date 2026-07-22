@@ -32,6 +32,14 @@ ESTADOS_LECTURA_NO_PROBLEMA = {"000", "002", "005", "010"}
 #   011 CONSUMO DOBLE AL PROMEDIO
 ESTADOS_LECTURA_CONSUMO = {"001", "008", "011"}
 
+# Detección de "fuga no visible reparada": un mes con consumo elevado
+# (> FACTOR_ELEVADO x promedio histórico, o marcado como consumo atípico) seguido
+# de un mes posterior cuyo consumo RETORNA al promedio (<= FACTOR_NORMAL x
+# promedio). Esa caída evidencia que la fuga fue reparada y sustenta refacturar
+# los meses reclamados por el promedio histórico (Art. 88.3 SUNASS).
+FACTOR_ELEVADO = 1.8
+FACTOR_NORMAL = 1.3
+
 COLUMNAS = [f.name for f in fields(LecturaMensual)]
 _HINTS = get_type_hints(LecturaMensual)
 CAMPOS_NUMERICOS = [n for n, t in _HINTS.items() if float in get_args(t) or t is float]
@@ -217,5 +225,54 @@ class PreTargetaLecturasService:
             "errorLecturas": _fmt(lectura_grp),
             "errorReinstalacion": _fmt(reinst_grp),
             "errorServicio": _fmt(servicio_grp),
+            "fugaReparada": self._detectar_fuga_reparada(df),
             "obslectura": _fmt(obs_grp),
         }
+
+    def _detectar_fuga_reparada(self, df: pd.DataFrame) -> list[str]:
+        """Detecta el patrón de fuga no visible reparada: uno o más meses con
+        consumo elevado seguidos de un mes posterior cuyo consumo retorna al
+        promedio histórico. Devuelve a lo sumo un hallazgo con las cifras.
+
+        Se apoya en `consumo` y `lecturapromedio` de cada mes (más el código de
+        consumo atípico del origen). Requiere la serie en orden cronológico."""
+        regs = []
+        for r in df.to_dict("records"):
+            prom = r.get("lecturapromedio")
+            cons = r.get("consumo")
+            if (pd.notna(prom) and float(prom) > 0 and pd.notna(cons)
+                    and pd.notna(r.get("anio")) and pd.notna(r.get("mes"))):
+                regs.append(r)
+        if len(regs) < 2:
+            return []
+
+        def _elevado(r) -> bool:
+            prom, cons = float(r["lecturapromedio"]), float(r["consumo"])
+            cod = str(r["estadolectura"]) if pd.notna(r.get("estadolectura")) else None
+            return cons > FACTOR_ELEVADO * prom or cod in ESTADOS_LECTURA_CONSUMO
+
+        def _normal(r) -> bool:
+            return float(r["consumo"]) <= FACTOR_NORMAL * float(r["lecturapromedio"])
+
+        idx_elevados = [i for i, r in enumerate(regs) if _elevado(r)]
+        if not idx_elevados:
+            return []
+        # ¿Algún mes POSTERIOR al último elevado retornó al promedio?
+        posteriores_normales = [r for r in regs[idx_elevados[-1] + 1:] if _normal(r)]
+        if not posteriores_normales:
+            return []
+
+        pico = max((regs[i] for i in idx_elevados), key=lambda r: float(r["consumo"]))
+        post = posteriores_normales[0]
+
+        def _fecha(r) -> str:
+            return f"{int(r['mes']):02d}/{int(r['anio'])}"
+
+        msg = (
+            f"Consumo elevado de {float(pico['consumo']):.0f} m³ en {_fecha(pico)} "
+            f"que retorna a {float(post['consumo']):.0f} m³ en {_fecha(post)} "
+            f"(promedio histórico {float(post['lecturapromedio']):.0f} m³), lo que "
+            f"evidencia una fuga no visible ya reparada."
+        )
+        logger.info("[PRE_TARGETA_LECTURAS] Fuga reparada detectada: %s", msg)
+        return [msg]

@@ -4,8 +4,12 @@ Evalúa cada OBJETIVO de investigación (derivado del motivo del reclamo) contra
 los HALLAZGOS de los medios probatorios y decide el veredicto con una REGLA
 EXPLÍCITA (puerta lógica), no con criterio libre del LLM:
 
-    FUNDADO  ⇔  algún objetivo DETERMINANTE resultó "problema_empresa"
+    FUNDADO  ⇔  algún objetivo DETERMINANTE resultó "procede_correccion"
     INFUNDADO en caso contrario
+
+"procede_correccion" cubre tanto un error de la empresa (medidor/medición) como
+una refacturación que procede sin culpa de la empresa (p.ej. fuga no visible ya
+reparada → refacturar por promedio histórico, Art. 92.3/88.3 SUNASS).
 
 El LLM solo realiza la tarea acotada de evaluar cada objetivo contra los
 hallazgos; la decisión final la toma el código, de forma determinista y trazable.
@@ -22,7 +26,7 @@ from app.src.core.model.informe_atencion import InformeAtencion, ObjetivoInvesti
 
 logger = logging.getLogger("agent.conclusion")
 
-RESULTADOS_VALIDOS = {"problema_empresa", "sin_problema", "no_evaluable"}
+RESULTADOS_VALIDOS = {"procede_correccion", "sin_correccion", "no_evaluable"}
 
 
 class ConclusionAgent:
@@ -57,21 +61,26 @@ class ConclusionAgent:
             obj.evidencia = ev.get("evidencia")
 
         # --- Puerta lógica (determinista) --------------------------------
+        # FUNDADO ⇔ algún objetivo DETERMINANTE resultó "procede_correccion", es
+        # decir, corresponde corregir la facturación a favor del usuario. Esto
+        # abarca tanto un error de la empresa (medidor/medición) como una
+        # refacturación procedente sin culpa de la empresa (p.ej. fuga no visible
+        # ya reparada → refacturar por promedio histórico, Art. 92.3/88.3).
         determinantes = [o for o in informe.objetivos if o.determinante]
-        con_problema = [o for o in determinantes if o.resultado == "problema_empresa"]
-        veredicto = "FUNDADO" if con_problema else "INFUNDADO"
+        con_correccion = [o for o in determinantes if o.resultado == "procede_correccion"]
+        veredicto = "FUNDADO" if con_correccion else "INFUNDADO"
 
         informe.veredicto = veredicto
         # El veredicto lo fija la puerta lógica (arriba); el LLM SOLO redacta el
         # párrafo que lo fundamenta (no puede cambiarlo). Si el LLM falla, se usa
         # la plantilla determinista como respaldo.
         informe.conclusion = self._redactar_conclusion(
-            informe, veredicto, determinantes, con_problema, hallazgos_por_medio
+            informe, veredicto, determinantes, con_correccion, hallazgos_por_medio
         )
 
         logger.info(
-            "[CONCLUSION] veredicto=%s | determinantes=%d | con_problema_empresa=%d",
-            veredicto, len(determinantes), len(con_problema),
+            "[CONCLUSION] veredicto=%s | determinantes=%d | con_correccion=%d",
+            veredicto, len(determinantes), len(con_correccion),
         )
         return veredicto
 
@@ -125,12 +134,20 @@ class ConclusionAgent:
             "Eres un analista de reclamos de EMAPA. Evalúas cada objetivo de la "
             "investigación contra LOS HALLAZGOS QUE SE LISTAN DEBAJO DE ESE MISMO "
             "OBJETIVO (no contra los de otros objetivos).\n"
+            "La pregunta de fondo es: según los hallazgos de su medio, ¿CORRESPONDE "
+            "CORREGIR la facturación a favor del usuario respecto de ese objetivo?\n"
             "Para cada objetivo responde uno de estos resultados:\n"
-            "- \"problema_empresa\": los hallazgos de SU medio muestran un problema "
-            "atribuible a la EMPRESA relacionado con el objetivo (p.ej. error de "
-            "medición, medidor defectuoso, lectura mal registrada).\n"
-            "- \"sin_problema\": no se halló tal problema (todo correcto, o el problema "
-            "es responsabilidad del cliente).\n"
+            "- \"procede_correccion\": los hallazgos de SU medio muestran que "
+            "corresponde corregir/refacturar a favor del usuario. Esto incluye DOS "
+            "situaciones: (a) un error atribuible a la EMPRESA (medidor defectuoso, "
+            "error de medición, lectura mal registrada, cobro indebido), o (b) una "
+            "refacturación que procede aunque la empresa no haya errado, p.ej. una "
+            "FUGA NO VISIBLE YA REPARADA (el consumo elevado retornó al promedio) que "
+            "obliga a refacturar los meses afectados por el promedio histórico.\n"
+            "- \"sin_correccion\": la facturación fue correcta y NO corresponde "
+            "corregir nada (medidor y lecturas correctos, sin fuga, o el problema es "
+            "responsabilidad del cliente y persiste —fuga visible o no reparada— por lo "
+            "que se factura por diferencia de lecturas).\n"
             "- \"no_evaluable\": los hallazgos de su medio no permiten evaluar el "
             "objetivo (p.ej. el medio aún no fue analizado).\n"
             "Básate ÚNICAMENTE en los hallazgos listados debajo de cada objetivo. "
@@ -191,12 +208,18 @@ class ConclusionAgent:
     # Redacción de la conclusión (LLM, coherente con la puerta lógica)
     # ------------------------------------------------------------------ #
     @staticmethod
-    def _contexto_normativo(informe: InformeAtencion) -> str:
+    def _contexto_normativo(informe: InformeAtencion, medios: set[str] | None = None) -> str:
         """Reúne, por cada problema hallado, su detalle + responsable + acción +
         base legal + el texto de los artículos citados, para que el LLM pueda
-        redactar la conclusión citando la norma (no solo repetir el objetivo)."""
+        redactar la conclusión citando la norma (no solo repetir el objetivo).
+
+        Si se pasa `medios`, solo incluye los problemas de esos medios (los de los
+        objetivos determinantes), para no inflar el prompt con normativa de
+        hallazgos que no deciden el veredicto."""
         lineas: list[str] = []
         for bloque in informe.bloques:
+            if medios is not None and bloque.medio_id not in medios:
+                continue
             for p in bloque.problemas:
                 partes = [f"- [{bloque.medio_id}] {p.detalle}"]
                 if p.responsable:
@@ -218,21 +241,26 @@ class ConclusionAgent:
         informe: InformeAtencion,
         veredicto: str,
         determinantes: list[ObjetivoInvestigacion],
-        con_problema: list[ObjetivoInvestigacion],
+        con_correccion: list[ObjetivoInvestigacion],
         hallazgos_por_medio: dict[str, str],
     ) -> str:
         """Pide al LLM el párrafo de conclusión. El veredicto YA está decidido
         por la puerta lógica; el modelo solo lo fundamenta (no puede cambiarlo).
         Ante cualquier fallo, cae a la plantilla determinista."""
-        objetivos_texto = "\n".join(
-            f"{o.id}. {o.descripcion} "
-            f"[determinante={'sí' if o.determinante else 'no'}, "
-            f"resultado={o.resultado or 'no_evaluable'}"
+        # Solo los objetivos DETERMINANTES guían la redacción; los demás son
+        # contexto de soporte y solo inflarían el prompt sin cambiar la conclusión.
+        determinantes_texto = "\n".join(
+            f"- {o.descripcion} [resultado={o.resultado or 'no_evaluable'}"
             + (f", evidencia: {o.evidencia}" if o.evidencia else "")
             + "]"
-            for o in informe.objetivos
-        )
-        contexto_normativo = self._contexto_normativo(informe)
+            for o in determinantes
+        ) or "(sin objetivos determinantes)"
+
+        # Normativa SOLO de los medios de los objetivos determinantes (el artículo
+        # que decide la facturación). Si no hay medio asignado, se cae a toda la
+        # normativa para no perder la cita del artículo.
+        medios_det = {o.medio for o in determinantes if o.medio}
+        contexto_normativo = self._contexto_normativo(informe, medios_det or None)
 
         system = (
             "Eres un analista de reclamos de EMAPA que redacta la CONCLUSIÓN de un "
@@ -240,20 +268,23 @@ class ConclusionAgent:
             "IMPORTANTE: el veredicto ya fue determinado por una regla y NO puedes "
             "cambiarlo; tu tarea es redactar el párrafo que lo fundamenta.\n"
             "Reglas de redacción:\n"
-            "- Escribe UN párrafo formal y claro (sin viñetas ni JSON).\n"
-            "- Fundamenta con los hallazgos y los artículos citados que se te dan; "
-            "cita el artículo/numeral cuando corresponda. NO inventes artículos ni "
-            "cifras que no estén en el contexto.\n"
+            "- Escribe UN SOLO párrafo formal y conciso (sin viñetas ni JSON) y "
+            "SIN título ni encabezado.\n"
+            "- El párrafo DEBE empezar con «En consecuencia,» y seguir la fórmula del "
+            "informe real: «En consecuencia, toda vez que [hecho decisivo verificado "
+            "con su cifra], [la facturación que corresponde según la norma], por lo "
+            f"tanto se declara {veredicto}».\n"
+            "- Cita el artículo/numeral que se te da cuando corresponda. NO inventes "
+            "artículos ni cifras que no estén en el contexto.\n"
             "- Sé coherente con el motivo del reclamo (p.ej. si el cliente reparó una "
-            "fuga, considéralo al explicar la facturación que corresponde).\n"
-            "- Cierra la conclusión declarando expresamente que el reclamo se declara "
-            f"{veredicto}.\n"
+            "fuga, la facturación que corresponde es por promedio histórico).\n"
             "Responde SOLO con el párrafo de conclusión, sin encabezados."
         )
         human = (
             f"Veredicto ya determinado (NO modificar): {veredicto}\n\n"
             f"Motivo del reclamo:\n{informe.motivo or 'no especificado'}\n\n"
-            f"Objetivos de la investigación y su resultado:\n{objetivos_texto}\n\n"
+            f"Verificaciones determinantes y su resultado:\n{determinantes_texto}\n\n"
+            f"Norma aplicable (artículos de los hallazgos determinantes):\n{contexto_normativo}\n\n"
             "Redacta la conclusión."
         )
 
@@ -273,7 +304,7 @@ class ConclusionAgent:
 
         if not texto:
             logger.warning("[CONCLUSION] Redacción LLM vacía; uso plantilla de respaldo")
-            return self._construir_conclusion(veredicto, determinantes, con_problema)
+            return self._construir_conclusion(veredicto, determinantes, con_correccion)
         return texto
 
     # ------------------------------------------------------------------ #
@@ -283,25 +314,26 @@ class ConclusionAgent:
     def _construir_conclusion(
         veredicto: str,
         determinantes: list[ObjetivoInvestigacion],
-        con_problema: list[ObjetivoInvestigacion],
+        con_correccion: list[ObjetivoInvestigacion],
     ) -> str:
         if veredicto == "FUNDADO":
             motivos = "; ".join(
                 f"{o.descripcion}: {o.evidencia}" if o.evidencia else o.descripcion
-                for o in con_problema
+                for o in con_correccion
             )
             return (
                 "En consecuencia, el reclamo se declara FUNDADO, por cuanto la "
-                f"investigación halló al menos un problema atribuible a la empresa: {motivos}."
+                f"investigación determinó que corresponde corregir la facturación a "
+                f"favor del usuario: {motivos}."
             )
         if determinantes:
             detalle = "; ".join(o.descripcion for o in determinantes)
             return (
-                "En consecuencia, el reclamo se declara INFUNDADO, por cuanto no se "
-                f"hallaron problemas atribuibles a la empresa en las verificaciones "
+                "En consecuencia, el reclamo se declara INFUNDADO, por cuanto no "
+                f"corresponde corregir la facturación en las verificaciones "
                 f"determinantes ({detalle})."
             )
         return (
-            "En consecuencia, el reclamo se declara INFUNDADO, por cuanto no se "
-            "hallaron problemas atribuibles a la empresa en la investigación."
+            "En consecuencia, el reclamo se declara INFUNDADO, por cuanto no "
+            "corresponde corregir la facturación según la investigación."
         )

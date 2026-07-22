@@ -58,13 +58,37 @@ class ObjetivosAgent:
         medios_texto = "\n".join(f"- {medio}: {desc}" for medio, desc in MEDIOS.items())
         system = (
             "Eres un analista de reclamos de EMAPA. A partir del motivo del reclamo "
-            "defines los OBJETIVOS de investigación: qué verificar concretamente en los "
-            "medios probatorios para determinar si el reclamo procede.\n\n"
+            "defines los OBJETIVOS de investigación: qué verificar en los medios "
+            "probatorios para determinar si el reclamo procede (FUNDADO) o no (INFUNDADO).\n\n"
             "Medios probatorios disponibles y qué información tiene cada uno:\n"
             f"{medios_texto}\n\n"
-            
+            "MÉTODO:\n"
+            "1. Primero identifica la PREGUNTA DECISIVA: dado el motivo, ¿qué hecho, por "
+            "sí solo, haría FUNDADO este reclamo? (p.ej. en un reclamo por fuga: '¿la fuga "
+            "no visible fue reparada?', que se ve en la caída del consumo al promedio).\n"
+            "2. Deriva de 2 a 4 OBJETIVOS concretos y verificables. NO generes uno por "
+            "cada medio: solo los que realmente importan para este reclamo.\n"
+            "3. Formula cada objetivo como PREGUNTA NEUTRAL verificable (no como una "
+            "afirmación que dé por hecho el resultado), para no sesgar el análisis.\n\n"
+            "DETERMINANTE:\n"
+            "- Marca determinante=true SOLO el objetivo (uno; a lo sumo dos) cuyo "
+            "resultado POR SÍ SOLO cambia el veredicto FUNDADO↔INFUNDADO (el que responde "
+            "la pregunta decisiva).\n"
+            "- Los objetivos de contexto o soporte van con determinante=false, aunque "
+            "sean útiles.\n"
+            "- En \"porque_determinante\" explica en una frase por qué ese objetivo "
+            "decide (o no) el veredicto.\n\n"
+            "Ejemplo (reclamo por fuga no visible):\n"
+            "[{\"descripcion\": \"¿El consumo de los meses reclamados retorna al promedio "
+            "histórico en un mes posterior (fuga reparada)?\", \"medio\": \"tarjeta_lectura\", "
+            "\"determinante\": true, \"porque_determinante\": \"si la fuga se reparó procede "
+            "refacturar por promedio (FUNDADO); si persiste, se factura por diferencia "
+            "(INFUNDADO)\"}, {\"descripcion\": \"¿La inspección halló fugas o problemas en "
+            "el medidor?\", \"medio\": \"inspeccion_externa\", \"determinante\": false, "
+            "\"porque_determinante\": \"aporta contexto del estado del predio, pero no "
+            "decide por sí solo\"}]\n\n"
             "Responde SOLO con el JSON (lista de objetos con las claves \"descripcion\", "
-            "\"medio\", \"determinante\"), sin texto adicional."
+            "\"medio\", \"determinante\", \"porque_determinante\"), sin texto adicional."
         )
         human = (
             f"Motivo del reclamo:\n{motivo}\n\n"
@@ -82,7 +106,18 @@ class ObjetivosAgent:
         log_uso_llm(logger, "objetivos", response)
 
         objetivos = self._parse(response.content or "")
-        logger.info("[OBJETIVOS] %d objetivo(s) generados", len(objetivos))
+        n_det = sum(1 for o in objetivos if o.determinante)
+        logger.info(
+            "[OBJETIVOS] %d objetivo(s) generados | determinantes=%d", len(objetivos), n_det,
+        )
+        # El gate del veredicto (conclusion.py) es sensible al nº de determinantes:
+        # marcar muchos como determinante lo vuelve frágil (falsos FUNDADO). El
+        # prompt pide 1-2; si el modelo devuelve más, se avisa para vigilarlo.
+        if n_det > 2:
+            logger.warning(
+                "[OBJETIVOS] %d objetivos marcados como determinante (>2); el prompt pide "
+                "1-2. Revisar la calidad de los objetivos para este motivo.", n_det,
+            )
         return objetivos
 
     @staticmethod

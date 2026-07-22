@@ -43,6 +43,7 @@ class AnalistaMedioAgent:
         clasificacion: str, meses: int = 12,
         ventana: list[tuple[int, int]] | None = None,
         fecha_ref: str | None = None,
+        enfoque: str | None = None,
     ) -> tuple[BloqueMedio, list[tuple[int, int]]]:
         """Análisis completo (bloqueante): preprocesa e interpreta en un solo
         paso. Se mantiene para los endpoints no-streaming.
@@ -56,7 +57,7 @@ class AnalistaMedioAgent:
         logger.info("Iniciando análisis para medio: %s | codsuc=%s | codcliente=%s", medio_nombre, codsuc, codcliente)
 
         datos, problemas, ventana = self.preprocesar(medio_id, medio_nombre, codsuc, codcliente, meses, ventana, fecha_ref)
-        resumen = self.interpretar(medio_id, medio_nombre, datos, problemas, clasificacion)
+        resumen = self.interpretar(medio_id, medio_nombre, datos, problemas, clasificacion, enfoque)
 
         logger.info("Análisis completado | medio=%s | tiempo=%.2fs", medio_nombre, time.perf_counter() - t_inicio)
 
@@ -90,7 +91,8 @@ class AnalistaMedioAgent:
         )
         return datos, problemas, ventana
 
-    def _resumen_llm(self, medio_id: str, medio_nombre: str, datos: dict, clasificacion: str) -> str:
+    def _resumen_llm(self, medio_id: str, medio_nombre: str, datos: dict, clasificacion: str,
+                     enfoque: str | None = None) -> str:
         # 'registros' es el detalle crudo por mes/evento (solo para la tabla del
         # frontend); se excluye del prompt para no inflar tokens con filas que
         # ya están resumidas en los demás campos (hallazgos agregados).
@@ -98,6 +100,16 @@ class AnalistaMedioAgent:
         datos_texto = json.dumps(datos_para_prompt, ensure_ascii=False, indent=2)
         prompt = self._construir_prompt(medio_id, medio_nombre, datos_texto)
         human = f"Analiza los datos y genera un resumen relevante para un reclamo de: {clasificacion}"
+        # Enfoque de la investigación para ESTE medio (las preguntas del/los
+        # objetivo(s) asignados). Va en el mensaje HUMAN (no en las reglas del
+        # system) para dirigir el énfasis del resumen SIN tocar la detección de
+        # problemas (que es por reglas) y manteniendo la regla anti-invención.
+        if enfoque:
+            human += (
+                f"\nLa investigación de este medio busca responder: {enfoque} "
+                "Si los datos disponibles lo permiten, resáltalo en el resumen; "
+                "si no, no lo inventes."
+            )
 
         logger.info(
             "Consultando al modelo | medio=%s | system_chars=%d | human_chars=%d | datos_chars=%d",
@@ -113,13 +125,17 @@ class AnalistaMedioAgent:
         log_uso_llm(logger, f"analista_medio/{medio_nombre}", response)
         return response.content if response.content else ""
 
-    def interpretar(self, medio_id: str, medio_nombre: str, datos: dict, problemas: list, clasificacion: str) -> str:
+    def interpretar(self, medio_id: str, medio_nombre: str, datos: dict, problemas: list,
+                    clasificacion: str, enfoque: str | None = None) -> str:
         """Fase 2 (lenta): genera el resumen en lenguaje natural. Si el medio
         tiene frase predefinida (no aplica a inspecciones) y no halló ningún
-        problema, la usa y evita la llamada al LLM."""
+        problema, la usa y evita la llamada al LLM.
+
+        `enfoque` (opcional) son las preguntas del/los objetivo(s) de
+        investigación asignados a este medio; dirigen el énfasis del resumen."""
         if medio_id in FRASE_SIN_PROBLEMAS and not problemas:
             return FRASE_SIN_PROBLEMAS[medio_id]
-        return self._resumen_llm(medio_id, medio_nombre, datos, clasificacion)
+        return self._resumen_llm(medio_id, medio_nombre, datos, clasificacion, enfoque)
     
     def _dispatch_preprocesamiento(
         self, medio_id: str, codsuc: str, codcliente: str,

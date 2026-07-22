@@ -28,6 +28,10 @@ CONSULTA_POR_TIPO = {
         "consumo atípico y facturación elevada por diferencia de lecturas "
         "del medidor"
     ),
+    "fugaReparada": (
+        "fuga no visible reparada por el usuario y facturación de los meses "
+        "afectados según el promedio histórico de consumos"
+    ),
     "errorLecturas": (
         "error en la lectura del medidor, consumo negativo y lectura que no "
         "corresponde al periodo"
@@ -111,26 +115,33 @@ class FundamentacionNormativaAgent:
 
         system = (
             "Eres un analista normativo de EMAPA. Determinas, según el "
-            "Reglamento de Calidad SUNASS, qué corresponde hacer ante un "
-            "hallazgo.\n"
-            "Reglas:\n"
-            "- Basáte ÚNICAMENTE en los artículos proporcionados. No inventes "
-            "normas.\n"
-            "- Si los artículos no permiten determinar qué acción tomar, usa "
-            "\"no_determinable\" en accion.\n"
-            "- Cita el artículo/numeral en que te apoyas.\n"
-            "Responde SOLO con un JSON válido con las claves: accion, "
-            "base_legal, justificacion."
+            "Reglamento de Calidad SUNASS, qué corresponde hacer ante un HALLAZGO "
+            "concreto.\n"
+            "Procede en dos pasos:\n"
+            "1. RELEVANCIA: decide si alguno de los artículos proporcionados "
+            "REGULA ESE HALLAZGO en particular (no el motivo general del reclamo). "
+            "Un artículo es relevante solo si trata directamente la situación del "
+            "hallazgo. Ejemplo: si el hallazgo es el registro de un reclamo previo "
+            "o un corte de servicio, NO se regula con un artículo sobre fugas, "
+            "aunque el motivo del reclamo mencione una fuga.\n"
+            "2. Si NINGÚN artículo regula el hallazgo → aplica=false, "
+            "accion=\"no_determinable\", base_legal=null. NO fuerces un artículo "
+            "que no corresponde. Si al menos uno aplica → aplica=true, determina "
+            "la accion y cita el artículo/numeral (base_legal) en que te apoyas.\n"
+            "Basáte ÚNICAMENTE en los artículos dados; no inventes normas ni cifras.\n"
+            "Responde SOLO con un JSON válido con las claves: aplica (true/false), "
+            "accion, base_legal, justificacion."
         )
 
         human = (
-            (f"Motivo del reclamo (lo que dice el cliente): {contexto}\n\n" if contexto else "")
-            + f"Hallazgo detectado: {problema.detalle}\n"
-            f"Tipo de reclamo: {clasificacion or 'no especificado'}\n\n"
-            f"Artículos del reglamento (recuperados):\n{articulos_texto}\n\n"
-            "Ten en cuenta el motivo del reclamo para que tu conclusión sea "
-            "coherente con lo que realmente ocurrió (p.ej. si el cliente indica "
-            "que ya reparó una fuga, evalúa la facturación considerando eso).\n\n"
+            f"Hallazgo detectado (evalúa la norma contra ESTO): {problema.detalle}\n"
+            f"Tipo de reclamo: {clasificacion or 'no especificado'}\n"
+            + (f"Motivo del reclamo (solo contexto, NO es el hallazgo): {contexto}\n" if contexto else "")
+            + f"\nArtículos del reglamento (recuperados):\n{articulos_texto}\n\n"
+            "Primero decide la RELEVANCIA de los artículos frente al HALLAZGO; si "
+            "ninguno lo regula, responde aplica=false y accion=\"no_determinable\". "
+            "Si el hallazgo indica una fuga no visible ya reparada, la facturación "
+            "que corresponde es por promedio histórico.\n\n"
             "Devuelve SOLO el JSON."
         )
 
@@ -209,8 +220,18 @@ class FundamentacionNormativaAgent:
             return problema
 
         interp = self.interpretar(problema, articulos, clasificacion, contexto)
-        problema.accion = self._a_texto(interp.get("accion"))
-        problema.base_legal = self._a_texto(interp.get("base_legal"))
+        accion = self._a_texto(interp.get("accion"))
+        # Guardarraíl de abstención: si el LLM juzgó que ningún artículo regula el
+        # hallazgo (aplica=false) o devolvió "no_determinable", NO se fundamenta;
+        # así se evita citar artículos irrelevantes (p.ej. un artículo de fugas
+        # sobre un hallazgo de corte o de reclamo previo).
+        no_aplica = interp.get("aplica") is False or (accion or "").strip().lower() == "no_determinable"
+        if no_aplica:
+            problema.accion = "No corresponde: los artículos recuperados no regulan este hallazgo."
+            problema.base_legal = None
+        else:
+            problema.accion = accion
+            problema.base_legal = self._a_texto(interp.get("base_legal"))
         return problema
 
     @staticmethod

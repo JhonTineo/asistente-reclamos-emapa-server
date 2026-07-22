@@ -33,6 +33,9 @@ class TargetaLecturas:
     errorReinstalacion: list[str] = field(default_factory=list)
     # - estado del medidor · estado del servicio
     errorServicio: list[str] = field(default_factory=list)
+    # - fuga no visible ya reparada: consumo elevado que retorna al promedio
+    #   histórico en un mes posterior (sustenta refacturación por promedio, Art. 88.3)
+    fugaReparada: list[str] = field(default_factory=list)
     # - observaciones de lectura
     obslectura: list[str] = field(default_factory=list)
 

@@ -55,6 +55,27 @@ logger = logging.getLogger("api.investigacion")
 router = APIRouter(prefix="", tags=["investigacion"], dependencies=[Depends(usar_token_emapa), Depends(usar_config_llm)])
 
 
+def _enfoque_para_medio(informe, medio_id: str) -> str | None:
+    """Reúne las preguntas de los objetivos de investigación asignados a este
+    medio, para dirigir el énfasis del resumen del LLM. None si no hay objetivos
+    para el medio (p.ej. aún no se generaron)."""
+    if not informe or not informe.objetivos:
+        return None
+    preguntas = [o.descripcion for o in informe.objetivos
+                 if o.medio == medio_id and o.descripcion]
+    return " ".join(preguntas) or None
+
+
+def _medios_determinantes(informe) -> set[str]:
+    """Medios de los objetivos determinantes (los que deciden el veredicto). La
+    fundamentación normativa se limita a estos: fundamentar hallazgos de medios
+    no determinantes es trabajo perdido (la conclusión solo usa los
+    determinantes) y añade ruido de artículos irrelevantes."""
+    if not informe or not informe.objetivos:
+        return set()
+    return {o.medio for o in informe.objetivos if o.determinante and o.medio}
+
+
 async def _analizar_medio_y_registrar(
     request: BuscarReclamoRequest,
     medio_id: str,
@@ -76,6 +97,7 @@ async def _analizar_medio_y_registrar(
     informe = informe_store.obtener(request.codreclamo)
     ventana_actual = informe.ventana_meses if informe else []
     fecha_ref = informe.datos_reclamo.fecha_recepcion if informe and informe.datos_reclamo else None
+    enfoque = _enfoque_para_medio(informe, medio_id)
 
     analista = AnalistaMedioAgent(model=request.modelo)
     bloque, ventana = analista.analizar(
@@ -87,6 +109,7 @@ async def _analizar_medio_y_registrar(
         meses=request.meses,
         ventana=ventana_actual,
         fecha_ref=fecha_ref,
+        enfoque=enfoque,
     )
 
     informe = informe_store.registrar_bloque(
@@ -142,6 +165,7 @@ def _stream_analisis_medio(
         informe = informe_store.obtener(request.codreclamo)
         ventana_actual = informe.ventana_meses if informe else []
         fecha_ref = informe.datos_reclamo.fecha_recepcion if informe and informe.datos_reclamo else None
+        enfoque = _enfoque_para_medio(informe, medio_id)
         analista = AnalistaMedioAgent(model=request.modelo)
         try:
             # --- Fase 1: preprocesamiento  ---------------------------
@@ -164,7 +188,7 @@ def _stream_analisis_medio(
             # --- Fase 2: interpretación LLM  --------------------------
             resumen = await run_in_threadpool(
                 analista.interpretar,
-                medio_id, medio_nombre, datos, problemas, request.clasificacion,
+                medio_id, medio_nombre, datos, problemas, request.clasificacion, enfoque,
             )
             bloque = BloqueMedio(
                 medio_id=medio_id,
@@ -403,23 +427,31 @@ async def generar_conclusion(request: InformeRequest) -> InformeResponse:
 
     clasificacion = request.clasificacion or informe.clasificacion or ""
 
-    # Fase 4: fundamentación normativa de cada problema de cada bloque.
+    # Fase 4: fundamentación normativa. Solo se fundamentan los hallazgos de los
+    # medios DETERMINANTES (los que deciden el veredicto); los demás se incluyen
+    # sin fundamentar. Si no hay determinantes, se fundamenta todo (respaldo).
     fundamentador = FundamentacionNormativaAgent(model=request.modelo)
     problemas_resp: list[ProblemaInforme] = []
-    total_problemas = sum(len(b.problemas) for b in informe.bloques)
+    medios_det = _medios_determinantes(informe)
+    total_a_fundamentar = sum(
+        len(b.problemas) for b in informe.bloques if not medios_det or b.medio_id in medios_det
+    )
     logger.info(
-        "[API /investigacion/conclusion] Fundamentando %d problema(s) en %d bloque(s)",
-        total_problemas, len(informe.bloques),
+        "[API /investigacion/conclusion] Fundamentando %d problema(s) de medios "
+        "determinantes %s (de %d bloque(s))",
+        total_a_fundamentar, sorted(medios_det) or "TODOS", len(informe.bloques),
     )
     idx = 0
     for bloque in informe.bloques:
+        fundamentar_medio = not medios_det or bloque.medio_id in medios_det
         for problema in bloque.problemas:
-            idx += 1
-            logger.info(
-                "[API /investigacion/conclusion] Problema %d/%d | medio=%s | tipo=%s",
-                idx, total_problemas, bloque.medio_id, problema.tipo,
-            )
-            fundamentador.fundamentar(problema, clasificacion, contexto=informe.motivo or "")
+            if fundamentar_medio:
+                idx += 1
+                logger.info(
+                    "[API /investigacion/conclusion] Problema %d/%d | medio=%s | tipo=%s",
+                    idx, total_a_fundamentar, bloque.medio_id, problema.tipo,
+                )
+                fundamentador.fundamentar(problema, clasificacion, contexto=informe.motivo or "")
             problemas_resp.append(
                 ProblemaInforme(
                     medio_id=bloque.medio_id,
@@ -500,8 +532,13 @@ async def generar_conclusion_stream(request: InformeRequest) -> StreamingRespons
 
         clasificacion = request.clasificacion or informe.clasificacion or ""
 
-        # Total de problemas (para que el frontend muestre progreso).
-        total = sum(len(b.problemas) for b in informe.bloques)
+        # Solo se fundamentan los hallazgos de los medios DETERMINANTES (los que
+        # deciden el veredicto); los demás se incluyen sin fundamentar. Si no hay
+        # determinantes, se fundamenta todo (respaldo).
+        medios_det = _medios_determinantes(informe)
+        total = sum(
+            len(b.problemas) for b in informe.bloques if not medios_det or b.medio_id in medios_det
+        )
         yield json.dumps({"evento": "inicio", "total_problemas": total}, ensure_ascii=False) + "\n"
 
         fundamentador = FundamentacionNormativaAgent(model=request.modelo)
@@ -510,35 +547,38 @@ async def generar_conclusion_stream(request: InformeRequest) -> StreamingRespons
 
         try:
             for bloque in informe.bloques:
+                fundamentar_medio = not medios_det or bloque.medio_id in medios_det
                 for problema in bloque.problemas:
-                    # --- Fase 1: recuperación de artículos -------------------
-                    articulos = await run_in_threadpool(
-                        fundamentador.fundamentar_articulos, problema, informe.motivo or "",
-                    )
-                    yield json.dumps({
-                        "evento": "articulos",
-                        "indice": indice,
-                        "medio_id": bloque.medio_id,
-                        "tipo": problema.tipo,
-                        "detalle": problema.detalle,
-                        "articulos": problema.articulos,
-                    }, ensure_ascii=False) + "\n"
+                    if fundamentar_medio:
+                        # --- Fase 1: recuperación de artículos -------------------
+                        articulos = await run_in_threadpool(
+                            fundamentador.fundamentar_articulos, problema, informe.motivo or "",
+                        )
+                        yield json.dumps({
+                            "evento": "articulos",
+                            "indice": indice,
+                            "medio_id": bloque.medio_id,
+                            "tipo": problema.tipo,
+                            "detalle": problema.detalle,
+                            "articulos": problema.articulos,
+                        }, ensure_ascii=False) + "\n"
 
-                    # --- Fase 2: inferencia del LLM --------------------------
-                    await run_in_threadpool(
-                        fundamentador.fundamentar_interpretacion,
-                        problema, articulos, clasificacion, informe.motivo or "",
-                    )
-                    yield json.dumps({
-                        "evento": "fundamentacion",
-                        "indice": indice,
-                        "medio_id": bloque.medio_id,
-                        "tipo": problema.tipo,
-                        "detalle": problema.detalle,
-                        "accion": problema.accion,
-                        "responsable": problema.responsable,
-                        "base_legal": problema.base_legal,
-                    }, ensure_ascii=False) + "\n"
+                        # --- Fase 2: inferencia del LLM --------------------------
+                        await run_in_threadpool(
+                            fundamentador.fundamentar_interpretacion,
+                            problema, articulos, clasificacion, informe.motivo or "",
+                        )
+                        yield json.dumps({
+                            "evento": "fundamentacion",
+                            "indice": indice,
+                            "medio_id": bloque.medio_id,
+                            "tipo": problema.tipo,
+                            "detalle": problema.detalle,
+                            "accion": problema.accion,
+                            "responsable": problema.responsable,
+                            "base_legal": problema.base_legal,
+                        }, ensure_ascii=False) + "\n"
+                        indice += 1
 
                     problemas_resp.append(
                         ProblemaInforme(
@@ -550,7 +590,6 @@ async def generar_conclusion_stream(request: InformeRequest) -> StreamingRespons
                             base_legal=problema.base_legal,
                         )
                     )
-                    indice += 1
 
             # --- Conclusión: veredicto FUNDADO/INFUNDADO ----------------------
             conclusionador = ConclusionAgent(model=request.modelo)
