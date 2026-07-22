@@ -185,3 +185,18 @@ class MediosDisponiblesResponse(BaseModel):
     codreclamo: str
     medios: list[MedioDisponible] = Field(default_factory=list)
     tiempo: float
+
+
+# --- Recuperación del informe completo (rehidratación tras recargar la página) ---
+class InformeCompletoResponse(BaseModel):
+    codreclamo: str
+    informe: InformeMetadata
+    objetivos: list[ObjetivoInvestigacionSchema] = Field(default_factory=list)
+    resumenes: list[ResumenMedio] = Field(default_factory=list)
+    ventana_meses: list[tuple[int, int]] = Field(default_factory=list)
+    veredicto: str | None = None
+    conclusion: str | None = None
+    problemas: list[ProblemaInforme] = Field(default_factory=list)
+    propuesta_conciliacion: str | None = None
+    resolucion: str | None = None
+    informe_texto: str = ""

@@ -17,10 +17,6 @@ from app.src.infrastructure.api_rest.schemas.investigacion import (
     InformePreviewRequest,
     InformePreviewResponse,
     ProblemaInforme,
-    ConciliacionRequest,
-    ConciliacionResponse,
-    ResolucionRequest,
-    ResolucionResponse,
     BuscarReclamoRequest,
     BuscarReclamoResponse,
     ObjetivosRequest,
@@ -30,8 +26,6 @@ from app.src.infrastructure.api_rest.schemas.investigacion import (
     MediosDisponiblesResponse,
     MedioDisponible,
 )
-from app.src.application.usecase.agents.conciliador import ConciliadorAgent
-from app.src.application.usecase.agents.resolucion import ResolucionAgent
 from app.src.application.usecase.agents.fundamentacion_normativa import FundamentacionNormativaAgent
 from app.src.application.usecase.agents.objetivos import ObjetivosAgent
 from app.src.application.usecase.agents.conclusion import ConclusionAgent
@@ -52,7 +46,20 @@ from app.src.application.adapters.emapa_api import (
 
 logger = logging.getLogger("api.investigacion")
 
-router = APIRouter(prefix="", tags=["investigacion"], dependencies=[Depends(usar_token_emapa), Depends(usar_config_llm)])
+# Prefix único: todos los endpoints de este router son parte del proceso de
+# Investigación (medios probatorios + objetivos + conclusión). Propuesta de
+# conciliación y resolución viven en sus propios routers (conciliacion.py,
+# resolucion.py) aunque dependan de la conclusión generada aquí.
+#
+# Tags secundarios "interactivo" / "automatizacion" distinguen los endpoints
+# con streaming (pensados para que el frontend muestre progreso en vivo al
+# usuario) de sus equivalentes sin streaming (pensados para flujos
+# automatizados donde nadie está mirando y solo importa el resultado final).
+router = APIRouter(
+    prefix="/investigacion",
+    tags=["investigacion"],
+    dependencies=[Depends(usar_token_emapa), Depends(usar_config_llm)],
+)
 
 
 def _enfoque_para_medio(informe, medio_id: str) -> str | None:
@@ -233,80 +240,95 @@ def _stream_analisis_medio(
     return StreamingResponse(generador(), media_type="application/x-ndjson")
 
 
-@router.post("/investigacion/inspeccion-externa/stream")
+@router.post("/inspeccion-externa/stream", tags=["interactivo"])
 async def inspeccion_externa_stream(request: BuscarReclamoRequest) -> StreamingResponse:
-    """Versión streaming: emite preprocesamiento y luego el resumen del LLM."""
+    """Versión streaming: emite preprocesamiento y luego el resumen del LLM.
+    Pensada para uso interactivo (el frontend muestra progreso en vivo)."""
     return _stream_analisis_medio(request, "inspeccion_externa", "Inspección Externa")
 
 
-@router.post("/investigacion/inspeccion-interna/stream")
+@router.post("/inspeccion-interna/stream", tags=["interactivo"])
 async def inspeccion_interna_stream(request: BuscarReclamoRequest) -> StreamingResponse:
-    """Versión streaming: emite preprocesamiento y luego el resumen del LLM."""
+    """Versión streaming: emite preprocesamiento y luego el resumen del LLM.
+    Pensada para uso interactivo (el frontend muestra progreso en vivo)."""
     return _stream_analisis_medio(request, "inspeccion_interna", "Inspección Interna")
 
 
-@router.post("/investigacion/tarjeta-lectura/stream")
+@router.post("/tarjeta-lectura/stream", tags=["interactivo"])
 async def tarjeta_lectura_stream(request: BuscarReclamoRequest) -> StreamingResponse:
-    """Versión streaming: emite preprocesamiento y luego el resumen del LLM."""
+    """Versión streaming: emite preprocesamiento y luego el resumen del LLM.
+    Pensada para uso interactivo (el frontend muestra progreso en vivo)."""
     return _stream_analisis_medio(request, "tarjeta_lectura", "Tarjeta de Lecturas")
 
 
-@router.post("/investigacion/corte-reapertura/stream")
+@router.post("/corte-reapertura/stream", tags=["interactivo"])
 async def corte_reapertura_stream(request: BuscarReclamoRequest) -> StreamingResponse:
-    """Versión streaming: emite preprocesamiento y luego el resumen del LLM."""
+    """Versión streaming: emite preprocesamiento y luego el resumen del LLM.
+    Pensada para uso interactivo (el frontend muestra progreso en vivo)."""
     return _stream_analisis_medio(request, "corte_reapertura", "Cortes y Reaperturas")
 
 
-@router.post("/investigacion/record-facturacion/stream")
+@router.post("/record-facturacion/stream", tags=["interactivo"])
 async def record_facturacion_stream(request: BuscarReclamoRequest) -> StreamingResponse:
-    """Versión streaming: emite preprocesamiento y luego el resumen del LLM."""
+    """Versión streaming: emite preprocesamiento y luego el resumen del LLM.
+    Pensada para uso interactivo (el frontend muestra progreso en vivo)."""
     return _stream_analisis_medio(request, "record_facturacion", "Record de Facturación")
 
 
-@router.post("/investigacion/saldo-detalle/stream")
+@router.post("/saldo-detalle/stream", tags=["interactivo"])
 async def saldo_detalle_stream(request: BuscarReclamoRequest) -> StreamingResponse:
-    """Versión streaming: emite preprocesamiento y luego el resumen del LLM."""
+    """Versión streaming: emite preprocesamiento y luego el resumen del LLM.
+    Pensada para uso interactivo (el frontend muestra progreso en vivo)."""
     return _stream_analisis_medio(request, "saldo_detalle", "Saldo Detalle")
 
 
-@router.post("/investigacion/inspeccion-externa", response_model=ResumenMedio)
+@router.post("/inspeccion-externa", response_model=ResumenMedio, tags=["automatizacion"])
 async def inspeccion_externa(request: BuscarReclamoRequest) -> ResumenMedio:
-    """Analiza la inspección externa y registra su bloque en el informe."""
+    """Analiza la inspección externa y registra su bloque en el informe.
+    Sin streaming: espera el resultado completo. Pensada para flujos
+    automatizados sin usuario mirando la pantalla."""
     return await _analizar_medio_y_registrar(request, "inspeccion_externa", "Inspección Externa")
 
 
-@router.post("/investigacion/inspeccion-interna", response_model=ResumenMedio)
+@router.post("/inspeccion-interna", response_model=ResumenMedio, tags=["automatizacion"])
 async def inspeccion_interna(request: BuscarReclamoRequest) -> ResumenMedio:
-    """Analiza la inspección interna y registra su bloque en el informe."""
+    """Analiza la inspección interna y registra su bloque en el informe.
+    Sin streaming: espera el resultado completo. Pensada para flujos
+    automatizados sin usuario mirando la pantalla."""
     return await _analizar_medio_y_registrar(request, "inspeccion_interna", "Inspección Interna")
 
 
-@router.post("/investigacion/tarjeta-lectura", response_model=ResumenMedio)
+@router.post("/tarjeta-lectura", response_model=ResumenMedio, tags=["automatizacion"])
 async def tarjeta_lectura(request: BuscarReclamoRequest) -> ResumenMedio:
-    """Analiza la tarjeta de lecturas (micromedición) y registra su bloque."""
+    """Analiza la tarjeta de lecturas (micromedición) y registra su bloque.
+    Sin streaming: espera el resultado completo. Pensada para flujos
+    automatizados sin usuario mirando la pantalla."""
     return await _analizar_medio_y_registrar(request, "tarjeta_lectura", "Tarjeta de Lecturas")
 
 
-@router.post("/investigacion/corte-reapertura", response_model=ResumenMedio)
+@router.post("/corte-reapertura", response_model=ResumenMedio, tags=["automatizacion"])
 async def corte_reapertura(request: BuscarReclamoRequest) -> ResumenMedio:
     """Analiza los cortes/reaperturas y registra su bloque en el informe.
-    Requiere que se haya analizado antes la tarjeta de lecturas (fija la ventana)."""
+    Requiere que se haya analizado antes la tarjeta de lecturas (fija la
+    ventana). Sin streaming: pensada para flujos automatizados."""
     return await _analizar_medio_y_registrar(request, "corte_reapertura", "Cortes y Reaperturas")
 
 
-@router.post("/investigacion/record-facturacion", response_model=ResumenMedio)
+@router.post("/record-facturacion", response_model=ResumenMedio, tags=["automatizacion"])
 async def record_facturacion(request: BuscarReclamoRequest) -> ResumenMedio:
     """Analiza el record de facturación (cómo se facturó cada mes: por lectura o
     por promedio) y registra su bloque. Requiere que se haya analizado antes la
-    tarjeta de lecturas (fija la ventana de meses)."""
+    tarjeta de lecturas (fija la ventana de meses). Sin streaming: pensada para
+    flujos automatizados."""
     return await _analizar_medio_y_registrar(request, "record_facturacion", "Record de Facturación")
 
 
-@router.post("/investigacion/saldo-detalle", response_model=ResumenMedio)
+@router.post("/saldo-detalle", response_model=ResumenMedio, tags=["automatizacion"])
 async def saldo_detalle(request: BuscarReclamoRequest) -> ResumenMedio:
     """Analiza el saldo-detalle (pagos por mes: cobro indebido, mora y meses
     pendientes) y registra su bloque. Requiere que se haya analizado antes la
-    tarjeta de lecturas (fija la ventana de meses)."""
+    tarjeta de lecturas (fija la ventana de meses). Sin streaming: pensada
+    para flujos automatizados."""
     return await _analizar_medio_y_registrar(request, "saldo_detalle", "Saldo Detalle")
 
 
@@ -330,7 +352,7 @@ def _tiene_datos(respuesta: dict) -> bool:
     return bool(respuesta.get("data"))
 
 
-@router.post("/investigacion/objetivos", response_model=ObjetivosResponse)
+@router.post("/objetivos", response_model=ObjetivosResponse)
 async def generar_objetivos(request: ObjetivosRequest) -> ObjetivosResponse:
     """Genera los objetivos de investigación a partir del motivo del reclamo
     (guardado al buscar el reclamo) y los deja en el informe. Se llama aparte de
@@ -373,7 +395,7 @@ async def generar_objetivos(request: ObjetivosRequest) -> ObjetivosResponse:
     )
 
 
-@router.post("/investigacion/medios-disponibles", response_model=MediosDisponiblesResponse)
+@router.post("/medios-disponibles", response_model=MediosDisponiblesResponse)
 async def medios_disponibles(request: MediosDisponiblesRequest) -> MediosDisponiblesResponse:
     """Verifica en paralelo qué medios probatorios devuelven datos desde EMAPA,
     sin analizarlos (sin LLM). Sirve para marcar en el front los medios que sí
@@ -403,12 +425,13 @@ async def medios_disponibles(request: MediosDisponiblesRequest) -> MediosDisponi
     return MediosDisponiblesResponse(codreclamo=request.codreclamo, medios=list(medios), tiempo=tiempo)
 
 
-@router.post("/investigacion/conclusion", response_model=InformeResponse)
+@router.post("/conclusion", response_model=InformeResponse, tags=["automatizacion"])
 async def generar_conclusion(request: InformeRequest) -> InformeResponse:
     """
     Concluye el informe de atención: recupera el informe (con los bloques ya
     llenados por cada medio), fundamenta normativamente cada problema
-    detectado y devuelve el texto final en lenguaje natural.
+    detectado y devuelve el texto final en lenguaje natural. Sin streaming:
+    pensada para flujos automatizados.
     """
     t_inicio = time.perf_counter()
 
@@ -483,7 +506,7 @@ async def generar_conclusion(request: InformeRequest) -> InformeResponse:
     )
 
 
-@router.post("/investigacion/informe/preview", response_model=InformePreviewResponse)
+@router.post("/informe/preview", response_model=InformePreviewResponse)
 async def informe_preview(request: InformePreviewRequest) -> InformePreviewResponse:
     """
     Devuelve el texto del informe con los bloques registrados hasta el momento
@@ -503,7 +526,7 @@ async def informe_preview(request: InformePreviewRequest) -> InformePreviewRespo
     return InformePreviewResponse(codreclamo=request.codreclamo, informe=texto)
 
 
-@router.post("/investigacion/conclusion/stream")
+@router.post("/conclusion/stream", tags=["interactivo"])
 async def generar_conclusion_stream(request: InformeRequest) -> StreamingResponse:
     """Concluye el informe en streaming (NDJSON). Por cada problema de cada medio
     emite dos eventos a medida que se producen:
@@ -512,6 +535,7 @@ async def generar_conclusion_stream(request: InformeRequest) -> StreamingRespons
     2. ``fundamentacion``: la inferencia del LLM (acción, responsable, base legal).
 
     Al final emite ``informe`` con el texto en lenguaje natural ya armado.
+    Pensada para uso interactivo (el frontend muestra progreso en vivo).
     """
 
     async def generador():
@@ -621,105 +645,3 @@ async def generar_conclusion_stream(request: InformeRequest) -> StreamingRespons
             yield json.dumps({"evento": "error", "error": str(e)}, ensure_ascii=False) + "\n"
 
     return StreamingResponse(generador(), media_type="application/x-ndjson")
-
-
-@router.post("/conciliacion/propuesta", response_model=ConciliacionResponse)
-async def generar_propuesta(request: ConciliacionRequest) -> ConciliacionResponse:
-    """
-    Genera la propuesta de conciliación a partir de la CONCLUSIÓN del informe de
-    atención (leída del store), no del texto completo del informe.
-    """
-    t_inicio = time.perf_counter()
-
-    logger.info("=" * 60)
-    logger.info("[API /conciliacion/propuesta] codreclamo=%s", request.codreclamo)
-
-    informe = informe_store.obtener(request.codreclamo)
-    if informe is None:
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                f"No hay un informe en curso para el reclamo {request.codreclamo}. "
-                "Genere el informe de atención antes de la propuesta de conciliación."
-            ),
-        )
-    if not informe.conclusion or not informe.veredicto:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "El informe aún no tiene conclusión con veredicto. Genere el "
-                "informe (paso de conclusión) antes de la propuesta."
-            ),
-        )
-
-    conciliador = ConciliadorAgent(model=request.modelo)
-    resultado = await run_in_threadpool(
-        conciliador.generar_propuesta,
-        request.codreclamo, informe.veredicto, informe.conclusion, informe.numero,
-    )
-
-    tiempo = time.perf_counter() - t_inicio
-
-    logger.info("[API /conciliacion/propuesta] COMPLETADO | veredicto=%s | tiempo=%.2fs",
-                informe.veredicto, tiempo)
-    logger.info("=" * 60)
-
-    return ConciliacionResponse(
-        codreclamo=request.codreclamo,
-        propuesta=resultado["propuesta"],
-        tiempo=tiempo,
-    )
-
-
-@router.post("/resolucion", response_model=ResolucionResponse)
-async def generar_resolucion(request: ResolucionRequest) -> ResolucionResponse:
-    """
-    Genera la resolución final del reclamo. El tipo (FUNDADO/INFUNDADO) NO lo
-    decide el LLM: se toma del veredicto ya fijado en el informe (paso de
-    conclusión); el LLM solo redacta los considerandos que lo fundamentan,
-    usando los datos del reclamo y la conclusión de la investigación (ambos
-    leídos del informe en el store) más la propuesta de conciliación de la
-    empresa y la postura del cliente.
-    """
-    t_inicio = time.perf_counter()
-
-    logger.info("=" * 60)
-    logger.info("[API /resolucion] codreclamo=%s", request.codreclamo)
-
-    informe = informe_store.obtener(request.codreclamo)
-    if informe is None:
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                f"No hay un informe en curso para el reclamo {request.codreclamo}. "
-                "Genere el informe de atención antes de la resolución."
-            ),
-        )
-    if not informe.conclusion or not informe.veredicto:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "El informe aún no tiene conclusión con veredicto. Genere el "
-                "informe (paso de conclusión) antes de la resolución."
-            ),
-        )
-
-    resolucion_agent = ResolucionAgent(model=request.modelo)
-    resultado = await run_in_threadpool(
-        resolucion_agent.generar_resolucion,
-        informe, request.propuesta_conciliacion, request.propuesta_reclamante, request.observaciones,
-    )
-
-    tiempo = time.perf_counter() - t_inicio
-
-    logger.info("[API /resolucion] COMPLETADO | tipo=%s | tiempo=%.2fs", resultado["tipo"], tiempo)
-    logger.info("=" * 60)
-
-    return ResolucionResponse(
-        codreclamo=request.codreclamo,
-        tipo=resultado["tipo"],
-        resolucion=resultado["resolucion"],
-        tiempo=tiempo,
-    )
-
-

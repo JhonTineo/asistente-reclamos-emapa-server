@@ -18,6 +18,18 @@ DESTINATARIO_DEFAULT = "Jefe de la Oficina de Atención al Cliente"
 ASUNTO_DEFAULT = "RESULTADOS DE LA EVALUACIÓN DE RECLAMO PRESENTADO"
 
 
+class ReclamoEnAtencionError(Exception):
+    """El reclamo ya tiene un informe en curso abierto por otra sesión
+    (sesion_id distinto). Se lanza al buscar un reclamo que otra pestaña ya
+    está atendiendo, para no pisar su avance."""
+
+    def __init__(self, codreclamo: str):
+        self.codreclamo = codreclamo
+        super().__init__(
+            f"El reclamo {codreclamo} ya se está atendiendo en otra ventana."
+        )
+
+
 class InformeAtencionStore:
 
     def __init__(self):
@@ -50,16 +62,55 @@ class InformeAtencionStore:
         codreclamo: str,
         suministro: str,
         datos_reclamo: Reclamo | None = None,
+        sesion_id: str | None = None,
     ) -> InformeAtencion:
-        """Crea (o reinicia) el informe con solo sus metadatos."""
+        """Crea el informe con solo sus metadatos, o si ya existe uno en
+        curso para este reclamo:
+
+        - Si lo abrió la MISMA sesión (mismo ``sesion_id``, o la existente
+          todavía no tenía dueño registrado), se refresca la metadata sin
+          perder el avance ya hecho (bloques, objetivos, conclusión). Esto
+          es lo que pasa si el frontend recarga o vuelve a buscar el mismo
+          reclamo en la misma pestaña.
+        - Si lo abrió OTRA sesión (``sesion_id`` distinto), se rechaza con
+          ``ReclamoEnAtencionError`` para no pisar el trabajo en curso de
+          esa otra ventana.
+        """
         with self._lock:
+            existente = self._data.get(codreclamo)
+            if existente is not None:
+                if existente.sesion_id and sesion_id and existente.sesion_id != sesion_id:
+                    raise ReclamoEnAtencionError(codreclamo)
+                existente.suministro = suministro
+                existente.datos_reclamo = datos_reclamo
+                if sesion_id:
+                    existente.sesion_id = sesion_id
+                logger.info(
+                    "[INFORME_STORE] Reclamo %s ya en curso; se refresca metadata "
+                    "sin perder avance (bloques=%d)",
+                    codreclamo, len(existente.bloques),
+                )
+                return existente
+
             informe = self._nuevo_informe(codreclamo, suministro, datos_reclamo)
+            informe.sesion_id = sesion_id
             self._data[codreclamo] = informe
             logger.info("[INFORME_STORE] Metadatos creados para reclamo %s", codreclamo)
             return informe
 
     def obtener(self, codreclamo: str) -> InformeAtencion | None:
         return self._data.get(codreclamo)
+
+    def eliminar(self, codreclamo: str) -> bool:
+        """Cierra la atención de un reclamo: quita su informe y token de la
+        memoria del servidor. Se llama al terminar el flujo completo (tras
+        guardar la resolución), para no acumular informes de reclamos ya
+        resueltos indefinidamente. Devuelve True si había algo que borrar."""
+        with self._lock:
+            existia = self._data.pop(codreclamo, None) is not None
+            self._tokens.pop(codreclamo, None)
+        logger.info("[INFORME_STORE] Reclamo %s eliminado de memoria (existia=%s)", codreclamo, existia)
+        return existia
 
     def guardar_token(self, codreclamo: str, token: str) -> None:
         """Asocia el token de EMAPA al reclamo (se fija al buscar el reclamo)."""

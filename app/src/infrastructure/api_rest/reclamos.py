@@ -1,15 +1,18 @@
 import logging
 import time
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from app.src.application.usecase.agents.clasificador_rapido import clasificar_rapido
 from app.src.infrastructure.api_rest.schemas.investigacion import (
     BuscarReclamoResponse, InformeMetadata, ReclamoSchema,
+    InformeCompletoResponse, ObjetivoInvestigacionSchema,
+    ResumenMedio, ProblemaNormadoSchema, ProblemaInforme,
 )
 from app.src.application.adapters.emapa_api import buscar_reclamo_emapa
 from app.src.application.adapters.http import EmapaSinDatosError
-from app.src.application.services.informe.informe_store import informe_store
+from app.src.application.services.informe.informe_store import informe_store, ReclamoEnAtencionError
+from app.src.application.services.informe.render import construir_texto_informe
 from app.src.core.model.reclamo import Reclamo
 from app.src.infrastructure.api_rest.deps import usar_token_emapa, requerir_token_emapa, usar_config_llm
 
@@ -34,6 +37,11 @@ class ClasificarRapidoResponse(BaseModel):
     candidatos: list[dict] = []
 
 
+class FinalizarAtencionResponse(BaseModel):
+    codreclamo: str
+    eliminado: bool
+
+
 def _campo_reclamo(datos: dict | None, campo: str) -> str:
     """Lee un campo del JSON del reclamo (data puede ser dict o lista)."""
     data = datos.get("data") if isinstance(datos, dict) else None
@@ -50,6 +58,14 @@ async def buscar_reclamo(
     codsuc: str,
     codreclamo: str,
     codcliente: str,
+    sesion_id: str | None = Query(
+        None,
+        description=(
+            "Identificador de la pestaña/sesión del frontend (p.ej. el id de la "
+            "pestaña en la cola). Si otra sesión ya está atendiendo este reclamo, "
+            "la búsqueda se rechaza con 409 en vez de pisar su avance."
+        ),
+    ),
     token: str = Depends(requerir_token_emapa),
 ) -> BuscarReclamoResponse:
     """
@@ -117,11 +133,17 @@ async def buscar_reclamo(
 
     # Se crean los metadatos del informe de atención y quedan en el
     # store, listos para ir llenándose con cada medio analizado.
-    informe = informe_store.crear_metadata(
-        codreclamo=codreclamo,
-        suministro=codcliente,
-        datos_reclamo=datos_reclamo,
-    )
+    try:
+        informe = informe_store.crear_metadata(
+            codreclamo=codreclamo,
+            suministro=codcliente,
+            datos_reclamo=datos_reclamo,
+            sesion_id=sesion_id,
+        )
+    except ReclamoEnAtencionError as e:
+        logger.warning("[API /reclamo] %s", e)
+        logger.info("=" * 60)
+        raise HTTPException(status_code=409, detail=str(e))
     # Se guarda el token con el que se buscó el reclamo para reutilizarlo en
     # las consultas de investigación de este mismo reclamo.
     informe_store.guardar_token(codreclamo, token)
@@ -164,5 +186,81 @@ def clasificar_rapido_endpoint(request: ClasificarRapidoRequest) -> ClasificarRa
         score=resultado["score"],
         candidatos=resultado["candidatos"],
     )
+
+
+@router.get("/{codreclamo}/informe", response_model=InformeCompletoResponse)
+async def obtener_informe_completo(codreclamo: str) -> InformeCompletoResponse:
+    """
+    Lectura pura del informe en curso (sin efectos secundarios: no crea nada,
+    no llama al LLM, no toca el dueño de la sesión). Devuelve todo lo que hay
+    en memoria para este reclamo — bloques analizados, objetivos, conclusión,
+    propuesta y resolución — para que el frontend pueda reconstruir su estado
+    tras recargar la página. 404 si no hay nada en memoria (p.ej. el servidor
+    se reinició, o el informe ya se cerró con DELETE).
+    """
+    informe = informe_store.obtener(codreclamo)
+    if informe is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No hay un informe en curso para el reclamo {codreclamo}.",
+        )
+
+    resumenes = [
+        ResumenMedio(
+            medio_id=b.medio_id,
+            medio_nombre=b.medio_nombre,
+            resumen=b.resumen,
+            datos=b.entidad,
+            problemas=[ProblemaNormadoSchema(**vars(p)) for p in b.problemas],
+        )
+        for b in informe.bloques
+    ]
+    problemas = [
+        ProblemaInforme(
+            medio_id=b.medio_id,
+            tipo=p.tipo,
+            detalle=p.detalle,
+            accion=p.accion,
+            responsable=p.responsable,
+            base_legal=p.base_legal,
+        )
+        for b in informe.bloques
+        for p in b.problemas
+    ]
+
+    return InformeCompletoResponse(
+        codreclamo=codreclamo,
+        informe=InformeMetadata(
+            numero=informe.numero,
+            fecha=informe.fecha.isoformat(),
+            asunto=informe.asunto,
+            reclamo=informe.reclamo,
+            suministro=informe.suministro,
+            destinatario=informe.destinatario,
+            datos_reclamo=ReclamoSchema(**vars(informe.datos_reclamo)) if informe.datos_reclamo else None,
+        ),
+        objetivos=[ObjetivoInvestigacionSchema(**vars(o)) for o in informe.objetivos],
+        resumenes=resumenes,
+        ventana_meses=informe.ventana_meses,
+        veredicto=informe.veredicto,
+        conclusion=informe.conclusion,
+        problemas=problemas,
+        propuesta_conciliacion=informe.propuesta_conciliacion,
+        resolucion=informe.resolucion,
+        informe_texto=construir_texto_informe(informe),
+    )
+
+
+@router.delete("/{codreclamo}", response_model=FinalizarAtencionResponse)
+async def finalizar_atencion(codreclamo: str) -> FinalizarAtencionResponse:
+    """
+    Cierra la atención de un reclamo: elimina su informe y el token EMAPA
+    asociado de la memoria del servidor. Se llama al terminar el flujo
+    completo (tras guardar la resolución), para no acumular en memoria
+    informes de reclamos ya resueltos indefinidamente.
+    """
+    eliminado = informe_store.eliminar(codreclamo)
+    logger.info("[API DELETE /reclamos/%s] eliminado=%s", codreclamo, eliminado)
+    return FinalizarAtencionResponse(codreclamo=codreclamo, eliminado=eliminado)
 
 

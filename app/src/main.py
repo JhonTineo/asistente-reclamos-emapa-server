@@ -6,8 +6,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.src.infrastructure.api_rest.modelos import router as modelos_router
 from app.src.infrastructure.api_rest.investigacion import router as investigacion_router
+from app.src.infrastructure.api_rest.conciliacion import router as conciliacion_router
+from app.src.infrastructure.api_rest.resolucion import router as resolucion_router
 from app.src.infrastructure.api_rest.reclamos import router as reclamos_router
-from app.src.infrastructure.api_rest.embedding_docs import router as embedding_docs_router
+from app.src.infrastructure.api_rest.normativa_documentos import router as normativa_documentos_router
+from app.src.infrastructure.api_rest.normativa_articulos import router as normativa_articulos_router
+from app.src.infrastructure.api_rest.normativa_busqueda import router as normativa_busqueda_router
 from app.src.application.adapters.llm import ModeloNoCargadoError, InferenciaLocalNoDisponibleError
 
 
@@ -47,8 +51,12 @@ app.add_middleware(
 
 app.include_router(modelos_router)
 app.include_router(investigacion_router)
+app.include_router(conciliacion_router)
+app.include_router(resolucion_router)
 app.include_router(reclamos_router)
-app.include_router(embedding_docs_router)
+app.include_router(normativa_documentos_router)
+app.include_router(normativa_articulos_router)
+app.include_router(normativa_busqueda_router)
 
 logger = logging.getLogger("api.main")
 
