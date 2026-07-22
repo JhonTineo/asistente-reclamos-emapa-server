@@ -1,0 +1,775 @@
+{
+  "codreclamo": "223209",
+  "suministro": "7175",
+  "clasificacion_emapa": "A1. CONSUMO MEDIDO",
+  "motivo_emapa": "USUARIO NO ESTA DE ACUERDO CON LAS  FACTURACIONES DE LOS MESES DE AGOSTO Y SEPTIEMBRE 2022, TUVO FUGA NO VIVBLE DEBAJO DE SU PISO, NO SE PUDO DETECTAR DE MANERA RAPIDA PORQUE NO TENIA BUENA PRESION DE AGUA Y LA MAQUINA NO PODIA DETECTARLA.\nSOLICITA INSPECCION INTERNA Y EXTERNA",
+  "veredicto_generado": "INFUNDADO",
+  "objetivos": {
+    "codreclamo": "223209",
+    "objetivos": [
+      {
+        "id": 1,
+        "descripcion": "Verificar la exactitud de las lecturas del medidor para agosto y septiembre 2022 y su correspondencia con la facturación.",
+        "medio": "tarjeta_lectura",
+        "determinante": true
+      },
+      {
+        "id": 2,
+        "descripcion": "Determinar la existencia y extensión de la fuga bajo el piso durante agosto y septiembre 2022.",
+        "medio": "inspeccion_interna",
+        "determinante": true
+      },
+      {
+        "id": 3,
+        "descripcion": "Evaluar el estado de la conexión externa y el medidor durante los meses en cuestión.",
+        "medio": "inspeccion_externa",
+        "determinante": true
+      },
+      {
+        "id": 4,
+        "descripcion": "Analizar si la presión de agua y la capacidad de detección de la máquina pudieron haber impedido la detección de la fuga.",
+        "medio": "inspeccion_interna",
+        "determinante": true
+      },
+      {
+        "id": 5,
+        "descripcion": "Revisar si hubo ajustes, correcciones o reclamos previos relacionados con la facturación de agosto y septiembre 2022.",
+        "medio": "record_facturacion",
+        "determinante": true
+      },
+      {
+        "id": 6,
+        "descripcion": "Verificar si existen cortes, prórrogas o deudas pendientes que pudieran haber influido en la facturación.",
+        "medio": "corte_reapertura",
+        "determinante": true
+      },
+      {
+        "id": 7,
+        "descripcion": "Confirmar si el consumo de los meses en cuestión es atípico comparado con otros meses.",
+        "medio": "tarjeta_lectura",
+        "determinante": true
+      }
+    ],
+    "tiempo": 27.592570057997364
+  },
+  "medios": {
+    "tarjeta_lectura": {
+      "medio_id": "tarjeta_lectura",
+      "medio_nombre": "Tarjeta de Lecturas",
+      "resumen": "Cliente 7175, actividad “JUGUERIA Y VENTA DE COMIDA”, con consumo medido, presenta inconsistencias: consumo doble al promedio detectado en 01/2026 y ausencia de registro de consumo en 11/2025 y 03/2026. Además, el medidor estuvo sin registrar (SIN MEDIDOR) en 11/2025, nublado en 03/2026 y re‑instalado por el banco medidor en 07/2026. Observaciones de lectura muestran valores nulos en 08/2025, lecturas correctas en 10/2025 y 01/2026, y problemas de medidor en 03/2026, 04/2026 y 07/2026. Estos hallazgos indican irregularidades en la medición y registro de consumo, relevantes para la clasificación A1.",
+      "datos": {
+        "codcliente": "7175",
+        "nomtar": "COMERCIAL",
+        "destipoactividad": "JUGUERIA Y VENTA DE COMIDA",
+        "tipopromedio": "Medido",
+        "errorConsumo": [
+          "Consumo doble al promedio: detectado en 01/2026"
+        ],
+        "errorLecturas": [
+          "No registro consumo y/o lectura: detectado en 11/2025 y 03/2026"
+        ],
+        "errorReinstalacion": [],
+        "errorServicio": [
+          "medidor: SIN MEDIDOR: detectado en 11/2025",
+          "medidor: NUBLADO: detectado en 03/2026",
+          "medidor: REINSTALADO POR BCO MEDIDOR: detectado en 07/2026"
+        ],
+        "obslectura": [
+          "0: detectado en 08/2025",
+          "LECTURA CORRECTA: detectado en 10/2025 y 01/2026",
+          "SIN MEDIDOR: detectado en 11/2025",
+          "NUBLADO: detectado en 03/2026 y 04/2026",
+          "REINSTALADO: detectado en 07/2026"
+        ],
+        "registros": [
+          {
+            "anio": 2025,
+            "mes": 8,
+            "fechalecturault": "2025-08-14",
+            "lecturaanterior": 781.0,
+            "lecturaultima": 900.0,
+            "consumo": 119.0,
+            "lecturapromedio": 96.0,
+            "estadoservicio": "001",
+            "estadomed": "001",
+            "estadolectura": "000",
+            "nromed": "E16M265704",
+            "obslectura": "0"
+          },
+          {
+            "anio": 2025,
+            "mes": 9,
+            "fechalecturault": "2025-09-14",
+            "lecturaanterior": 900.0,
+            "lecturaultima": 998.0,
+            "consumo": 98.0,
+            "lecturapromedio": 97.0,
+            "estadoservicio": "001",
+            "estadomed": "001",
+            "estadolectura": "000",
+            "nromed": "E16M265704",
+            "obslectura": ""
+          },
+          {
+            "anio": 2025,
+            "mes": 10,
+            "fechalecturault": "2025-10-14",
+            "lecturaanterior": 998.0,
+            "lecturaultima": 1048.0,
+            "consumo": 50.0,
+            "lecturapromedio": 104.0,
+            "estadoservicio": "001",
+            "estadomed": "001",
+            "estadolectura": "010",
+            "nromed": "E16M265704",
+            "obslectura": "LECTURA CORRECTA"
+          },
+          {
+            "anio": 2025,
+            "mes": 11,
+            "fechalecturault": "2025-11-15",
+            "lecturaanterior": 1048.0,
+            "lecturaultima": 1048.0,
+            "consumo": 0.0,
+            "lecturapromedio": 93.0,
+            "estadoservicio": "001",
+            "estadomed": "035",
+            "estadolectura": "003",
+            "nromed": "E16M265704",
+            "obslectura": "SIN MEDIDOR"
+          },
+          {
+            "anio": 2025,
+            "mes": 12,
+            "fechalecturault": "2025-12-17",
+            "lecturaanterior": 1048.0,
+            "lecturaultima": 1170.0,
+            "consumo": 122.0,
+            "lecturapromedio": 93.0,
+            "estadoservicio": "001",
+            "estadomed": "001",
+            "estadolectura": "000",
+            "nromed": "E16M265704",
+            "obslectura": ""
+          },
+          {
+            "anio": 2026,
+            "mes": 1,
+            "fechalecturault": "2026-01-17",
+            "lecturaanterior": 1170.0,
+            "lecturaultima": 1226.0,
+            "consumo": 56.0,
+            "lecturapromedio": 0.0,
+            "estadoservicio": "001",
+            "estadomed": "001",
+            "estadolectura": "011",
+            "nromed": "E16M265704",
+            "obslectura": "LECTURA CORRECTA"
+          },
+          {
+            "anio": 2026,
+            "mes": 2,
+            "fechalecturault": "2026-02-16",
+            "lecturaanterior": 1226.0,
+            "lecturaultima": 1272.0,
+            "consumo": 46.0,
+            "lecturapromedio": 122.0,
+            "estadoservicio": "001",
+            "estadomed": "001",
+            "estadolectura": "010",
+            "nromed": "E16M265704",
+            "obslectura": ""
+          },
+          {
+            "anio": 2026,
+            "mes": 3,
+            "fechalecturault": "2026-03-18",
+            "lecturaanterior": 1272.0,
+            "lecturaultima": 1335.0,
+            "consumo": 63.0,
+            "lecturapromedio": 63.0,
+            "estadoservicio": "001",
+            "estadomed": "006",
+            "estadolectura": "003",
+            "nromed": "E16M265704",
+            "obslectura": "NUBLADO"
+          },
+          {
+            "anio": 2026,
+            "mes": 4,
+            "fechalecturault": "2026-04-17",
+            "lecturaanterior": 1335.0,
+            "lecturaultima": 1381.0,
+            "consumo": 46.0,
+            "lecturapromedio": 63.0,
+            "estadoservicio": "001",
+            "estadomed": "001",
+            "estadolectura": "000",
+            "nromed": "E16M265704",
+            "obslectura": "NUBLADO"
+          },
+          {
+            "anio": 2026,
+            "mes": 5,
+            "fechalecturault": "2026-05-18",
+            "lecturaanterior": 1381.0,
+            "lecturaultima": 1415.0,
+            "consumo": 34.0,
+            "lecturapromedio": 64.0,
+            "estadoservicio": "001",
+            "estadomed": "001",
+            "estadolectura": "000",
+            "nromed": "E16M265704",
+            "obslectura": ""
+          },
+          {
+            "anio": 2026,
+            "mes": 6,
+            "fechalecturault": "2026-06-17",
+            "lecturaanterior": 1415.0,
+            "lecturaultima": 1454.0,
+            "consumo": 39.0,
+            "lecturapromedio": 46.0,
+            "estadoservicio": "001",
+            "estadomed": "001",
+            "estadolectura": "000",
+            "nromed": "E16M265704",
+            "obslectura": ""
+          },
+          {
+            "anio": 2026,
+            "mes": 7,
+            "fechalecturault": "2026-07-18",
+            "lecturaanterior": 0.0,
+            "lecturaultima": 12.0,
+            "consumo": 12.0,
+            "lecturapromedio": 45.0,
+            "estadoservicio": "001",
+            "estadomed": "060",
+            "estadolectura": "010",
+            "nromed": "E16M265704",
+            "obslectura": " REINSTALADO"
+          }
+        ]
+      },
+      "problemas": [
+        {
+          "tipo": "errorConsumo",
+          "detalle": "Consumo doble al promedio: detectado en 01/2026",
+          "articulos": [],
+          "accion": null,
+          "responsable": null,
+          "base_legal": null
+        },
+        {
+          "tipo": "errorLecturas",
+          "detalle": "No registro consumo y/o lectura: detectado en 11/2025 y 03/2026",
+          "articulos": [],
+          "accion": null,
+          "responsable": null,
+          "base_legal": null
+        },
+        {
+          "tipo": "errorServicio",
+          "detalle": "medidor: SIN MEDIDOR: detectado en 11/2025",
+          "articulos": [],
+          "accion": null,
+          "responsable": null,
+          "base_legal": null
+        },
+        {
+          "tipo": "errorServicio",
+          "detalle": "medidor: NUBLADO: detectado en 03/2026",
+          "articulos": [],
+          "accion": null,
+          "responsable": null,
+          "base_legal": null
+        },
+        {
+          "tipo": "errorServicio",
+          "detalle": "medidor: REINSTALADO POR BCO MEDIDOR: detectado en 07/2026",
+          "articulos": [],
+          "accion": null,
+          "responsable": null,
+          "base_legal": null
+        }
+      ],
+      "tiempo": 21.237555610001436,
+      "estado": "ok",
+      "error": null
+    },
+    "record_facturacion": {
+      "medio_id": "record_facturacion",
+      "medio_nombre": "Record de Facturación",
+      "resumen": "Cliente 7175 presenta consumo predominantemente medido, con 11 meses facturados en total. Se identificaron dos meses facturados por promedio (noviembre 2025 y marzo 2026), seguidos de meses con lectura (diciembre 2025 y abril 2026), lo que puede generar discrepancias en la medición. Esta alternancia entre promedio y lectura sugiere una posible falta de consistencia en la medición de consumo. El reclamo debe centrarse en la verificación de la exactitud de los valores promedio aplicados en esos dos meses.",
+      "datos": {
+        "codcliente": "7175",
+        "formaPredominante": "MEDIDO",
+        "totalMeses": 11,
+        "totalPromediados": 2,
+        "mesesPromediados": [
+          "Se facturó por promedio los meses de noviembre de 2025 y marzo de 2026."
+        ],
+        "rachaPromediados": [
+          "Los meses noviembre de 2025 fueron facturados por promedio, y el mes de diciembre de 2025 por lectura, lo cual suele generar reclamos.",
+          "Los meses marzo de 2026 fueron facturados por promedio, y el mes de abril de 2026 por lectura, lo cual suele generar reclamos."
+        ],
+        "registros": [
+          {
+            "anio": 2025,
+            "mes": 8,
+            "tipopromedio": "0",
+            "consumo": 119.0,
+            "consumofac": 119.0,
+            "impmestotal": 642.2,
+            "catetar": "015",
+            "nromed": "E16M265704",
+            "estadoservicio": "001",
+            "fechareg": "2025-09-01 03:38:54.04"
+          },
+          {
+            "anio": 2025,
+            "mes": 9,
+            "tipopromedio": "0",
+            "consumo": 98.0,
+            "consumofac": 98.0,
+            "impmestotal": 473.8,
+            "catetar": "015",
+            "nromed": "E16M265704",
+            "estadoservicio": "001",
+            "fechareg": "2025-10-01 01:14:03.95"
+          },
+          {
+            "anio": 2025,
+            "mes": 10,
+            "tipopromedio": "0",
+            "consumo": 50.0,
+            "consumofac": 50.0,
+            "impmestotal": 161.7,
+            "catetar": "015",
+            "nromed": "E16M265704",
+            "estadoservicio": "001",
+            "fechareg": "2025-10-31 23:43:44.957"
+          },
+          {
+            "anio": 2025,
+            "mes": 11,
+            "tipopromedio": "2",
+            "consumo": 0.0,
+            "consumofac": 93.0,
+            "impmestotal": 441.4,
+            "catetar": "015",
+            "nromed": "E16M265704",
+            "estadoservicio": "001",
+            "fechareg": "2025-12-01 00:33:30.273"
+          },
+          {
+            "anio": 2025,
+            "mes": 12,
+            "tipopromedio": "0",
+            "consumo": 122.0,
+            "consumofac": 122.0,
+            "impmestotal": 641.9,
+            "catetar": "015",
+            "nromed": "E16M265704",
+            "estadoservicio": "001",
+            "fechareg": "2025-12-31 23:30:17.68"
+          },
+          {
+            "anio": 2026,
+            "mes": 1,
+            "tipopromedio": "0",
+            "consumo": 56.0,
+            "consumofac": 56.0,
+            "impmestotal": 204.2,
+            "catetar": "015",
+            "nromed": "E16M265704",
+            "estadoservicio": "001",
+            "fechareg": "2026-01-31 19:50:08.62"
+          },
+          {
+            "anio": 2026,
+            "mes": 2,
+            "tipopromedio": "0",
+            "consumo": 46.0,
+            "consumofac": 46.0,
+            "impmestotal": 151.9,
+            "catetar": "015",
+            "nromed": "E16M265704",
+            "estadoservicio": "001",
+            "fechareg": "2026-02-28 23:27:29.97"
+          },
+          {
+            "anio": 2026,
+            "mes": 3,
+            "tipopromedio": "2",
+            "consumo": 63.0,
+            "consumofac": 63.0,
+            "impmestotal": 246.5,
+            "catetar": "015",
+            "nromed": "E16M265704",
+            "estadoservicio": "001",
+            "fechareg": "2026-03-31 23:36:04.44"
+          },
+          {
+            "anio": 2026,
+            "mes": 4,
+            "tipopromedio": "0",
+            "consumo": 46.0,
+            "consumofac": 46.0,
+            "impmestotal": 156.9,
+            "catetar": "015",
+            "nromed": "E16M265704",
+            "estadoservicio": "001",
+            "fechareg": "2026-04-30 23:59:22.28"
+          },
+          {
+            "anio": 2026,
+            "mes": 5,
+            "tipopromedio": "0",
+            "consumo": 34.0,
+            "consumofac": 34.0,
+            "impmestotal": 107.0,
+            "catetar": "015",
+            "nromed": "E16M265704",
+            "estadoservicio": "001",
+            "fechareg": "2026-06-01 00:17:19.547"
+          },
+          {
+            "anio": 2026,
+            "mes": 6,
+            "tipopromedio": "0",
+            "consumo": 39.0,
+            "consumofac": 39.0,
+            "impmestotal": 124.5,
+            "catetar": "015",
+            "nromed": "E16M265704",
+            "estadoservicio": "001",
+            "fechareg": "2026-06-30 23:26:04.88"
+          }
+        ]
+      },
+      "problemas": [
+        {
+          "tipo": "mesesPromediados",
+          "detalle": "Se facturó por promedio los meses de noviembre de 2025 y marzo de 2026.",
+          "articulos": [],
+          "accion": null,
+          "responsable": null,
+          "base_legal": null
+        },
+        {
+          "tipo": "rachaPromediados",
+          "detalle": "Los meses noviembre de 2025 fueron facturados por promedio, y el mes de diciembre de 2025 por lectura, lo cual suele generar reclamos.",
+          "articulos": [],
+          "accion": null,
+          "responsable": null,
+          "base_legal": null
+        },
+        {
+          "tipo": "rachaPromediados",
+          "detalle": "Los meses marzo de 2026 fueron facturados por promedio, y el mes de abril de 2026 por lectura, lo cual suele generar reclamos.",
+          "articulos": [],
+          "accion": null,
+          "responsable": null,
+          "base_legal": null
+        }
+      ],
+      "tiempo": 9.655704144010087,
+      "estado": "ok",
+      "error": null
+    },
+    "corte_reapertura": {
+      "medio_id": "corte_reapertura",
+      "medio_nombre": "Cortes y Reaperturas",
+      "resumen": "El cliente 7175 presentó un corte en abril 2026 por deuda con lectura 1427, el cual se reabrió el mismo mes por motivo de celular. Antes del corte hubo nueve prórrogas consecutivas desde agosto 2025 hasta mayo 2026, indicando una prolongación de la deuda. Además, se registró un reclamo previo en septiembre 2025 (N° 244901). Estos hechos sugieren que el reclamo A1. CONSUMO MEDIDO se centra en la medición de consumo y la justificación del corte y reapertura.",
+      "datos": {
+        "codcliente": "7175",
+        "sinRegistrosEnVentana": false,
+        "totalRegistrosOriginales": 155,
+        "totalCortes": 1,
+        "totalReaperturas": 1,
+        "totalProrrogas": 9,
+        "cortes": [
+          "2026-04: corte por deuda, lectura 1427"
+        ],
+        "reaperturas": [
+          "2026-04: REAPERTURA POR CELULAR"
+        ],
+        "prorrogas": [
+          "2025-08: prórroga",
+          "2025-09: Prorroga por reclamo Nro. 244901 Usuario CIROAL",
+          "2025-10: prórroga, prórroga, prórroga",
+          "2025-11: prórroga",
+          "2026-01: prórroga",
+          "2026-02: prórroga",
+          "2026-05: prórroga"
+        ],
+        "mesesCortados": [
+          "2026-04"
+        ],
+        "reclamosPrevios": [
+          "2025-09: reclamo N° 244901"
+        ],
+        "registros": [
+          {
+            "anio": 2025,
+            "mes": 8,
+            "item": 443668,
+            "tipooperacion": "001",
+            "codoperacion": "003",
+            "destipooperacion": "PRORROGA EN CORTE DE SERVICIO",
+            "estadoservicio": "OPERATIVO CON SERVICIO-ACTIVO",
+            "fechacorte": "2025-11-30 00:00:00.0",
+            "fechareg": "2025-09-06 14:16:11.923",
+            "lecturaultima": null,
+            "observacion": ""
+          },
+          {
+            "anio": 2025,
+            "mes": 9,
+            "item": 447944,
+            "tipooperacion": "001",
+            "codoperacion": "003",
+            "destipooperacion": "PRORROGA EN CORTE DE SERVICIO",
+            "estadoservicio": "OPERATIVO CON SERVICIO-ACTIVO",
+            "fechacorte": "2025-10-28 00:00:00.0",
+            "fechareg": "2025-10-06 09:21:55.58",
+            "lecturaultima": null,
+            "observacion": "Prorroga por reclamo Nro. 244901 Usuario CIROAL"
+          },
+          {
+            "anio": 2025,
+            "mes": 10,
+            "item": 451933,
+            "tipooperacion": "001",
+            "codoperacion": "003",
+            "destipooperacion": "PRORROGA EN CORTE DE SERVICIO",
+            "estadoservicio": "OPERATIVO CON SERVICIO-ACTIVO",
+            "fechacorte": "2025-01-31 00:00:00.0",
+            "fechareg": "2025-11-01 00:14:09.487",
+            "lecturaultima": null,
+            "observacion": ""
+          },
+          {
+            "anio": 2025,
+            "mes": 10,
+            "item": 451934,
+            "tipooperacion": "001",
+            "codoperacion": "003",
+            "destipooperacion": "PRORROGA EN CORTE DE SERVICIO",
+            "estadoservicio": "OPERATIVO CON SERVICIO-ACTIVO",
+            "fechacorte": "2026-01-31 00:00:00.0",
+            "fechareg": "2025-11-01 00:14:10.953",
+            "lecturaultima": null,
+            "observacion": ""
+          },
+          {
+            "anio": 2025,
+            "mes": 10,
+            "item": 451935,
+            "tipooperacion": "001",
+            "codoperacion": "003",
+            "destipooperacion": "PRORROGA EN CORTE DE SERVICIO",
+            "estadoservicio": "OPERATIVO CON SERVICIO-ACTIVO",
+            "fechacorte": "2026-01-31 00:00:00.0",
+            "fechareg": "2025-11-01 00:15:02.853",
+            "lecturaultima": null,
+            "observacion": ""
+          },
+          {
+            "anio": 2025,
+            "mes": 11,
+            "item": 460637,
+            "tipooperacion": "001",
+            "codoperacion": "003",
+            "destipooperacion": "PRORROGA EN CORTE DE SERVICIO",
+            "estadoservicio": "OPERATIVO CON SERVICIO-ACTIVO",
+            "fechacorte": "2026-02-28 00:00:00.0",
+            "fechareg": "2025-12-29 13:19:01.387",
+            "lecturaultima": null,
+            "observacion": ""
+          },
+          {
+            "anio": 2026,
+            "mes": 1,
+            "item": 466065,
+            "tipooperacion": "001",
+            "codoperacion": "003",
+            "destipooperacion": "PRORROGA EN CORTE DE SERVICIO",
+            "estadoservicio": "OPERATIVO CON SERVICIO-ACTIVO",
+            "fechacorte": "2026-04-16 00:00:00.0",
+            "fechareg": "2026-02-12 23:37:14.477",
+            "lecturaultima": null,
+            "observacion": ""
+          },
+          {
+            "anio": 2026,
+            "mes": 2,
+            "item": 469271,
+            "tipooperacion": "001",
+            "codoperacion": "003",
+            "destipooperacion": "PRORROGA EN CORTE DE SERVICIO",
+            "estadoservicio": "OPERATIVO CON SERVICIO-ACTIVO",
+            "fechacorte": "2026-05-22 00:00:00.0",
+            "fechareg": "2026-03-06 14:44:46.61",
+            "lecturaultima": null,
+            "observacion": ""
+          },
+          {
+            "anio": 2026,
+            "mes": 4,
+            "item": 480840,
+            "tipooperacion": "001",
+            "codoperacion": "001",
+            "destipooperacion": "CORTE POR DEUDA",
+            "estadoservicio": "OPERATIVO SIN SERVICIO-CORTADO",
+            "fechacorte": "2026-05-27 05:33:40.583",
+            "fechareg": "2026-05-27 05:33:40.583",
+            "lecturaultima": 1427.0,
+            "observacion": null
+          },
+          {
+            "anio": 2026,
+            "mes": 4,
+            "item": 480943,
+            "tipooperacion": "002",
+            "codoperacion": "001",
+            "destipooperacion": "REAPERTURA POR PAGO DEUDA",
+            "estadoservicio": "OPERATIVO CON SERVICIO-ACTIVO",
+            "fechacorte": "2026-05-28 10:40:24.223",
+            "fechareg": "2026-05-28 10:40:24.223",
+            "lecturaultima": 0.0,
+            "observacion": "REAPERTURA POR CELULAR"
+          },
+          {
+            "anio": 2026,
+            "mes": 5,
+            "item": 482003,
+            "tipooperacion": "001",
+            "codoperacion": "003",
+            "destipooperacion": "PRORROGA EN CORTE DE SERVICIO",
+            "estadoservicio": "OPERATIVO CON SERVICIO-ACTIVO",
+            "fechacorte": "2026-07-31 00:00:00.0",
+            "fechareg": "2026-06-14 13:03:50.59",
+            "lecturaultima": null,
+            "observacion": ""
+          }
+        ]
+      },
+      "problemas": [
+        {
+          "tipo": "mesesCortados",
+          "detalle": "Servicio cortado en 2026-04.",
+          "articulos": [],
+          "accion": null,
+          "responsable": null,
+          "base_legal": null
+        },
+        {
+          "tipo": "reclamosPrevios",
+          "detalle": "2025-09: reclamo N° 244901",
+          "articulos": [],
+          "accion": null,
+          "responsable": null,
+          "base_legal": null
+        }
+      ],
+      "tiempo": 13.630708284996217,
+      "estado": "ok",
+      "error": null
+    },
+    "saldo_detalle": {
+      "medio_id": "saldo_detalle",
+      "medio_nombre": "Saldo Detalle",
+      "resumen": "Revisado el saldo-detalle no se encontró cobro indebido, mora ni meses pendientes de pago.",
+      "datos": {
+        "codcliente": "7175",
+        "tipoServicio": "AGUA Y DESAGUE",
+        "totalMeses": 2,
+        "cobroIndebido": [],
+        "mora": [],
+        "mesesNoPagados": [],
+        "registros": [
+          {
+            "anio": 2025,
+            "mes": 8,
+            "impmesagu": 61.27,
+            "impmesalc": 14.44,
+            "impmesmora": 0.0,
+            "impmestotal": 79.3,
+            "imptotal": 79.3,
+            "estadosaldo": "001",
+            "tiposervicio": "AGUA Y DESAGUE"
+          },
+          {
+            "anio": 2025,
+            "mes": 11,
+            "impmesagu": 352.15,
+            "impmesalc": 82.8,
+            "impmesmora": 0.0,
+            "impmestotal": 441.4,
+            "imptotal": 441.4,
+            "estadosaldo": "001",
+            "tiposervicio": "AGUA Y DESAGUE"
+          }
+        ]
+      },
+      "problemas": [],
+      "tiempo": 1.609753846001695,
+      "estado": "ok",
+      "error": null
+    },
+    "inspeccion_externa": {
+      "medio_id": "inspeccion_externa",
+      "medio_nombre": "Inspección Externa",
+      "resumen": "El medidor inspeccionado el 16 de octubre de 2025 por la responsable Keila Medina Bardales se encuentra en perfecto estado de funcionamiento, sin fugas de agua detectadas y sin condiciones atípicas que pudieran afectar la medición. La caja del medidor y la conexión están en buen estado, lo que garantiza la integridad del sistema y la fiabilidad de los datos de consumo registrados. Con estos hallazgos se confirma que el consumo medido durante la inspección externa es confiable y reflejo fiel del uso real.",
+      "datos": {
+        "nroinspeccion": 7175,
+        "fechainspeccion": "2025-10-16",
+        "funcionamed": "El medidor funciona correctamente.",
+        "fugas": "No se detectaron fugas de agua.",
+        "tipofugas": "No Hay",
+        "observacionmed": "OPERATIVO",
+        "estadocaja": "La caja del medidor está en buen estado.",
+        "observacionsum": "",
+        "estconexion": "La conexión del medidor está en buen estado.",
+        "nomresponsable": "MEDINA BARDALES KEILA",
+        "atipico": "No se detectaron condiciones atípicas en la inspección."
+      },
+      "problemas": [],
+      "tiempo": 12.354580073006218,
+      "estado": "ok",
+      "error": null
+    },
+    "inspeccion_interna": {
+      "medio_id": "inspeccion_interna",
+      "medio_nombre": "Inspección Interna",
+      "resumen": "En la inspección interna realizada con fecha 2025‑12‑22, el abastecimiento de agua se encontraba en estado normal y el predio se clasificó como categoría doméstica; no se detectaron consumos atípicos ni fugas internas, y no se registraron puntos de agua con cantidades mayores a cero, lo que indica que el consumo medido corresponde a un uso típico y esperado para una vivienda de esta categoría.",
+      "datos": {
+        "nroinspeccion": 7175,
+        "fechainspeccion": "2025-12-22",
+        "estadoabas": "Abastecimiento Normal",
+        "catetar": "Categoría Domestica",
+        "atipico": "No hubo consumos atípicos en la inspección.",
+        "obsinsinteriores": "SIN FUGAS",
+        "observaciones": "",
+        "obsperrepins": "",
+        "puntos_agua": []
+      },
+      "problemas": [],
+      "tiempo": 17.02497608900012,
+      "estado": "ok",
+      "error": null
+    }
+  },
+  "conclusion": {
+    "error": "HTTPSConnectionPool(host='w5vo8nfdqsfk495lkv1n78mr.187.127.35.217.sslip.io', port=443): Read timed out. (read timeout=300)"
+  },
+  "errores": [
+    "conclusion: HTTPSConnectionPool(host='w5vo8nfdqsfk495lkv1n78mr.187.127.35.217.sslip.io', port=443): Read timed out. (read timeout=300)"
+  ],
+  "_run": 1,
+  "_tiempo_s": 404.5,
+  "_veredicto_fuente": "server log (cliente cortó a 300s; server completó a 464s: veredicto=INFUNDADO, con_problema_empresa=0)"
+}

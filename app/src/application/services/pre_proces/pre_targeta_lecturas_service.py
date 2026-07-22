@@ -1,3 +1,4 @@
+import re
 import time
 import logging
 from dataclasses import fields
@@ -35,17 +36,29 @@ COLUMNAS = [f.name for f in fields(LecturaMensual)]
 _HINTS = get_type_hints(LecturaMensual)
 CAMPOS_NUMERICOS = [n for n, t in _HINTS.items() if float in get_args(t) or t is float]
 
+def parse_anio_mes(fecha_ref: str | None) -> tuple[int, int] | None:
+    """Extrae (año, mes) de la fecha de recepción del reclamo (fecharec), que
+    EMAPA entrega en formato ISO 'AAAA-MM-DD' (p.ej. '2022-12-07').
+    Devuelve None si viene vacía o con un formato inesperado."""
+    if not fecha_ref:
+        return None
+    m = re.match(r"\s*(\d{4})-(\d{2})", str(fecha_ref))
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
 
 
 
 class PreTargetaLecturasService:
     
-    def preprocesar_targeta_lecturas(self, codsuc: str, codcliente: str, meses: int = 12) -> dict:
+    def preprocesar_targeta_lecturas(
+        self, codsuc: str, codcliente: str, meses: int = 12,
+        fecha_ref: str | None = None,
+    ) -> dict:
         t1 = time.time()
         json_raw = obtener_tarjeta_lectura(codsuc, codcliente)
         logger.info("[PRE_TARGETA_LECTURAS] Datos obtenidos de EMAPA en %.2f segundos", time.time() - t1)
 
-        targeta, df = self._construir_targeta(json_raw, meses)
+        targeta, df = self._construir_targeta(json_raw, meses, fecha_ref)
 
         hallazgos = sum(len(getattr(targeta, g)) for g in
                         ("errorConsumo", "errorLecturas", "errorReinstalacion", "errorServicio"))
@@ -59,7 +72,9 @@ class PreTargetaLecturasService:
         logger.info("[PRE_TARGETA_LECTURAS] Ventana calculada: %d meses", len(ventana))
         return {"targeta": targeta, "df": df, "ventana": ventana}
 
-    def _construir_targeta(self, json_raw: dict, meses: int) -> tuple[TargetaLecturas, pd.DataFrame]:
+    def _construir_targeta(
+        self, json_raw: dict, meses: int, fecha_ref: str | None = None,
+    ) -> tuple[TargetaLecturas, pd.DataFrame]:
         registros = (json_raw or {}).get("data") or []
         if not registros:
             logger.warning("[PRE_TARGETA_LECTURAS] JSON sin registros en 'data'")
@@ -72,10 +87,23 @@ class PreTargetaLecturasService:
                 return str(df_raw[col].dropna().iloc[0])
             return None
 
-        # Ventana: últimos `meses` registros ordenados por (año, mes).
         win = df_raw.copy()
         win["anio"] = pd.to_numeric(win["anio"], errors="coerce").astype("Int64")
         win["mes"] = pd.to_numeric(win["mes"], errors="coerce").astype("Int64")
+
+        # Ventana anclada a la FECHA DE RECEPCIÓN del reclamo: se toman los últimos
+        # `meses` registros hasta el mes de recepción (no los más recientes de hoy).
+        # Esto es clave para reclamos históricos: si no se ancla, un reclamo de 2022
+        # se analizaría con lecturas actuales (2025/2026). Si la fecha no se puede
+        # interpretar, se cae al comportamiento previo (últimos `meses`).
+        ref = parse_anio_mes(fecha_ref)
+        if ref is not None:
+            ra, rm = ref
+            win = win[(win["anio"] < ra) | ((win["anio"] == ra) & (win["mes"] <= rm))]
+            logger.info("[PRE_TARGETA_LECTURAS] Ventana anclada a recepción %02d/%d", rm, ra)
+        elif fecha_ref:
+            logger.warning("[PRE_TARGETA_LECTURAS] fecha_ref no interpretable (%r); "
+                           "uso los últimos %d meses", fecha_ref, meses)
         win = win.sort_values(["anio", "mes"], ascending=False).head(meses)
 
         # tipopromedio (escalar): tipo de promedio predominante en la ventana.

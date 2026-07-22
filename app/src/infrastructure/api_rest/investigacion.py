@@ -71,9 +71,11 @@ async def _analizar_medio_y_registrar(
         medio_id, request.codsuc, request.codcliente, request.codreclamo,
     )
 
-    # Lee la ventana actual del informe (si existe).
+    # Lee la ventana actual del informe (si existe) y la fecha de recepción del
+    # reclamo, que ancla la ventana de la tarjeta de lecturas a ese periodo.
     informe = informe_store.obtener(request.codreclamo)
     ventana_actual = informe.ventana_meses if informe else []
+    fecha_ref = informe.datos_reclamo.fecha_recepcion if informe and informe.datos_reclamo else None
 
     analista = AnalistaMedioAgent(model=request.modelo)
     bloque, ventana = analista.analizar(
@@ -84,6 +86,7 @@ async def _analizar_medio_y_registrar(
         clasificacion=request.clasificacion,
         meses=request.meses,
         ventana=ventana_actual,
+        fecha_ref=fecha_ref,
     )
 
     informe = informe_store.registrar_bloque(
@@ -134,16 +137,18 @@ def _stream_analisis_medio(
             "[API /investigacion/%s/stream] codsuc=%s | codcliente=%s | codreclamo=%s",
             medio_id, request.codsuc, request.codcliente, request.codreclamo,
         )
-        # Lee la ventana de meses de analisis del informe (si existe).
+        # Lee la ventana de meses de analisis del informe (si existe) y la fecha
+        # de recepción del reclamo (ancla la ventana de la tarjeta de lecturas).
         informe = informe_store.obtener(request.codreclamo)
         ventana_actual = informe.ventana_meses if informe else []
+        fecha_ref = informe.datos_reclamo.fecha_recepcion if informe and informe.datos_reclamo else None
         analista = AnalistaMedioAgent(model=request.modelo)
         try:
             # --- Fase 1: preprocesamiento  ---------------------------
             datos, problemas, ventana = await run_in_threadpool(
                 analista.preprocesar,
                 medio_id, medio_nombre, request.codsuc, request.codcliente,
-                request.meses, ventana_actual,
+                request.meses, ventana_actual, fecha_ref,
             )
             problemas_schema = [ProblemaNormadoSchema(**vars(p)) for p in problemas]
             evento_pre = {

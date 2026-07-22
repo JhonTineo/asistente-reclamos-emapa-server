@@ -1,0 +1,54 @@
+{
+  "_archivo": "informe 0316-2023 fundado por reparacion de fuga no visible-489[R][R].pdf",
+  "_revisado_por_humano": true,
+  "numero": "0316-2023",
+  "codreclamo": "223574",
+  "suministro": "489",
+  "fecha": "Tarapoto, 19 de enero del 2,022",
+  "codsede": "001",
+  "codsuc": "001",
+  "codcliente": "489",
+  "puntos": [
+    {
+      "n": 1,
+      "texto_real": "Con fecha 04 de enero del 2023, el señor Segundo Tananta Macedo, realiza la inspección al predio, encontrando al medidor operativo, con una lectura de 1882 m3, el predio es vivienda familiar, donde viven 03 personas, el usuario tenia fuga no visible.",
+      "medio_sugerido": "inspeccion_externa",
+      "medio_id": "inspeccion_externa",
+      "hechos": {
+        "medidor_operativo": true,
+        "lectura_m3": 1882,
+        "tipo_predio": "vivienda familiar",
+        "habitantes": 3,
+        "fuga_no_visible": true
+      }
+    },
+    {
+      "n": 2,
+      "texto_real": "La facturación emitida al usuario corresponde a una categoría domestico.",
+      "medio_sugerido": "record_facturacion",
+      "medio_id": "record_facturacion",
+      "hechos": {
+        "categoria": "domestico"
+      }
+    },
+    {
+      "n": 3,
+      "texto_real": "Al revisar el consumo que registra el medidor para enero 2023, marca 26 m3 y las facturación reclamada (octubre y noviembre) registra 53 y 48 m3 respectivamente, lo que significa que la fuga no visible fue reparada y conviene aplicar al Reglamento de la prestación de los servicios de saneamiento; Resolución de Concejo Directivo N°061-2018-SUNASS- CD. Que dice: Articulo. 88.3 En caso que la inspección revele la existencia de fugas visibles a través de los puntos de salida de agua del predio, la empresa prestadora facturará según la diferencia de lecturas. ….En caso que la inspección revele la existencia de fugas no visibles, realizando como mínimo el cierre de todos los puntos de agua y se verifique que el medidor sigue registrando consumos, la empresa prestadora requerirá al usuario que repare las fugas encontradas en un plazo no mayor de quince (15) días calendario, comunicándoles que en dicho plazo realizará una verificación. De persistir la existencia de fugas, la empresa prestadora facturará según la diferencia de lecturas. De haberse reparado las fugas, los consumos afectados por dichas fugas deberán facturarse según el promedio histórico de consumos. En caso que la inspección no revele la existencia de fugas, la empresa prestadora facturará, según el promedio histórico de consumos. La facturación por promedio histórico dispuesta de conformidad con el presente párrafo solo procede una vez cada doce (12) meses y como máximo por dos (2) meses consecutivos. Con posterioridad al último mes configurado como atípico, la empresa prestadora facturará según la diferencia de lecturas del medidor, de ser el caso. El cómputo del periodo de doce (12) meses a que se refiere el párrafo anterior se inicia incluyendo el primer mes en el que se configuró el consumo atípico.”.",
+      "medio_sugerido": "analisis_normativo",
+      "medio_id": null,
+      "hechos": {}
+    }
+  ],
+  "conclusion_real": "En consecuencia, toda vez que el usuario reparó fuga no visible que tuvo, refacturar los meses en reclamo (octubre y noviembre) por 20 m3 cada mes, como el usuario ya cancelo su recibo del mes de octubre, compensar la diferencia en próximas facturaciones, por lo tanto, se declara fundado.",
+  "veredicto_real": "FUNDADO",
+  "conclusion_hechos": {
+    "meses_reclamados": [
+      "octubre",
+      "noviembre"
+    ],
+    "fuga": "no_visible_reparada",
+    "facturacion": "promedio_historico",
+    "refacturacion_m3": 20,
+    "base_legal": "Art. 88.3"
+  }
+}

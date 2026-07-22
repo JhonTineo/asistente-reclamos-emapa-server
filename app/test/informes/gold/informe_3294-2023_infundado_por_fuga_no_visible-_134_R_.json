@@ -1,0 +1,68 @@
+{
+  "_archivo": "informe 3294-2023 infundado por fuga no visible- 134[R].pdf",
+  "_revisado_por_humano": true,
+  "numero": "3294-2022",
+  "codreclamo": "223073",
+  "suministro": "134",
+  "fecha": "Tarapoto, 13 de diciembre del 2,022",
+  "codsede": "001",
+  "codsuc": "001",
+  "codcliente": "134",
+  "puntos": [
+    {
+      "n": 1,
+      "texto_real": "Con fecha 17 de noviembre del 2022, el señor Segundo Tananta Macedo, realiza la inspección al predio, encontrando al medidor en buena condición, con una lectura de 1569 m3, el predio es vivienda familiar, donde habitan 03 personas, también cuenta con 01 loca comercial (óptica), existe una fuga de agua dentro del predio.",
+      "medio_sugerido": "inspeccion_externa",
+      "medio_id": "inspeccion_externa",
+      "hechos": {
+        "medidor_operativo": true,
+        "lectura_m3": 1569,
+        "tipo_predio": "vivienda familiar / local comercial (óptica)",
+        "habitantes": 3,
+        "fuga_visible": true,
+        "detalle_fuga": "fuga de agua dentro del predio"
+      }
+    },
+    {
+      "n": 2,
+      "texto_real": "En la inspección interna se verifico que cuenta con 05 inodoros (01 con fuga), 05 lavatorios, 04 duchas, 03 grifos, 01 tanque.",
+      "medio_sugerido": "inspeccion_interna",
+      "medio_id": "inspeccion_interna",
+      "hechos": {
+        "inodoros": 5,
+        "lavatorios": 5,
+        "duchas": 4,
+        "grifos": 3,
+        "tanques": 1,
+        "fugas": true,
+        "detalle_fuga": "01 inodoro con fuga"
+      }
+    },
+    {
+      "n": 3,
+      "texto_real": "La facturación emitida al usuario corresponde a una categoría comercial.",
+      "medio_sugerido": "record_facturacion",
+      "medio_id": "record_facturacion",
+      "hechos": {
+        "categoria": "comercial"
+      }
+    },
+    {
+      "n": 4,
+      "texto_real": "Además, como se manifiesta líneas arriba, en la inspección interna se verifico que el usuario tenia fuga en 01 inodoro, que según en atención a lo dispuesto en la RESOLUCION DE CONSEJO DIRECTIVO Nº 061-2018-SUNASS-CD, Artículo 88º, numeral 88.3 del Reglamento de Calidad de la Prestación de Servicios, que a la letra dice: en caso que la inspección revele la existencia de fugas visibles a través de los puntos de salida de agua del predio, la empresa prestadora facturará según diferencias de lecturas.",
+      "medio_sugerido": "analisis_normativo",
+      "medio_id": null,
+      "hechos": {}
+    }
+  ],
+  "conclusion_real": "En consecuencia, toda vez que el usuario tuvo fuga visible en un inodoro, se procedió a la facturación por diferencias de lectura del reclamo del mes de octubre del 2022, por lo tanto, se declara infundado.",
+  "veredicto_real": "INFUNDADO",
+  "conclusion_hechos": {
+    "meses_reclamados": [
+      "octubre 2022"
+    ],
+    "fuga": "visible_inodoro",
+    "facturacion": "diferencia_lecturas",
+    "base_legal": "Art. 88.3"
+  }
+}

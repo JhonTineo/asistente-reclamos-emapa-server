@@ -42,16 +42,20 @@ class AnalistaMedioAgent:
         self, medio_id: str, medio_nombre: str, codsuc: str, codcliente: str,
         clasificacion: str, meses: int = 12,
         ventana: list[tuple[int, int]] | None = None,
+        fecha_ref: str | None = None,
     ) -> tuple[BloqueMedio, list[tuple[int, int]]]:
         """Análisis completo (bloqueante): preprocesa e interpreta en un solo
         paso. Se mantiene para los endpoints no-streaming.
+
+        `fecha_ref` es la fecha de recepción del reclamo (fecharec); ancla la
+        ventana de meses de la tarjeta de lecturas a ese periodo (ver el service).
 
         Devuelve (bloque, ventana). Si el medio es tarjeta_lectura, la ventana
         es la recién calculada; para los demás, se reenvía la recibida."""
         t_inicio = time.perf_counter()
         logger.info("Iniciando análisis para medio: %s | codsuc=%s | codcliente=%s", medio_nombre, codsuc, codcliente)
 
-        datos, problemas, ventana = self.preprocesar(medio_id, medio_nombre, codsuc, codcliente, meses, ventana)
+        datos, problemas, ventana = self.preprocesar(medio_id, medio_nombre, codsuc, codcliente, meses, ventana, fecha_ref)
         resumen = self.interpretar(medio_id, medio_nombre, datos, problemas, clasificacion)
 
         logger.info("Análisis completado | medio=%s | tiempo=%.2fs", medio_nombre, time.perf_counter() - t_inicio)
@@ -68,13 +72,14 @@ class AnalistaMedioAgent:
     def preprocesar(
         self, medio_id: str, medio_nombre: str, codsuc: str, codcliente: str,
         meses: int = 12, ventana: list[tuple[int, int]] | None = None,
+        fecha_ref: str | None = None,
     ) -> tuple[dict, list, list[tuple[int, int]]]:
         """Fase 1 (rápida): obtiene la entidad del medio y detecta problemas por
         reglas. Devuelve (datos, problemas, ventana) sin llamar al LLM."""
         t_inicio = time.perf_counter()
         logger.info("Preprocesando medio: %s | codsuc=%s | codcliente=%s", medio_nombre, codsuc, codcliente)
 
-        entidad, ventana = self._dispatch_preprocesamiento(medio_id, codsuc, codcliente, meses, ventana)
+        entidad, ventana = self._dispatch_preprocesamiento(medio_id, codsuc, codcliente, meses, ventana, fecha_ref)
         datos = asdict(entidad)
 
         # Detección de problemas (reglas). [] si el medio aún no la implementa.
@@ -119,18 +124,19 @@ class AnalistaMedioAgent:
     def _dispatch_preprocesamiento(
         self, medio_id: str, codsuc: str, codcliente: str,
         meses: int = 12, ventana: list[tuple[int, int]] | None = None,
+        fecha_ref: str | None = None,
     ) -> tuple[object, list[tuple[int, int]]]:
         """Devuelve (entidad_de_dominio, ventana) según el medio.
 
-        Solo tarjeta_lectura calcula una ventana nueva (a partir de `meses`);
-        los demás consumen la ventana recibida."""
+        Solo tarjeta_lectura calcula una ventana nueva (a partir de `meses` y la
+        fecha de recepción del reclamo); los demás consumen la ventana recibida."""
         ventana = ventana or []
         if medio_id == "inspeccion_externa":
             return self.pre_ext_service.preprocesar_inspeccion_externa(codsuc, codcliente)["inspeccion"], ventana
         elif medio_id == "inspeccion_interna":
             return self.pre_int_service.preprocesar_inspeccion_interna(codsuc, codcliente)["inspeccion"], ventana
         elif medio_id == "tarjeta_lectura":
-            resultado = self.pre_tarj_service.preprocesar_targeta_lecturas(codsuc, codcliente, meses)
+            resultado = self.pre_tarj_service.preprocesar_targeta_lecturas(codsuc, codcliente, meses, fecha_ref)
             return resultado["targeta"], resultado["ventana"]
         elif medio_id == "corte_reapertura":
             return self.pre_corte_service.preprocesar_corte_reapertura(codsuc, codcliente, ventana)["corte"], ventana
