@@ -1,9 +1,8 @@
 import logging
 import time
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from app.src.application.usecase.agents.analizador import AnalizadorAgent
 from app.src.application.usecase.agents.clasificador_rapido import clasificar_rapido
 from app.src.infrastructure.api_rest.schemas.investigacion import (
     BuscarReclamoResponse, InformeMetadata, ReclamoSchema,
@@ -17,18 +16,6 @@ from app.src.infrastructure.api_rest.deps import usar_token_emapa, requerir_toke
 logger = logging.getLogger("api.clasificador")
 
 router = APIRouter(prefix="/reclamos", tags=["reclamos"], dependencies=[Depends(usar_token_emapa), Depends(usar_config_llm)])
-
-
-class ClasificarResponse(BaseModel):
-    reclamo_id: str
-    suministro_id: str
-    clasificacion: str
-    descripcion: str | None
-    score: float
-
-
-class ClasificarLLMRequest(BaseModel):
-    detalle: str
 
 
 class ClasificarRapidoRequest(BaseModel):
@@ -47,13 +34,6 @@ class ClasificarRapidoResponse(BaseModel):
     candidatos: list[dict] = []
 
 
-class ClasificarLLMResponse(BaseModel):
-    success: bool
-    codigo: str | None
-    nombre: str | None
-    seccion: str | None
-    error: str | None
-
 def _campo_reclamo(datos: dict | None, campo: str) -> str:
     """Lee un campo del JSON del reclamo (data puede ser dict o lista)."""
     data = datos.get("data") if isinstance(datos, dict) else None
@@ -63,8 +43,6 @@ def _campo_reclamo(datos: dict | None, campo: str) -> str:
         return str(data[0].get(campo) or "").strip()
     return ""
 
-
-analizador = AnalizadorAgent()
 
 @router.get("/reclamo/{codsede}/{codsuc}/{codreclamo}/{codcliente}", response_model=BuscarReclamoResponse)
 async def buscar_reclamo(
@@ -161,26 +139,6 @@ async def buscar_reclamo(
             datos_reclamo=ReclamoSchema(**vars(informe.datos_reclamo)) if informe.datos_reclamo else None,
         ),
         tiempo=tiempo,
-    )
-
-
-@router.post("/clasificar", response_model=ClasificarResponse)
-def clasificar(request: dict) -> ClasificarResponse:
-    suministro_id = request.get("suministro_id", "N/A")
-    reclamo_id = request.get("reclamo_id", "N/A")
-    detalle = request.get("detalle", "")
-
-    t1 = time.perf_counter()
-    analisis = analizador.run(detalle)
-    t2 = time.perf_counter()
-    logger.info(f"Tiempo clasificación del reclamo: {t1 - t2:.4f} segundos")
-
-    return ClasificarResponse(
-        reclamo_id=reclamo_id,
-        suministro_id=suministro_id,
-        clasificacion=analisis["categoria_probable"],
-        descripcion=analisis["descripcion"],
-        score=analisis["score"]
     )
 
 
