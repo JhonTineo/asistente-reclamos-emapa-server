@@ -1,4 +1,3 @@
-import re
 import time
 import logging
 from dataclasses import fields
@@ -9,7 +8,8 @@ import pandas as pd
 from app.src.core.model.targeta_lecturas import TargetaLecturas, LecturaMensual
 from app.src.core.model.indicadores.targeta_lecturas_indicadores import INDICADORES_TARJETA_LECTURA
 from app.src.application.adapters.emapa_api import obtener_tarjeta_lectura
-from app.src.application.services.pre_proces.df_utils import df_a_registros
+from app.src.application.services.pre_proces.df_utils import df_a_registros, agregar_traducciones
+from app.src.application.services.pre_proces.ventana_utils import calcular_ventana
 
 logger = logging.getLogger("services.pre_targeta_lecturas_service")
 
@@ -44,18 +44,6 @@ COLUMNAS = [f.name for f in fields(LecturaMensual)]
 _HINTS = get_type_hints(LecturaMensual)
 CAMPOS_NUMERICOS = [n for n, t in _HINTS.items() if float in get_args(t) or t is float]
 
-def parse_anio_mes(fecha_ref: str | None) -> tuple[int, int] | None:
-    """Extrae (año, mes) de la fecha de recepción del reclamo (fecharec), que
-    EMAPA entrega en formato ISO 'AAAA-MM-DD' (p.ej. '2022-12-07').
-    Devuelve None si viene vacía o con un formato inesperado."""
-    if not fecha_ref:
-        return None
-    m = re.match(r"\s*(\d{4})-(\d{2})", str(fecha_ref))
-    return (int(m.group(1)), int(m.group(2))) if m else None
-
-
-
-
 class PreTargetaLecturasService:
     
     def preprocesar_targeta_lecturas(
@@ -63,10 +51,18 @@ class PreTargetaLecturasService:
         fecha_ref: str | None = None,
     ) -> dict:
         t1 = time.time()
+        # Ventana CALENDARIO calculada de antemano (no depende de qué datos
+        # traiga EMAPA), para que sea independiente del orden en que se analicen
+        # los medios: si record_facturacion se analiza antes que tarjeta_lectura,
+        # de todos modos filtra por esta misma ventana.
+        ventana = calcular_ventana(fecha_ref, meses)
+        logger.info("[PRE_TARGETA_LECTURAS] Ventana: %d meses (%s .. %s)",
+                    len(ventana), ventana[0], ventana[-1])
+
         json_raw = obtener_tarjeta_lectura(codsuc, codcliente)
         logger.info("[PRE_TARGETA_LECTURAS] Datos obtenidos de EMAPA en %.2f segundos", time.time() - t1)
 
-        targeta, df = self._construir_targeta(json_raw, meses, fecha_ref)
+        targeta, df = self._construir_targeta(json_raw, ventana)
 
         hallazgos = sum(len(getattr(targeta, g)) for g in
                         ("errorConsumo", "errorLecturas", "errorReinstalacion", "errorServicio"))
@@ -74,14 +70,10 @@ class PreTargetaLecturasService:
             "[PRE_TARGETA_LECTURAS] Preprocesamiento completo en %.2f s | meses=%d | hallazgos=%d",
             time.time() - t1, len(df), hallazgos,
         )
-        # Calcula la ventana a partir del DataFrame ya filtrado.
-        ventana = [(int(a), int(m)) for a, m in zip(df["anio"], df["mes"])
-                   if pd.notna(a) and pd.notna(m)]
-        logger.info("[PRE_TARGETA_LECTURAS] Ventana calculada: %d meses", len(ventana))
         return {"targeta": targeta, "df": df, "ventana": ventana}
 
     def _construir_targeta(
-        self, json_raw: dict, meses: int, fecha_ref: str | None = None,
+        self, json_raw: dict, ventana: list[tuple[int, int]],
     ) -> tuple[TargetaLecturas, pd.DataFrame]:
         registros = (json_raw or {}).get("data") or []
         if not registros:
@@ -99,20 +91,10 @@ class PreTargetaLecturasService:
         win["anio"] = pd.to_numeric(win["anio"], errors="coerce").astype("Int64")
         win["mes"] = pd.to_numeric(win["mes"], errors="coerce").astype("Int64")
 
-        # Ventana anclada a la FECHA DE RECEPCIÓN del reclamo: se toman los últimos
-        # `meses` registros hasta el mes de recepción (no los más recientes de hoy).
-        # Esto es clave para reclamos históricos: si no se ancla, un reclamo de 2022
-        # se analizaría con lecturas actuales (2025/2026). Si la fecha no se puede
-        # interpretar, se cae al comportamiento previo (últimos `meses`).
-        ref = parse_anio_mes(fecha_ref)
-        if ref is not None:
-            ra, rm = ref
-            win = win[(win["anio"] < ra) | ((win["anio"] == ra) & (win["mes"] <= rm))]
-            logger.info("[PRE_TARGETA_LECTURAS] Ventana anclada a recepción %02d/%d", rm, ra)
-        elif fecha_ref:
-            logger.warning("[PRE_TARGETA_LECTURAS] fecha_ref no interpretable (%r); "
-                           "uso los últimos %d meses", fecha_ref, meses)
-        win = win.sort_values(["anio", "mes"], ascending=False).head(meses)
+        # Filtra a la ventana calendario ya calculada (inner join): solo quedan
+        # los meses de datos que caen dentro de esos `meses` meses.
+        ventana_df = pd.DataFrame(ventana, columns=["anio", "mes"]).astype("Int64")
+        win = win.merge(ventana_df, on=["anio", "mes"], how="inner")
 
         # tipopromedio (escalar): tipo de promedio predominante en la ventana.
         tipopromedio = None
@@ -156,7 +138,14 @@ class PreTargetaLecturasService:
             # venir vacía; se toma el primero que exista.
             fecha_verificacion=_primer("fechacontrslaborcabecera") or _primer("fechacontrscampocabecera"),
             tipo_verificacion=_primer("desresultadocontrastacioncabecera"),
-            registros=df_a_registros(df),
+            # Cada fila trae el código crudo (p.ej. estadoservicio="001") y, junto
+            # a él, '<campo>_texto' con la traducción legible, para que el
+            # frontend pueda mostrar el texto y, si quiere, el código original.
+            registros=agregar_traducciones(df_a_registros(df), {
+                "estadoservicio": INDICADORES_TARJETA_LECTURA["estadoservicio"],
+                "estadomed": INDICADORES_TARJETA_LECTURA["estadomed"],
+                "estadolectura": INDICADORES_TARJETA_LECTURA["estadolectura"],
+            }),
             **indicadores,
         )
         return targeta, df

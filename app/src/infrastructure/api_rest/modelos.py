@@ -1,4 +1,7 @@
-from fastapi import APIRouter
+import asyncio
+
+from fastapi import APIRouter, Depends, HTTPException
+from app.src.infrastructure.api_rest.deps import usar_config_llm
 from app.src.infrastructure.api_rest.schemas.modelo import (
     ModeloResponse,
     ModelosListResponse,
@@ -8,6 +11,7 @@ from app.src.infrastructure.api_rest.schemas.modelo import (
     ProveedorResponse,
     ProveedoresListResponse,
 )
+from starlette.concurrency import run_in_threadpool
 from app.src.application.adapters.llm import (
     listar_modelos,
     listar_modelos_locales,
@@ -18,6 +22,8 @@ from app.src.application.adapters.llm import (
     cargar_modelo,
     descargar_modelo,
     modelos_externos,
+    consultar_creditos_openrouter,
+    precio_modelo_openrouter,
 )
 from app.src.application.adapters.proveedores import proveedores_externos
 
@@ -107,3 +113,71 @@ def descargar(request: ModeloAccionRequest) -> ModeloAccionResponse:
     """Libera el modelo de memoria de inmediato (botón "apagar")."""
     resultado = descargar_modelo(request.modelo)
     return ModeloAccionResponse(**resultado)
+
+
+# Cuántos tokens se asume que consume UNA atención de reclamo completa
+# (objetivos + medios + conclusión + propuesta + resolución). Cifra fija
+# definida a mano (no medida); ajustar si el promedio real difiere mucho.
+TOKENS_POR_RECLAMO_DEFAULT = 10_000
+
+
+@router.get("/creditos", dependencies=[Depends(usar_config_llm)])
+async def creditos_disponibles(
+    modelo: str = "openai/gpt-4o-mini",
+    tokens_por_reclamo: int = TOKENS_POR_RECLAMO_DEFAULT,
+) -> dict:
+    """Cuántos reclamos se pueden atender con el crédito que queda en
+    OpenRouter, consultando datos REALES de su API (no una muestra local):
+
+    1. GET /credits -> dinero restante en la cuenta.
+    2. GET /models  -> precio público del modelo seleccionado (USD/token).
+    3. tokens_disponibles = dinero_restante / precio_promedio_por_token.
+    4. reclamos_estimados = tokens_disponibles / tokens_por_reclamo.
+
+    El precio promedio por token es el promedio simple de precio de entrada y
+    salida del modelo (no depende de una proporción entrada/salida medida)."""
+    creditos, precio = await asyncio.gather(
+        run_in_threadpool(consultar_creditos_openrouter),
+        run_in_threadpool(precio_modelo_openrouter, modelo),
+    )
+
+    if creditos is None:
+        raise HTTPException(
+            status_code=502,
+            detail="No se pudo consultar el crédito de OpenRouter (falta API key o falló la conexión).",
+        )
+    if precio is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No se encontró el modelo '{modelo}' en el catálogo de OpenRouter.",
+        )
+
+    dinero_restante = creditos["restante_usd"]
+    precio_prompt = precio["precio_input_por_millon_usd"]
+    precio_completion = precio["precio_output_por_millon_usd"]
+    precio_promedio_por_millon = (precio_prompt + precio_completion) / 2
+    precio_promedio_por_token = precio_promedio_por_millon / 1_000_000
+
+    tokens_disponibles = (
+        dinero_restante / precio_promedio_por_token
+        if dinero_restante is not None and precio_promedio_por_token > 0
+        else None
+    )
+    reclamos_estimados = (
+        int(tokens_disponibles / tokens_por_reclamo)
+        if tokens_disponibles is not None and tokens_por_reclamo > 0
+        else None
+    )
+
+    return {
+        "modelo": modelo,
+        "dinero_restante_usd": dinero_restante,
+        "total_credits_usd": creditos["total_credits"],
+        "total_usage_usd": creditos["total_usage"],
+        "precio_input_por_millon_usd": precio_prompt,
+        "precio_output_por_millon_usd": precio_completion,
+        "precio_promedio_por_millon_usd": precio_promedio_por_millon,
+        "tokens_disponibles": int(tokens_disponibles) if tokens_disponibles is not None else None,
+        "tokens_por_reclamo": tokens_por_reclamo,
+        "reclamos_estimados": reclamos_estimados,
+    }

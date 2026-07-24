@@ -12,7 +12,7 @@ def get_client() -> QdrantClient:
     return QdrantClient(
         url=os.getenv(
             "QDRANT_URL",
-            "http://127.0.0.1:6335"
+            "http://127.0.0.1:6333"
         )
     )
 
@@ -93,6 +93,6 @@ class QdrantStore:
         return QdrantClient(
             url=os.getenv(
                 "QDRANT_URL",
-                "http://127.0.0.1:6335"
+                "http://127.0.0.1:6333"
             )
         )

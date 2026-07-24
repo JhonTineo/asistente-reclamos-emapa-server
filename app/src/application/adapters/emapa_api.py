@@ -42,12 +42,17 @@ EMAPA_ENDPOINTS = {
         "path": "/api-consulta/catastro/obtener-corte-reapertura-x-cliente/{codsuc}/{codcliente}",
         "method": "GET",
     },
+    # OJO: pese al nombre del path, EMAPA filtra estos dos por NÚMERO DE
+    # INSPECCIÓN (nroinspeccion), no por cliente. Pasarle el código de
+    # suministro/cliente devuelve una inspección de OTRO cliente por
+    # coincidencia numérica (confirmado: nroinspeccion en la respuesta coincide
+    # con lo enviado, pero codcliente/reclamante/fecha no tienen relación).
     "inspeccion_externa": {
-        "path": "/api-micromedicion/reclamos/get-inspeccion-externa/{codsuc}/{codcliente}",
+        "path": "/api-micromedicion/reclamos/get-inspeccion-externa/{codsuc}/{codinspeccion}",
         "method": "GET",
     },
     "inspeccion_interna": {
-        "path": "/api-micromedicion/reclamos/get-inspeccion-interna/{codsuc}/{codcliente}",
+        "path": "/api-micromedicion/reclamos/get-inspeccion-interna/{codsuc}/{codinspeccion}",
         "method": "GET",
     },
     "buscar_reclamo": {
@@ -148,17 +153,23 @@ def obtener_corte_reapertura(codsuc: str, codcliente: str) -> dict[str, Any]:
     return _request(endpoint)
 
 
-def obtener_inspeccion_externa(codsuc: str, codcliente: str) -> dict[str, Any]:
+def obtener_inspeccion_externa(codsuc: str, codinspeccion: str) -> dict[str, Any]:
+    """`codinspeccion` es el nroinspeccion (NO el código de cliente/suministro):
+    este endpoint filtra por número de inspección. Ver el comentario en
+    EMAPA_ENDPOINTS['inspeccion_externa']."""
     endpoint = EMAPA_ENDPOINTS["inspeccion_externa"]["path"].format(
         codsuc=codsuc,
-        codcliente=codcliente,
+        codinspeccion=codinspeccion,
     )
     return _request(endpoint)
 
 
-def obtener_inspeccion_interna(codsuc: str, codcliente: str) -> dict[str, Any]:
+def obtener_inspeccion_interna(codsuc: str, codinspeccion: str) -> dict[str, Any]:
+    """`codinspeccion` es el nroinspeccion (NO el código de cliente/suministro):
+    este endpoint filtra por número de inspección. Ver el comentario en
+    EMAPA_ENDPOINTS['inspeccion_interna']."""
     endpoint = EMAPA_ENDPOINTS["inspeccion_interna"]["path"].format(
         codsuc=codsuc,
-        codcliente=codcliente,
+        codinspeccion=codinspeccion,
     )
     return _request(endpoint)

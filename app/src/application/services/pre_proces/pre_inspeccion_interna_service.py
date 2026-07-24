@@ -10,9 +10,21 @@ logger = logging.getLogger("services.pre_inspeccion_interna_service")
 
 class PreInspeccionInternaService:
 
-    def preprocesar_inspeccion_interna(self, codsuc: str, codcliente: str) -> dict:
+    def preprocesar_inspeccion_interna(self, codsuc: str, codinspeccion: str | None) -> dict:
+        """`codinspeccion` es el nroinspeccion vinculado al reclamo (extraído al
+        buscarlo; ver reclamos.py `_codigo_inspeccion`), NO el código de cliente:
+        el endpoint EMAPA filtra por número de inspección, no por cliente. Si el
+        reclamo no tiene inspección interna vinculada, no se consulta EMAPA."""
+        if not codinspeccion:
+            logger.warning(
+                "[PRE_INSPECCION_INTERNA] Sin código de inspección vinculado al reclamo; "
+                "no se consulta EMAPA (no hay inspección interna registrada)"
+            )
+            inspeccion = InspeccionInterna()
+            return {"inspeccion": inspeccion, "observaciones": []}
+
         t1 = time.time()
-        json_raw = obtener_inspeccion_interna(codsuc, codcliente)
+        json_raw = obtener_inspeccion_interna(codsuc, codinspeccion)
         logger.info("[PRE_INSPECCION_INTERNA] Datos obtenidos de EMAPA en %.2f segundos", time.time() - t1)
 
         inspeccion = self._construir_inspeccion(json_raw)
@@ -38,6 +50,7 @@ class PreInspeccionInternaService:
                 continue
             valor = cab.get(nombre)
             if valor is not None and nombre in INDICADORES_INSPECCION_INTERNA:
+                crudo = valor
                 valor = INDICADORES_INSPECCION_INTERNA[nombre].get(str(valor), str(valor))
             valores[nombre] = valor
 

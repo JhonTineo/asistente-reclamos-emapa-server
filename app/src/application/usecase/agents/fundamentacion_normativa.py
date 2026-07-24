@@ -105,8 +105,7 @@ class FundamentacionNormativaAgent:
         clasificacion: str = "",
         contexto: str = "",
     ) -> dict:
-        # El numeral (p.ej. "92.2") ya incluye el nº de artículo; si no hay
-        # numeral, se cita el artículo (p.ej. "108").
+
         articulos_texto = "\n\n".join(
             f"[Art. {a['payload'].get('numeral') or a['payload'].get('article')}] "
             f"{a['payload'].get('text', '')}"
@@ -223,8 +222,7 @@ class FundamentacionNormativaAgent:
         accion = self._a_texto(interp.get("accion"))
         # Guardarraíl de abstención: si el LLM juzgó que ningún artículo regula el
         # hallazgo (aplica=false) o devolvió "no_determinable", NO se fundamenta;
-        # así se evita citar artículos irrelevantes (p.ej. un artículo de fugas
-        # sobre un hallazgo de corte o de reclamo previo).
+        # así se evita citar artículos irrelevantes.
         no_aplica = interp.get("aplica") is False or (accion or "").strip().lower() == "no_determinable"
         if no_aplica:
             problema.accion = "No corresponde: los artículos recuperados no regulan este hallazgo."

@@ -21,6 +21,10 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 
+# httpx loguea un INFO por cada request saliente (p.ej. el chequeo de versión
+# de Qdrant al arrancar). Es ruido, no error: se sube a WARNING.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 # Ver el prompt completo enviado a los agentes (nivel DEBUG solo en estos loggers).
 logging.getLogger("agent.analista_medio").setLevel(logging.DEBUG)
 logging.getLogger("agent.fundamentacion_normativa").setLevel(logging.DEBUG)

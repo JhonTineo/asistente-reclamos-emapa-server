@@ -9,6 +9,7 @@ import pandas as pd
 from app.src.core.model.corte_reapertura import CorteReapertura, RegistroCorteReapertura
 from app.src.application.adapters.emapa_api import obtener_corte_reapertura
 from app.src.application.services.pre_proces.df_utils import df_a_registros
+from app.src.application.services.pre_proces.ventana_utils import calcular_ventana
 
 
 logger = logging.getLogger("services.pre_corte_reapertura_service")
@@ -40,18 +41,16 @@ class PreCorteReaperturaService:
     """
 
     def preprocesar_corte_reapertura(
-        self, codsuc: str, codcliente: str,
-        ventana: list[tuple[int, int]] | None = None,
+        self, codsuc: str, codcliente: str, meses: int = 12,
+        fecha_ref: str | None = None,
     ) -> dict:
         t1 = time.time()
+        # Ventana CALENDARIO calculada de antemano (independiente de qué medio se
+        # analice primero; ver ventana_utils.py).
+        ventana = calcular_ventana(fecha_ref, meses)
+
         json_raw = obtener_corte_reapertura(codsuc, codcliente)
         logger.info("[PRE_CORTE_REAPERTURA] Datos obtenidos de EMAPA en %.2f s", time.time() - t1)
-
-        ventana = ventana or []
-        if not ventana:
-            logger.warning(
-                "[PRE_CORTE_REAPERTURA] Sin ventana fijada: analiza primero la tarjeta de lecturas"
-            )
 
         corte, df = self._construir_corte(json_raw, ventana)
 

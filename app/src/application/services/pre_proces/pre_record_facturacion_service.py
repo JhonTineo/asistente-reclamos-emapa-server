@@ -9,7 +9,8 @@ import pandas as pd
 from app.src.core.model.record_facturacion import RecordFacturacion, RegistroFacturacion
 from app.src.core.model.indicadores.targeta_lecturas_indicadores import INDICADORES_TARJETA_LECTURA
 from app.src.application.adapters.emapa_api import obtener_record_facturacion
-from app.src.application.services.pre_proces.df_utils import df_a_registros
+from app.src.application.services.pre_proces.df_utils import df_a_registros, agregar_traducciones
+from app.src.application.services.pre_proces.ventana_utils import calcular_ventana
 
 
 logger = logging.getLogger("services.pre_record_facturacion_service")
@@ -17,6 +18,16 @@ logger = logging.getLogger("services.pre_record_facturacion_service")
 # Forma de facturación por código tipopromedio (reutiliza el dominio de la tarjeta).
 FORMAS = INDICADORES_TARJETA_LECTURA["tipopromedio"]  # {"0": "MEDIDO", "1": "ASIGNADO", "2": "PROMEDIADO"}
 TIPO_MEDIDO = "0"  # facturado por lectura real
+# Categoría tarifaria: código catetar -> nombre (DOMESTICO, COMERCIAL, …).
+CATETAR = INDICADORES_TARJETA_LECTURA["catetar"]
+
+
+def _traducir_categoria(cod) -> str | None:
+    """Traduce el código catetar (p.ej. '015' o '15.0') a su nombre."""
+    if cod is None:
+        return None
+    c = str(cod).strip().split(".")[0]
+    return CATETAR.get(c) or CATETAR.get(c.zfill(3))
 
 COLUMNAS = [f.name for f in fields(RegistroFacturacion)]
 _HINTS = get_type_hints(RegistroFacturacion)
@@ -48,19 +59,20 @@ class PreRecordFacturacionService:
     empresa. La entidad guarda SOLO los errores hallados (no el detalle mensual)."""
 
     def preprocesar_record_facturacion(
-        self, codsuc: str, codcliente: str,
-        ventana: list[tuple[int, int]] | None = None,
+        self, codsuc: str, codcliente: str, meses: int = 12,
+        fecha_ref: str | None = None,
     ) -> dict:
         t1 = time.time()
-        ventana = ventana or []
-        if not ventana:
-            logger.warning(
-                "[PRE_RECORD_FACTURACION] Sin ventana fijada: analiza primero la tarjeta de lecturas"
-            )
-        # El endpoint pide un año; el origen devuelve el histórico completo, así
-        # que basta con el año más reciente de la ventana (o el año actual).
-        anio = str(max((a for a, _ in ventana), default=datetime.now().year))
+        # Ventana CALENDARIO calculada de antemano (independiente de qué medio se
+        # analice primero; ver ventana_utils.py).
+        ventana = calcular_ventana(fecha_ref, meses)
 
+        # El endpoint EXIGE un año como parámetro (si no se manda, no responde),
+        # pero el origen es inconsistente: devuelve el MISMO histórico completo
+        # sin importar qué año se pida. Por eso basta una sola llamada (con
+        # cualquier año válido de la ventana, solo para que responda); el
+        # histórico completo se filtra después por la ventana calendario.
+        anio = str(max((a for a, _ in ventana), default=datetime.now().year))
         json_raw = obtener_record_facturacion(codsuc, codcliente, anio)
         logger.info("[PRE_RECORD_FACTURACION] Datos obtenidos de EMAPA en %.2f s", time.time() - t1)
 
@@ -100,7 +112,15 @@ class PreRecordFacturacionService:
         df = df.sort_values(["anio", "mes"]).reset_index(drop=True)
 
         indicadores = self._calcular_indicadores(df)
-        record = RecordFacturacion(codcliente=codcliente, registros=df_a_registros(df), **indicadores)
+        # Cada fila trae el código crudo (p.ej. tipopromedio="0") y, junto a él,
+        # '<campo>_texto' con la traducción legible, para que el frontend pueda
+        # mostrar el texto y, si quiere, el código original.
+        registros = agregar_traducciones(df_a_registros(df), {
+            "tipopromedio": FORMAS,
+            "catetar": CATETAR,
+            "estadoservicio": INDICADORES_TARJETA_LECTURA["estadoservicio"],
+        })
+        record = RecordFacturacion(codcliente=codcliente, registros=registros, **indicadores)
         return record, df
 
     def _calcular_indicadores(self, df: pd.DataFrame) -> dict:
@@ -113,6 +133,7 @@ class PreRecordFacturacionService:
         d = df.dropna(subset=["anio", "mes"]).copy()
         if d.empty:
             return {
+                "categoria": None,
                 "formaPredominante": None,
                 "totalMeses": 0,
                 "totalPromediados": 0,
@@ -125,6 +146,15 @@ class PreRecordFacturacionService:
         d = d.sort_values(["anio", "mes"]).reset_index(drop=True)
 
         forma_predominante = FORMAS.get(d["tipopromedio"].mode().iloc[0])
+
+        # Categoría tarifaria predominante (traducida de su código).
+        categoria = None
+        if "catetar" in d.columns and d["catetar"].notna().any():
+            catetar_crudo = d["catetar"].dropna().mode().iloc[0]
+            categoria = _traducir_categoria(catetar_crudo)
+            logger.info(
+                "[PRE_RECORD_FACTURACION] categoria: catetar_crudo=%r -> %r", catetar_crudo, categoria,
+            )
 
         # --- Meses facturados por promedio (filtro pandas) --------------------
         promediados = list(
@@ -153,6 +183,7 @@ class PreRecordFacturacionService:
             racha_actual = []
 
         return {
+            "categoria": categoria,
             "formaPredominante": forma_predominante,
             "totalMeses": int(len(d)),
             "totalPromediados": int((~d["esMedido"]).sum()),

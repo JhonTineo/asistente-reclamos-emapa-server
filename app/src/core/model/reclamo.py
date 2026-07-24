@@ -17,3 +17,12 @@ class Reclamo:
     meses_reclamados: str | None = None        # mesanio
     fecha_recepcion: str | None = None         # fecharec
     estado_reclamo: str | None = None          # descEstadoRec
+    # Código de inspección (nroinspeccion) vinculado a ESTE reclamo, extraído del
+    # último item de inspeccion_interna/inspeccion_externa embebidos en el
+    # detalle del reclamo. Es la ÚNICA forma confiable de consultar la
+    # inspección correcta: el endpoint get-inspeccion-interna/externa NO filtra
+    # por cliente, filtra por nroinspeccion (pasarle el código de suministro
+    # devolvía la inspección de OTRO cliente por coincidencia numérica). None si
+    # el reclamo no tiene una inspección de ese tipo vinculada todavía.
+    codinspeccion_interna: str | None = None
+    codinspeccion_externa: str | None = None

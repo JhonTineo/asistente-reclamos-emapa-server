@@ -204,7 +204,7 @@ def get_llm(model: str | None = None):
 
 def log_uso_llm(log: logging.Logger, etiqueta: str, response) -> None:
     """Loguea los tokens y la velocidad de una respuesta del LLM, usando los
-    conteos reales que devuelve Ollama (tokenizer exacto del modelo).
+    conteos que devuelve el proveedor (tokenizer exacto del modelo).
 
     - input_tokens / output_tokens / total_tokens: de ``usage_metadata``.
     - tok/s: tokens de salida entre la duración de generación (``eval_duration``,
@@ -224,6 +224,60 @@ def log_uso_llm(log: logging.Logger, etiqueta: str, response) -> None:
         extra = f" | {tok_s:.1f} tok/s"
 
     log.info("[TOKENS %s] input=%s output=%s total=%s%s", etiqueta, in_tok, out_tok, total, extra)
+
+
+def consultar_creditos_openrouter(api_key: str | None = None) -> dict | None:
+    """Crédito restante REAL de la cuenta de OpenRouter (GET /credits): lo que
+    queda para gastar, no una estimación. Devuelve None si falla (sin key,
+    cuenta sin límite configurado que aplique, error de red, etc.)."""
+    key = api_key or get_llm_ctx().get("api_key") or settings.openrouter_api_key
+    if not key:
+        logger.warning("[OPENROUTER] Sin API key para consultar /credits")
+        return None
+
+    base = settings.openrouter_base_url.rstrip("/")
+    try:
+        resp = httpx.get(
+            f"{base}/credits",
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=20.0,
+        )
+        resp.raise_for_status()
+        data = (resp.json() or {}).get("data") or {}
+        total = data.get("total_credits")
+        usado = data.get("total_usage")
+        restante = (total - usado) if total is not None and usado is not None else None
+        return {"total_credits": total, "total_usage": usado, "restante_usd": restante}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[OPENROUTER] No se pudo consultar /credits: %s", exc)
+        return None
+
+
+def precio_modelo_openrouter(modelo: str) -> dict | None:
+    """Precio público del modelo en OpenRouter (USD por millón de tokens), vía
+    GET /models (catálogo público, no requiere API key). Devuelve None si el
+    modelo no aparece en el catálogo."""
+    base = settings.openrouter_base_url.rstrip("/")
+    try:
+        resp = httpx.get(f"{base}/models", timeout=20.0)
+        resp.raise_for_status()
+        modelos = (resp.json() or {}).get("data") or []
+        for m in modelos:
+            if m.get("id") == modelo:
+                pricing = m.get("pricing") or {}
+                # OpenRouter devuelve el precio en USD POR TOKEN (no por millón).
+                precio_prompt = float(pricing.get("prompt") or 0) * 1_000_000
+                precio_completion = float(pricing.get("completion") or 0) * 1_000_000
+                return {
+                    "modelo": modelo,
+                    "precio_input_por_millon_usd": precio_prompt,
+                    "precio_output_por_millon_usd": precio_completion,
+                }
+        logger.warning("[OPENROUTER] Modelo '%s' no encontrado en /models", modelo)
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[OPENROUTER] No se pudo consultar /models: %s", exc)
+        return None
 
 
 def listar_modelos_locales() -> list[str]:

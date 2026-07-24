@@ -41,8 +41,6 @@ from app.src.core.model.informe_atencion import BloqueMedio
 from app.src.application.adapters.emapa_api import (
     obtener_tarjeta_lectura,
     obtener_corte_reapertura,
-    obtener_inspeccion_externa,
-    obtener_inspeccion_interna,
     obtener_record_facturacion,
     obtener_saldo_actual,
 )
@@ -77,6 +75,18 @@ def _enfoque_para_medio(informe, medio_id: str) -> str | None:
     return " ".join(preguntas) or None
 
 
+def _codigo_inspeccion_para_medio(informe, medio_id: str) -> str | None:
+    """codinspeccion (nroinspeccion) del reclamo, solo para inspeccion_interna/
+    externa; None para los demás medios (no lo usan)."""
+    if not informe or not informe.datos_reclamo:
+        return None
+    if medio_id == "inspeccion_interna":
+        return informe.datos_reclamo.codinspeccion_interna
+    if medio_id == "inspeccion_externa":
+        return informe.datos_reclamo.codinspeccion_externa
+    return None
+
+
 def _medios_determinantes(informe) -> set[str]:
     """Medios de los objetivos determinantes (los que deciden el veredicto). La
     fundamentación normativa se limita a estos: fundamentar hallazgos de medios
@@ -103,12 +113,30 @@ async def _analizar_medio_y_registrar(
         medio_id, request.codsuc, request.codcliente, request.codreclamo,
     )
 
-    # Lee la ventana actual del informe (si existe) y la fecha de recepción del
-    # reclamo, que ancla la ventana de la tarjeta de lecturas a ese periodo.
+    # Fecha de recepción del reclamo: cada medio calcula su propia ventana
+    # calendario a partir de (meses, fecha_ref) — ver ventana_utils.py; no hace
+    # falta leer ni pasar la ventana de otro medio analizado antes.
     informe = informe_store.obtener(request.codreclamo)
-    ventana_actual = informe.ventana_meses if informe else []
     fecha_ref = informe.datos_reclamo.fecha_recepcion if informe and informe.datos_reclamo else None
     enfoque = _enfoque_para_medio(informe, medio_id)
+    codinspeccion = _codigo_inspeccion_para_medio(informe, medio_id)
+
+    # Sin código de inspección vinculado al reclamo (ya se guardó None al
+    # buscarlo): NO se consulta a EMAPA (el endpoint filtra por nroinspeccion,
+    # no por cliente — pasarle el suministro traería la inspección de otro
+    # cliente). Se corta aquí con un error claro, sin registrar bloque, para
+    # que el frontend alerte y no agregue este punto al informe.
+    if medio_id in ("inspeccion_interna", "inspeccion_externa") and not codinspeccion:
+        etiqueta = "interna" if medio_id == "inspeccion_interna" else "externa"
+        logger.warning(
+            "[API /investigacion/%s] Sin código de inspección %s vinculado al reclamo %s",
+            medio_id, etiqueta, request.codreclamo,
+        )
+        logger.info("=" * 60)
+        raise HTTPException(
+            status_code=404,
+            detail=f"No se encontró inspección {etiqueta} para este reclamo.",
+        )
 
     analista = AnalistaMedioAgent(model=request.modelo)
     bloque, ventana = analista.analizar(
@@ -118,9 +146,9 @@ async def _analizar_medio_y_registrar(
         codcliente=request.codcliente,
         clasificacion=request.clasificacion,
         meses=request.meses,
-        ventana=ventana_actual,
         fecha_ref=fecha_ref,
         enfoque=enfoque,
+        codinspeccion=codinspeccion,
     )
 
     informe = informe_store.registrar_bloque(
@@ -129,7 +157,8 @@ async def _analizar_medio_y_registrar(
         suministro=request.codcliente,
         clasificacion=request.clasificacion,
     )
-    # Persiste la ventana devuelta (solo la tarjeta la actualiza).
+    # Persiste la ventana devuelta (informativa para el frontend; la calcula
+    # tarjeta_lectura, pero es la misma para todos los medios de serie temporal).
     if ventana:
         informe.ventana_meses = ventana
 
@@ -171,19 +200,38 @@ def _stream_analisis_medio(
             "[API /investigacion/%s/stream] codsuc=%s | codcliente=%s | codreclamo=%s",
             medio_id, request.codsuc, request.codcliente, request.codreclamo,
         )
-        # Lee la ventana de meses de analisis del informe (si existe) y la fecha
-        # de recepción del reclamo (ancla la ventana de la tarjeta de lecturas).
+        # Fecha de recepción del reclamo: cada medio calcula su propia ventana
+        # calendario a partir de (meses, fecha_ref) — ver ventana_utils.py; ya no
+        # depende de que otro medio la haya calculado antes.
         informe = informe_store.obtener(request.codreclamo)
-        ventana_actual = informe.ventana_meses if informe else []
         fecha_ref = informe.datos_reclamo.fecha_recepcion if informe and informe.datos_reclamo else None
         enfoque = _enfoque_para_medio(informe, medio_id)
+        codinspeccion = _codigo_inspeccion_para_medio(informe, medio_id)
+
+        # Sin código de inspección vinculado al reclamo (ya se guardó None al
+        # buscarlo): NO se consulta a EMAPA. Se emite el error y se corta ANTES
+        # de la Fase 1, sin registrar bloque, para que el frontend alerte y no
+        # agregue este punto al informe.
+        if medio_id in ("inspeccion_interna", "inspeccion_externa") and not codinspeccion:
+            etiqueta = "interna" if medio_id == "inspeccion_interna" else "externa"
+            logger.warning(
+                "[API /investigacion/%s/stream] Sin código de inspección %s vinculado al reclamo %s",
+                medio_id, etiqueta, request.codreclamo,
+            )
+            yield json.dumps({
+                "evento": "error",
+                "medio_id": medio_id,
+                "error": f"No se encontró inspección {etiqueta} para este reclamo.",
+            }, ensure_ascii=False) + "\n"
+            return
+
         analista = AnalistaMedioAgent(model=request.modelo)
         try:
             # --- Fase 1: preprocesamiento  ---------------------------
             datos, problemas, ventana = await run_in_threadpool(
                 analista.preprocesar,
                 medio_id, medio_nombre, request.codsuc, request.codcliente,
-                request.meses, ventana_actual, fecha_ref,
+                request.meses, fecha_ref, codinspeccion,
             )
             problemas_schema = [ProblemaNormadoSchema(**vars(p)) for p in problemas]
             evento_pre = {
@@ -214,7 +262,8 @@ def _stream_analisis_medio(
                 suministro=request.codcliente,
                 clasificacion=request.clasificacion,
             )
-            # Persiste la ventana devuelta (solo la tarjeta la actualiza).
+            # Persiste la ventana devuelta (informativa para el frontend; la
+            # calcula tarjeta_lectura, pero es la misma para todos los medios).
             if ventana:
                 informe.ventana_meses = ventana
 
@@ -362,15 +411,17 @@ async def actualizar_resumen(medio: str, request: ActualizarResumenRequest) -> A
 
 
 # Medios cuya disponibilidad se puede verificar (función EMAPA por medio).
-# El orden define el orden de análisis en el frontend.
+# El orden define el orden de análisis en el frontend. inspeccion_interna/
+# externa NO están aquí: su disponibilidad no se verifica llamando a EMAPA con
+# codcliente (el endpoint filtra por nroinspeccion, no por cliente), sino
+# comprobando si el reclamo tiene un codinspeccion vinculado (ver
+# `_verificar_inspecciones` en medios_disponibles).
 _MEDIOS_VERIFICABLES = {
     "tarjeta_lectura": lambda r: obtener_tarjeta_lectura(r.codsuc, r.codcliente),
     "record_facturacion": lambda r: obtener_record_facturacion(r.codsuc, r.codcliente, r.anio),
     "corte_reapertura": lambda r: obtener_corte_reapertura(r.codsuc, r.codcliente),
     "saldo_detalle": lambda r: obtener_saldo_actual(r.codsuc, r.codcliente),
     "saldo_actual": lambda r: obtener_saldo_actual(r.codsuc, r.codcliente),
-    "inspeccion_externa": lambda r: obtener_inspeccion_externa(r.codsuc, r.codcliente),
-    "inspeccion_interna": lambda r: obtener_inspeccion_interna(r.codsuc, r.codcliente),
 }
 
 
@@ -441,9 +492,25 @@ async def medios_disponibles(request: MediosDisponiblesRequest) -> MediosDisponi
             logger.warning("[MEDIOS] %s error=%s", medio_id, e)
             return MedioDisponible(medio_id=medio_id, disponible=False, error=str(e))
 
-    medios = await asyncio.gather(
-        *(_verificar(mid, fn) for mid, fn in _MEDIOS_VERIFICABLES.items())
-    )
+    def _verificar_inspecciones() -> list[MedioDisponible]:
+        """inspeccion_interna/externa están disponibles si el reclamo tiene un
+        codinspeccion vinculado (extraído al buscarlo); no se llama a EMAPA
+        aquí (ver _codigo_inspeccion_para_medio)."""
+        informe = informe_store.obtener(request.codreclamo)
+        return [
+            MedioDisponible(
+                medio_id=medio_id,
+                disponible=bool(_codigo_inspeccion_para_medio(informe, medio_id)),
+            )
+            for medio_id in ("inspeccion_externa", "inspeccion_interna")
+        ]
+
+    medios = [
+        *await asyncio.gather(
+            *(_verificar(mid, fn) for mid, fn in _MEDIOS_VERIFICABLES.items())
+        ),
+        *_verificar_inspecciones(),
+    ]
 
     tiempo = time.perf_counter() - t_inicio
     disponibles = sum(1 for m in medios if m.disponible)

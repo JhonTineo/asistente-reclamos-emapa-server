@@ -10,9 +10,21 @@ logger = logging.getLogger("services.pre_inspeccion_externa_service")
 
 class PreInspeccionExternaService:
 
-    def preprocesar_inspeccion_externa(self, codsuc: str, codcliente: str) -> dict:
+    def preprocesar_inspeccion_externa(self, codsuc: str, codinspeccion: str | None) -> dict:
+        """`codinspeccion` es el nroinspeccion vinculado al reclamo (extraído al
+        buscarlo; ver reclamos.py `_codigo_inspeccion`), NO el código de cliente:
+        el endpoint EMAPA filtra por número de inspección, no por cliente. Si el
+        reclamo no tiene inspección externa vinculada, no se consulta EMAPA."""
+        if not codinspeccion:
+            logger.warning(
+                "[PRE_INSPECCION_EXTERNA] Sin código de inspección vinculado al reclamo; "
+                "no se consulta EMAPA (no hay inspección externa registrada)"
+            )
+            inspeccion = InspeccionExterna()
+            return {"inspeccion": inspeccion, "observaciones": []}
+
         t1 = time.time()
-        json_raw = obtener_inspeccion_externa(codsuc, codcliente)
+        json_raw = obtener_inspeccion_externa(codsuc, codinspeccion)
         logger.info("[PRE_INSPECCION_EXTERNA] Datos obtenidos de EMAPA en %.2f segundos", time.time() - t1)
 
         inspeccion = self._construir_inspeccion(json_raw)

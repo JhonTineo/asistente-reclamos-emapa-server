@@ -24,6 +24,7 @@ class RegistroFacturacion:
 class RecordFacturacion:
     # Escalares
     codcliente: str | None = None
+    categoria: str | None = None              # categoría tarifaria (traducida: COMERCIAL, DOMESTICO…)
     formaPredominante: str | None = None      # forma de facturación más frecuente
     totalMeses: int = 0
     totalPromediados: int = 0                  # meses NO facturados por lectura

@@ -8,6 +8,7 @@ import pandas as pd
 from app.src.core.model.saldo_detalle import SaldoDetalle, SaldoMensual
 from app.src.application.adapters.emapa_api import obtener_saldo_actual
 from app.src.application.services.pre_proces.df_utils import df_a_registros
+from app.src.application.services.pre_proces.ventana_utils import calcular_ventana
 
 
 logger = logging.getLogger("services.pre_saldo_detalle_service")
@@ -53,15 +54,13 @@ class PreSaldoDetalleService:
     pagados. La entidad guarda SOLO los errores hallados (no el detalle mensual)."""
 
     def preprocesar_saldo_detalle(
-        self, codsuc: str, codcliente: str,
-        ventana: list[tuple[int, int]] | None = None,
+        self, codsuc: str, codcliente: str, meses: int = 12,
+        fecha_ref: str | None = None,
     ) -> dict:
         t1 = time.time()
-        ventana = ventana or []
-        if not ventana:
-            logger.warning(
-                "[PRE_SALDO_DETALLE] Sin ventana fijada: analiza primero la tarjeta de lecturas"
-            )
+        # Ventana CALENDARIO calculada de antemano (independiente de qué medio se
+        # analice primero; ver ventana_utils.py).
+        ventana = calcular_ventana(fecha_ref, meses)
 
         json_raw = obtener_saldo_actual(codsuc, codcliente)
         logger.info("[PRE_SALDO_DETALLE] Datos obtenidos de EMAPA en %.2f s", time.time() - t1)

@@ -55,6 +55,23 @@ def _campo_reclamo(datos: dict | None, campo: str) -> str:
     return ""
 
 
+def _codigo_inspeccion(datos: dict | None, campo: str) -> str | None:
+    """Extrae el nroinspeccion del ÚLTIMO item de 'inspeccion_interna' o
+    'inspeccion_externa' embebidos en el detalle del reclamo (campo=uno de esos
+    dos nombres). NO se usan los demás datos de esos items (podrían estar
+    incompletos si la inspección se creó pero aún no se completó): solo sirven
+    para obtener el código con el que luego se consulta la inspección fresca y
+    completa. None si el reclamo no tiene ninguna inspección de ese tipo
+    vinculada todavía."""
+    data = datos.get("data") if isinstance(datos, dict) else None
+    items = data.get(campo) if isinstance(data, dict) else None
+    if isinstance(items, list) and items:
+        ultimo = items[-1]
+        if isinstance(ultimo, dict) and ultimo.get("nroinspeccion") is not None:
+            return str(ultimo["nroinspeccion"])
+    return None
+
+
 @router.get("/reclamo/{codsede}/{codsuc}/{codreclamo}/{codcliente}", response_model=BuscarReclamoResponse)
 async def buscar_reclamo(
     codsede: str,
@@ -120,6 +137,15 @@ async def buscar_reclamo(
     motivo = _campo_reclamo(datos, "motivo")
     clasificacion = _campo_reclamo(datos, "desCodReclamo")
 
+    # Código de inspección (nroinspeccion) vinculado a ESTE reclamo, para poder
+    # consultar la inspección correcta más adelante (ver _codigo_inspeccion).
+    codinspeccion_interna = _codigo_inspeccion(datos, "inspeccion_interna")
+    codinspeccion_externa = _codigo_inspeccion(datos, "inspeccion_externa")
+    if not codinspeccion_interna:
+        logger.warning("[API /reclamo] Reclamo %s sin inspección interna vinculada", codreclamo)
+    if not codinspeccion_externa:
+        logger.warning("[API /reclamo] Reclamo %s sin inspección externa vinculada", codreclamo)
+
     # Entidad de dominio Reclamo: datos de EMAPA que el resto de la
     # investigación necesita, ya tipados (se arma una sola vez aquí).
     datos_reclamo = Reclamo(
@@ -133,6 +159,8 @@ async def buscar_reclamo(
         meses_reclamados=_campo_reclamo(datos, "mesanio") or None,
         fecha_recepcion=_campo_reclamo(datos, "fecharec") or None,
         estado_reclamo=_campo_reclamo(datos, "descEstadoRec") or None,
+        codinspeccion_interna=codinspeccion_interna,
+        codinspeccion_externa=codinspeccion_externa,
     )
 
     # Se crean los metadatos del informe de atención y quedan en el
