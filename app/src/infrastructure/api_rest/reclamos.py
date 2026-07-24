@@ -3,73 +3,40 @@ import time
 from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
 from app.src.application.usecase.agents.clasificador_rapido import clasificar_rapido
 from app.src.infrastructure.api_rest.schemas.investigacion import (
     BuscarReclamoResponse, InformeMetadata, ReclamoSchema,
     InformeCompletoResponse, ObjetivoInvestigacionSchema,
     ResumenMedio, ProblemaNormadoSchema, ProblemaInforme,
     SustentacionResponse,
+    ObjetivosRequest, BuscarReclamoRequest, InformeRequest,
+)
+from app.src.infrastructure.api_rest.schemas.informe import (
+    InformeAutomaticoRequest, InformeAutomaticoResponse,
+)
+from app.src.infrastructure.api_rest.schemas.reclamo import (
+    ClasificarRapidoRequest, ClasificarRapidoResponse, FinalizarAtencionResponse,
 )
 from app.src.application.adapters.emapa_api import buscar_reclamo_emapa
 from app.src.application.adapters.http import EmapaSinDatosError
 from app.src.application.services.informe.informe_store import informe_store, ReclamoEnAtencionError
 from app.src.application.services.informe.render import construir_texto_informe
 from app.src.application.services.informe.sustentacion import construir_sustentacion
+from app.src.application.services.informe.informe_service import buscar_y_crear_informe_o_lanzar
+from app.src.application.services.investigacion.reclamo_service import campo_reclamo, codigo_inspeccion
+from app.src.application.services.investigacion.investigacion_service import analizar_medios_en_paralelo
 from app.src.core.model.reclamo import Reclamo
+# Orquestador (POST /informe-atencion): reusa los pasos de investigación ya
+# implementados ahí (objetivos, conclusión) en vez de duplicarlos. No hay
+# import circular: investigacion.py no importa de acá.
+from app.src.infrastructure.api_rest.investigacion import (
+    generar_objetivos, generar_conclusion,
+)
 from app.src.infrastructure.api_rest.deps import usar_token_emapa, requerir_token_emapa, usar_config_llm
 
 logger = logging.getLogger("api.clasificador")
 
 router = APIRouter(prefix="/reclamos", tags=["reclamos"], dependencies=[Depends(usar_token_emapa), Depends(usar_config_llm)])
-
-
-class ClasificarRapidoRequest(BaseModel):
-    motivo: str
-    desc_tipo_reclamo: str | None = None
-    # Si el reclamo ya fue clasificado por el personal, se respeta y no se
-    # vuelve a clasificar (caso: reclamos presenciales ya tipificados).
-    des_cod_reclamo: str | None = None
-
-
-class ClasificarRapidoResponse(BaseModel):
-    tipo: str | None
-    confianza: str            # "definida" | "alta" | "media" | "baja" | "nula"
-    metodo: str               # "sistema" (ya venía) | "reglas"
-    score: int = 0
-    candidatos: list[dict] = []
-
-
-class FinalizarAtencionResponse(BaseModel):
-    codreclamo: str
-    eliminado: bool
-
-
-def _campo_reclamo(datos: dict | None, campo: str) -> str:
-    """Lee un campo del JSON del reclamo (data puede ser dict o lista)."""
-    data = datos.get("data") if isinstance(datos, dict) else None
-    if isinstance(data, dict):
-        return str(data.get(campo) or "").strip()
-    if isinstance(data, list) and data and isinstance(data[0], dict):
-        return str(data[0].get(campo) or "").strip()
-    return ""
-
-
-def _codigo_inspeccion(datos: dict | None, campo: str) -> str | None:
-    """Extrae el nroinspeccion del ÚLTIMO item de 'inspeccion_interna' o
-    'inspeccion_externa' embebidos en el detalle del reclamo (campo=uno de esos
-    dos nombres). NO se usan los demás datos de esos items (podrían estar
-    incompletos si la inspección se creó pero aún no se completó): solo sirven
-    para obtener el código con el que luego se consulta la inspección fresca y
-    completa. None si el reclamo no tiene ninguna inspección de ese tipo
-    vinculada todavía."""
-    data = datos.get("data") if isinstance(datos, dict) else None
-    items = data.get(campo) if isinstance(data, dict) else None
-    if isinstance(items, list) and items:
-        ultimo = items[-1]
-        if isinstance(ultimo, dict) and ultimo.get("nroinspeccion") is not None:
-            return str(ultimo["nroinspeccion"])
-    return None
 
 
 @router.get("/reclamo/{codsede}/{codsuc}/{codreclamo}/{codcliente}", response_model=BuscarReclamoResponse)
@@ -132,15 +99,13 @@ async def buscar_reclamo(
     tiempo = time.perf_counter() - t_inicio
     logger.info("[API /reclamo] OK | tiempo=%.2fs", tiempo)
 
-    # Motivo (lo que reclama el cliente) y clasificación (desCodReclamo). Se
-    # guardan desde ya para que la generación de objetivos los tenga disponibles.
-    motivo = _campo_reclamo(datos, "motivo")
-    clasificacion = _campo_reclamo(datos, "desCodReclamo")
+    # Motivo (lo que reclama el cliente) y clasificación (desCodReclamo).
+    motivo = campo_reclamo(datos, "motivo")
+    clasificacion = campo_reclamo(datos, "desCodReclamo")
 
-    # Código de inspección (nroinspeccion) vinculado a ESTE reclamo, para poder
-    # consultar la inspección correcta más adelante (ver _codigo_inspeccion).
-    codinspeccion_interna = _codigo_inspeccion(datos, "inspeccion_interna")
-    codinspeccion_externa = _codigo_inspeccion(datos, "inspeccion_externa")
+    # Código de inspección (nroinspeccion) vinculado a ESTE reclamo
+    codinspeccion_interna = codigo_inspeccion(datos, "inspeccion_interna")
+    codinspeccion_externa = codigo_inspeccion(datos, "inspeccion_externa")
     if not codinspeccion_interna:
         logger.warning("[API /reclamo] Reclamo %s sin inspección interna vinculada", codreclamo)
     if not codinspeccion_externa:
@@ -149,16 +114,16 @@ async def buscar_reclamo(
     # Entidad de dominio Reclamo: datos de EMAPA que el resto de la
     # investigación necesita, ya tipados (se arma una sola vez aquí).
     datos_reclamo = Reclamo(
-        codcliente=_campo_reclamo(datos, "codcliente") or None,
-        reclamante=_campo_reclamo(datos, "reclamante") or None,
-        propietario=_campo_reclamo(datos, "propietario") or None,
-        dni=_campo_reclamo(datos, "dniCliente") or _campo_reclamo(datos, "nrodocident") or None,
-        tipo_reclamo=_campo_reclamo(datos, "descTipoReclamo") or None,
+        codcliente=campo_reclamo(datos, "codcliente") or None,
+        reclamante=campo_reclamo(datos, "reclamante") or None,
+        propietario=campo_reclamo(datos, "propietario") or None,
+        dni=campo_reclamo(datos, "dniCliente") or campo_reclamo(datos, "nrodocident") or None,
+        tipo_reclamo=campo_reclamo(datos, "descTipoReclamo") or None,
         clasificacion_reclamo=clasificacion or None,
         motivo_reclamo=motivo or None,
-        meses_reclamados=_campo_reclamo(datos, "mesanio") or None,
-        fecha_recepcion=_campo_reclamo(datos, "fecharec") or None,
-        estado_reclamo=_campo_reclamo(datos, "descEstadoRec") or None,
+        meses_reclamados=campo_reclamo(datos, "mesanio") or None,
+        fecha_recepcion=campo_reclamo(datos, "fecharec") or None,
+        estado_reclamo=campo_reclamo(datos, "descEstadoRec") or None,
         codinspeccion_interna=codinspeccion_interna,
         codinspeccion_externa=codinspeccion_externa,
     )
@@ -277,7 +242,10 @@ async def obtener_informe_completo(codreclamo: str) -> InformeCompletoResponse:
         veredicto=informe.veredicto,
         conclusion=informe.conclusion,
         problemas=problemas,
-        propuesta_conciliacion=informe.propuesta_conciliacion,
+        propuesta_conciliacion=(
+            informe.propuesta_conciliacion.propuesta_empresa
+            if informe.propuesta_conciliacion else None
+        ),
         resolucion=informe.resolucion,
         informe_texto=construir_texto_informe(informe),
     )
@@ -313,5 +281,94 @@ async def finalizar_atencion(codreclamo: str) -> FinalizarAtencionResponse:
     eliminado = informe_store.eliminar(codreclamo)
     logger.info("[API DELETE /reclamos/%s] eliminado=%s", codreclamo, eliminado)
     return FinalizarAtencionResponse(codreclamo=codreclamo, eliminado=eliminado)
+
+
+
+#Mapa de los medios para el flujo completo de informe de atencion
+_MEDIOS_ANALIZABLES: list[tuple[str, str]] = [
+    ("tarjeta_lectura", "Tarjeta de Lecturas"),
+    ("record_facturacion", "Record de Facturación"),
+    ("corte_reapertura", "Cortes y Reaperturas"),
+    ("saldo_detalle", "Saldo Detalle"),
+    ("inspeccion_externa", "Inspección Externa"),
+    ("inspeccion_interna", "Inspección Interna"),
+]
+
+@router.post("/informe-atencion", response_model=InformeAutomaticoResponse, tags=["automatizacion"])
+async def generar_informe_atencion(
+    request: InformeAutomaticoRequest,
+    token: str = Depends(requerir_token_emapa),
+) -> InformeAutomaticoResponse:
+    """
+    Orquesta el flujo COMPLETO del informe de atención en una sola llamada,
+    para automatización (nadie mirando la pantalla). Recibe los mismos
+    identificadores que GET /reclamo/{codsede}/{codsuc}/{codreclamo}/{codcliente}
+    y hace todo el proceso puertas adentro:
+
+    1. Busca el reclamo en EMAPA y crea los metadatos del informe.
+    2. Genera los objetivos de investigación (a partir del motivo).
+    3. Analiza los 6 medios probatorios directamente, sin verificar
+       disponibilidad antes: si un medio no tiene datos o falla (p.ej. sin
+       inspección vinculada), se omite y se sigue con los demás.
+    4. Concluye el informe (fundamentación normativa + veredicto).
+
+    Devuelve los resúmenes y la conclusión ya combinados en un solo texto.
+    """
+    t_inicio = time.perf_counter()
+    logger.info("=" * 60)
+    logger.info(
+        "[API /reclamos/informe-atencion] codsede=%s | codsuc=%s | codcliente=%s | codreclamo=%s",
+        request.codsede, request.codsuc, request.codcliente, request.codreclamo,
+    )
+
+    # --- 1. Búsqueda + creación de metadatos --------------------------------
+    informe = await buscar_y_crear_informe_o_lanzar(
+        request.codsede, request.codsuc, request.codreclamo, request.codcliente,
+        token, request.sesion_id,
+    )
+    clasificacion = informe.clasificacion or ""
+
+    # --- 2. Objetivos de investigación --------------------------------------
+    await generar_objetivos(ObjetivosRequest(codreclamo=request.codreclamo, modelo=request.modelo))
+
+    # --- 3. Análisis de los medios probatorios (EN PARALELO) ---------------
+    req_medio = BuscarReclamoRequest(
+        codsuc=request.codsuc,
+        codreclamo=request.codreclamo,
+        codcliente=request.codcliente,
+        clasificacion=clasificacion,
+        meses=request.meses,
+        modelo=request.modelo,
+    )
+    medios_analizados, medios_omitidos = await analizar_medios_en_paralelo(
+        req_medio, _MEDIOS_ANALIZABLES
+    )
+
+    # --- 4. Conclusión (fundamentación + veredicto) -------------------------
+    conclusion_resp = await generar_conclusion(
+        InformeRequest(
+            codreclamo=request.codreclamo,
+            clasificacion=clasificacion,
+            modelo=request.modelo,
+        )
+    )
+
+    informe = informe_store.obtener(request.codreclamo)
+    tiempo = time.perf_counter() - t_inicio
+    logger.info(
+        "[API /reclamos/informe-atencion] COMPLETADO | analizados=%d | omitidos=%d | veredicto=%s | tiempo=%.2fs",
+        len(medios_analizados), len(medios_omitidos),
+        informe.veredicto if informe else None, tiempo,
+    )
+    logger.info("=" * 60)
+
+    return InformeAutomaticoResponse(
+        codreclamo=request.codreclamo,
+        informe_texto=conclusion_resp.informe,
+        veredicto=informe.veredicto if informe else None,
+        medios_analizados=medios_analizados,
+        medios_omitidos=medios_omitidos,
+        tiempo=tiempo,
+    )
 
 

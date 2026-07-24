@@ -63,15 +63,6 @@ class InformeResponse(BaseModel):
     tiempo: float
 
 
-class InformePreviewRequest(BaseModel):
-    codreclamo: str = Field(description="Código del reclamo (clave del informe en el store)")
-
-
-class InformePreviewResponse(BaseModel):
-    codreclamo: str
-    informe: str
-
-
 class ConciliacionRequest(BaseModel):
     codreclamo: str = Field(description="Código del reclamo (clave del informe en el store)")
     # Campos legados que el frontend aún puede enviar; ya no se usan: la propuesta
@@ -91,7 +82,13 @@ class ConciliacionResponse(BaseModel):
 
 class ResolucionRequest(BaseModel):
     codreclamo: str = Field(description="Código del reclamo (clave del informe en el store)")
-    propuesta_conciliacion: str = Field(description="Propuesta de conciliación de la empresa")
+    # Opcional: si no viene, se usa informe.propuesta_conciliacion ya guardado
+    # en el store (la generada por POST /conciliacion/propuesta, o la editada
+    # a mano por PATCH /conciliacion/propuesta). El caso normal solo manda codreclamo.
+    propuesta_conciliacion: str | None = Field(
+        default=None,
+        description="Propuesta de conciliación de la empresa (opcional; por defecto se usa la ya guardada en el informe)",
+    )
     propuesta_reclamante: str | None = Field(default=None, description="Postura/propuesta del cliente frente a la conciliación")
     observaciones: str | None = Field(default=None, description="Observaciones adicionales")
     modelo: str | None = None
@@ -169,23 +166,15 @@ class ObjetivosResponse(BaseModel):
 
 
 # --- Disponibilidad de medios probatorios (chequeo rápido sin LLM) ---
-class MediosDisponiblesRequest(BaseModel):
-    codsuc: str = Field(description="Código de sucursal")
-    codcliente: str = Field(description="Código de cliente")
-    codreclamo: str = Field(description="Código del reclamo (para reutilizar el token guardado)")
-    anio: str = Field(default="2026", description="Año para el record de facturación")
-
-
 class MedioDisponible(BaseModel):
     medio_id: str
     disponible: bool
     error: str | None = None
 
 
-class MediosDisponiblesResponse(BaseModel):
-    codreclamo: str
-    medios: list[MedioDisponible] = Field(default_factory=list)
-    tiempo: float
+# El orquestador completo (búsqueda + objetivos + medios + conclusión) vive
+# ahora en reclamos.py con sus propios request/response (InformeAutomaticoRequest/
+# Response), definidos ahí porque son específicos de ese endpoint.
 
 
 # --- Edición manual de textos ya generados (sin invocar al LLM) ---
@@ -296,6 +285,24 @@ class ActualizarPropuestaRequest(BaseModel):
 class ActualizarPropuestaResponse(BaseModel):
     codreclamo: str
     propuesta: str
+
+
+# --- Edición manual de los demás datos de la conciliación (no la propuesta de
+# la empresa, que ya tiene su propio PATCH /conciliacion/propuesta arriba) ---
+class ActualizarConciliacionRequest(BaseModel):
+    codreclamo: str = Field(description="Código del reclamo (clave del informe en el store)")
+    propuesta_reclamante: str | None = Field(default=None, description="Postura/propuesta del cliente frente a la conciliación")
+    puntos_acuerdo: str | None = Field(default=None, description="Puntos en los que llegaron a un acuerdo")
+    puntos_desacuerdo: str | None = Field(default=None, description="Puntos en los que no llegaron a un acuerdo")
+    observaciones: str | None = Field(default=None, description="Observaciones del reclamante o de la EPS")
+
+
+class ActualizarConciliacionResponse(BaseModel):
+    codreclamo: str
+    propuesta_reclamante: str
+    puntos_acuerdo: str
+    puntos_desacuerdo: str
+    observaciones: str
 
 
 class ActualizarResolucionTextoRequest(BaseModel):

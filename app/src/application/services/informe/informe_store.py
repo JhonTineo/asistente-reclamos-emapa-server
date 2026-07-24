@@ -11,6 +11,7 @@ from datetime import datetime
 
 from app.src.core.model.informe_atencion import InformeAtencion, BloqueMedio
 from app.src.core.model.reclamo import Reclamo
+from app.src.core.model.conciliacion import Conciliacion
 
 logger = logging.getLogger("services.informe_store")
 
@@ -154,15 +155,47 @@ class InformeAtencionStore:
             return True
 
     def actualizar_propuesta(self, codreclamo: str, texto: str) -> bool:
-        """Edita a mano el texto de la propuesta de conciliación. Devuelve
-        False si no hay informe para ese reclamo."""
+        """Edita a mano el texto de la propuesta de conciliación (de la
+        empresa). Devuelve False si no hay informe para ese reclamo."""
         with self._lock:
             informe = self._data.get(codreclamo)
             if informe is None:
                 return False
-            informe.propuesta_conciliacion = texto
+            if informe.propuesta_conciliacion is None:
+                informe.propuesta_conciliacion = Conciliacion()
+            informe.propuesta_conciliacion.propuesta_empresa = texto
             logger.info("[INFORME_STORE] Propuesta editada a mano: reclamo=%s", codreclamo)
             return True
+
+    def actualizar_conciliacion(
+        self,
+        codreclamo: str,
+        propuesta_reclamante: str | None = None,
+        puntos_acuerdo: str | None = None,
+        puntos_desacuerdo: str | None = None,
+        observaciones: str | None = None,
+    ) -> Conciliacion | None:
+        """Edita a mano los datos de la conciliación aportados por el
+        reclamante/agente (no la propuesta de la empresa, que tiene su propio
+        ``actualizar_propuesta``). Solo pisa los campos que vengan no-None.
+        Devuelve la entidad actualizada, o None si no hay informe para ese reclamo."""
+        with self._lock:
+            informe = self._data.get(codreclamo)
+            if informe is None:
+                return None
+            if informe.propuesta_conciliacion is None:
+                informe.propuesta_conciliacion = Conciliacion()
+            conciliacion = informe.propuesta_conciliacion
+            if propuesta_reclamante is not None:
+                conciliacion.propuesta_reclamante = propuesta_reclamante
+            if puntos_acuerdo is not None:
+                conciliacion.puntos_acuerdo = puntos_acuerdo
+            if puntos_desacuerdo is not None:
+                conciliacion.puntos_desacuerdo = puntos_desacuerdo
+            if observaciones is not None:
+                conciliacion.observaciones = observaciones
+            logger.info("[INFORME_STORE] Datos de conciliación editados a mano: reclamo=%s", codreclamo)
+            return conciliacion
 
     def actualizar_resolucion(self, codreclamo: str, texto: str) -> bool:
         """Edita a mano el texto de la resolución. Devuelve False si no hay

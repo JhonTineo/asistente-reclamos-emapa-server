@@ -30,6 +30,12 @@ from app.src.application.adapters.proveedores import proveedores_externos
 router = APIRouter(prefix="/modelos", tags=["modelos"])
 
 
+# Cuántos tokens se asume que consume UNA atención de reclamo completa
+# (objetivos + medios + conclusión + propuesta + resolución). Cifra fija
+# definida a mano (no medida); ajustar si el promedio real difiere mucho.
+TOKENS_POR_RECLAMO_DEFAULT = 10_000
+
+
 @router.get("/local/estado")
 def estado_local() -> dict:
     """Estado del servidor Ollama local: si responde, qué modelos tiene
@@ -113,12 +119,6 @@ def descargar(request: ModeloAccionRequest) -> ModeloAccionResponse:
     """Libera el modelo de memoria de inmediato (botón "apagar")."""
     resultado = descargar_modelo(request.modelo)
     return ModeloAccionResponse(**resultado)
-
-
-# Cuántos tokens se asume que consume UNA atención de reclamo completa
-# (objetivos + medios + conclusión + propuesta + resolución). Cifra fija
-# definida a mano (no medida); ajustar si el promedio real difiere mucho.
-TOKENS_POR_RECLAMO_DEFAULT = 10_000
 
 
 @router.get("/creditos", dependencies=[Depends(usar_config_llm)])

@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from app.src.core.model.reclamo import Reclamo
+from app.src.core.model.conciliacion import Conciliacion
 
 
 @dataclass
@@ -63,7 +64,7 @@ class InformeAtencion:
     veredicto: str | None = None       # "FUNDADO" | "INFUNDADO" (puerta lógica)
     conclusion: str | None = None      # texto de la conclusión (paso final)
     # --- pasos posteriores a la conclusión (paso 4-5) ---
-    propuesta_conciliacion: str | None = None
+    propuesta_conciliacion: Conciliacion | None = None
     resolucion: str | None = None
     # Id de la pestaña/sesión del frontend que abrió este reclamo (ver
     # InformeAtencionStore.crear_metadata). Permite distinguir "la misma

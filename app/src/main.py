@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.src.infrastructure.api_rest.modelos import router as modelos_router
 from app.src.infrastructure.api_rest.investigacion import router as investigacion_router
+from app.src.infrastructure.api_rest.investigacion_stream import router as investigacion_stream_router
 from app.src.infrastructure.api_rest.conciliacion import router as conciliacion_router
 from app.src.infrastructure.api_rest.resolucion import router as resolucion_router
 from app.src.infrastructure.api_rest.reclamos import router as reclamos_router
@@ -42,10 +43,12 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173", 
-        "http://127.0.0.1:5173", 
-        "http://localhost:3000", 
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:4200",
+        "http://127.0.0.1:4200",
         "https://asistente-reclamos-emapa.vercel.app"
         ],
     allow_credentials=True,
@@ -55,6 +58,7 @@ app.add_middleware(
 
 app.include_router(modelos_router)
 app.include_router(investigacion_router)
+app.include_router(investigacion_stream_router)
 app.include_router(conciliacion_router)
 app.include_router(resolucion_router)
 app.include_router(reclamos_router)

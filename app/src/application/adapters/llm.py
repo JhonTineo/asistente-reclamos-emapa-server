@@ -142,17 +142,32 @@ def _sin_embeddings(nombres: list[str]) -> list[str]:
     return [m for m in nombres if "embed" not in m.lower()]
 
 
+# Modelo externo usado cuando el llamador no especifica ninguno y no hay
+# ningún modelo LOCAL ya cargado en memoria de Ollama. openai/gpt-4o-mini es
+# el más óptimo (calidad/costo/velocidad) para las tareas de este backend
+# (resúmenes de medios, fundamentación normativa, conclusión).
+MODELO_EXTERNO_DEFAULT = "openai/gpt-4o-mini"
+
+
 def _resolver_modelo(model: str | None = None) -> str:
-    """Determina qué modelo usar para chat. No hay ningún nombre fijo en
-    config: si no viene explícito, se usa el que YA esté cargado en memoria
-    de Ollama. Si no hay ninguno cargado, falla con ModeloNoCargadoError en
-    vez de elegir uno solo (el usuario debe encender un modelo primero)."""
+    """Determina qué modelo usar para chat.
+
+    1. Si viene explícito (p.ej. `request.modelo` del frontend), se usa ese.
+    2. Si hay un modelo LOCAL ya cargado en memoria de Ollama, se usa ese (así
+       no se ignora un modelo que el usuario encendió a propósito).
+    3. Si no, se usa el modelo externo por defecto (MODELO_EXTERNO_DEFAULT).
+
+    Solo falla con ModeloNoCargadoError si ni siquiera el default externo
+    está en el catálogo (config mal armada)."""
     if model:
         return model
 
-    cargados = _sin_embeddings(modelos_cargados())
-    if cargados:
-        return cargados[0]
+    locales_cargados = _sin_embeddings(modelos_cargados_locales())
+    if locales_cargados:
+        return locales_cargados[0]
+
+    if MODELO_EXTERNO_DEFAULT in _catalogo_externo():
+        return MODELO_EXTERNO_DEFAULT
 
     raise ModeloNoCargadoError(
         "No hay ningún modelo de chat cargado en memoria. Selecciona un "
