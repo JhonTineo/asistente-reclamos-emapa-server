@@ -37,3 +37,6 @@ class ModelCatalogAdapter(PuertoCatalogoModelos):
 
     def proveedores_para(self, modelo_id: str) -> list[str]:
         return self._model_providers.get(modelo_id, [])
+
+    def modelos_para_proveedor(self, proveedor_id: str) -> list[str]:
+        return self._provider_model_map.get(proveedor_id, [])

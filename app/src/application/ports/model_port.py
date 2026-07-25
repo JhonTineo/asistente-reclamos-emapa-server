@@ -32,3 +32,14 @@ class PuertoCatalogoModelos(ABC):
         que pueden servir este modelo. El primero es el preferido, los
         siguientes son fallbacks."""
         pass
+
+    @abstractmethod
+    def modelos_para_proveedor(self, proveedor_id: str) -> list[str]:
+        """Modelos configurados para un proveedor, en orden de preferencia
+        (el primero es el que ese proveedor debe usar por defecto). La usa el
+        router en modo AUTO: al no haber un modelo_id explícito, prueba cada
+        proveedor del combo con SU mejor modelo en vez de un id fijo, que es
+        lo que permite cruzar proveedores con nomenclaturas de modelo distintas
+        (ej. "openai/gpt-4o-mini" en OpenRouter vs "llama-3.3-70b-versatile"
+        en Groq)."""
+        pass

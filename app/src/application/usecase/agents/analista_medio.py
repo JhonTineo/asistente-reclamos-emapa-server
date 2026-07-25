@@ -270,7 +270,7 @@ class AnalistaMedioAgent:
             servicio = (datos.get("tipoServicio") or "").strip()
             if servicio:
                 return (
-                    f"El cliente no precenta deuda, asimismo cueta con el servicio de {servicio.lower()}."
+                    f"El cliente no presenta deuda, asimismo cuenta con el servicio de {servicio.lower()}."
                 )
             return "Asimismo para el cliente no se encontró cobro indebido por servicios no prestados, mora ni meses pendientes de pago."
 

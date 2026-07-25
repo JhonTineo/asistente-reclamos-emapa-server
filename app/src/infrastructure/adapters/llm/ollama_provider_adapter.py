@@ -1,5 +1,7 @@
 import logging
 from typing import Any
+
+import httpx
 from langchain_ollama import ChatOllama
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, BaseMessage
 
@@ -9,6 +11,29 @@ from app.src.infrastructure.system.hardware import hardware_apto_para_local
 logger = logging.getLogger("tools.llm.ollama")
 
 MAX_TOKENS_RESPUESTA = 1500
+
+
+def es_modelo_de_embeddings(nombre: str) -> bool:
+    """Los modelos de solo-embeddings (p.ej. nomic-embed-text) hacen que Ollama
+    responda 400 a cualquier /api/chat. No deben ofrecerse como opción de chat
+    ni registrarse en el catálogo de modelos conversacionales."""
+    return "embed" in nombre.lower()
+
+
+def modelos_chat_instalados(base_url: str) -> list[str]:
+    """Modelos de CHAT descargados en Ollama (excluye los de embeddings).
+
+    Se consulta en vivo y sin caché: el usuario descarga o borra modelos desde
+    el frontend y el catálogo tiene que reflejarlo de inmediato. Devuelve lista
+    vacía si Ollama no responde, para que el llamador degrade sin romperse."""
+    try:
+        r = httpx.get(f"{base_url.rstrip('/')}/api/tags", timeout=3)
+        r.raise_for_status()
+        nombres = [m["name"] for m in r.json().get("models", [])]
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[Ollama] No se pudieron listar modelos en %s: %s", base_url, e)
+        return []
+    return [n for n in nombres if not es_modelo_de_embeddings(n)]
 
 
 def _log_respuesta_cruda(etiqueta: str, modelo_id: str, response: BaseMessage) -> None:

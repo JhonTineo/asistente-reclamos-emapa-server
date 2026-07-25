@@ -1,6 +1,7 @@
 """Dependencias comunes para los endpoints REST."""
 
 import logging
+from typing import NamedTuple
 
 from fastapi import Request, HTTPException
 
@@ -10,33 +11,143 @@ from app.src.application.services.informe.informe_store import informe_store
 from app.src.application.services.llm.llm_router_service import LlmRouterService
 from app.src.infrastructure.adapters.llm.model_catalog_adapter import ModelCatalogAdapter
 from app.src.infrastructure.adapters.llm.openai_provider_adapter import OpenAiCompatProviderAdapter
-from app.src.infrastructure.adapters.llm.ollama_provider_adapter import OllamaProviderAdapter
+from app.src.infrastructure.adapters.llm.ollama_provider_adapter import (
+    OllamaProviderAdapter,
+    modelos_chat_instalados,
+)
 from app.src.infrastructure.config.settings import settings
 
 logger = logging.getLogger("api.deps")
 
-def get_llm_router() -> LlmRouterService:
-    # Construir el mapa de modelos por proveedor desde los settings
-    # Nota: Ollama no tiene un catálogo estático en settings; sus modelos
-    # se descubren dinámicamente vía su API. Aquí se deja vacío y el
-    # router aceptará cualquier modelo para el proveedor "ollama".
+# COMBO EXTERNO: los cinco proveedores de nube, EN ORDEN DE PRIORIDAD. Se
+# intenta el primero y, si falla, se sigue con el resto (el "proxy"). Cambiar
+# el orden de esta lista cambia la prioridad; es el único sitio que hay que
+# tocar para ello.
+#
+# Orden fijado por pruebas reales (2026-07-25) sobre el flujo completo de
+# /investigacion/objetivos, no solo "responde OK":
+#   1. openrouter (gpt-4o-mini)      — rápido y completo, validado en producción.
+#   2. groq (llama-3.3-70b-versatile)— rápido y completo.
+#   3. cloudflare (70b-fp8-fast)     — rápido y completo.
+#   4. opencode                      — funciona pero notablemente más lento.
+#   5. cerebras                      — 402 payment_required en la cuenta actual;
+#      último en la fila para que el resto no espere su fallo antes de intentar.
+# El modelo cloudflare 8B (llama-3.1-8b-instruct-fp8) mostró truncar el JSON de
+# forma INTERMITENTE con el prompt largo de objetivos (a veces completo, a veces
+# cortado a mitad de frase con finish_reason mal reportado como "stop"); se dejó
+# en segundo lugar en CLOUDFLARE_MODELS por si el 70b también llega a fallar.
+PROVEEDORES_EXTERNOS = ["openrouter", "groq", "cloudflare", "opencode", "cerebras"]
+
+# Proveedor de inferencia LOCAL. Es un modo aparte: al elegirlo no hay proxy
+# posible, solo cambian los modelos disponibles dentro del propio Ollama.
+PROVEEDOR_LOCAL = "ollama"
+
+# Alias que puede mandar el frontend en X-LLM-Provider para pedir modo local.
+_ALIAS_LOCAL = {"local", "ollama"}
+
+
+class ProveedorExterno(NamedTuple):
+    id: str
+    label: str
+    base_url: str
+    api_key: str
+    modelos: list[str]
+
+
+def catalogo_externo() -> dict[str, ProveedorExterno]:
+    """FUENTE ÚNICA de los proveedores externos: la usan tanto el router (para
+    enrutar) como /modelos y /modelos/proveedores (para poblar el selector del
+    frontend). Antes cada uno tenía su propia lista y se desincronizaban."""
+    return {
+        p.id: p
+        for p in (
+            ProveedorExterno("openrouter", "OpenRouter",
+                             settings.openrouter_base_url, settings.openrouter_api_key,
+                             _csv(settings.openrouter_models)),
+            ProveedorExterno("cerebras", "Cerebras",
+                             settings.cerebras_base_url, settings.cerebras_api_key,
+                             _csv(settings.cerebras_models)),
+            ProveedorExterno("groq", "Groq",
+                             settings.groq_base_url, settings.groq_api_key,
+                             _csv(settings.groq_models)),
+            ProveedorExterno("opencode", "OpenCode Zen",
+                             settings.opencode_base_url, settings.opencode_api_key,
+                             _csv(settings.opencode_models)),
+            ProveedorExterno("cloudflare", "Cloudflare Workers AI",
+                             _cloudflare_base_url(), settings.cloudflare_api_key,
+                             _csv(settings.cloudflare_models)),
+        )
+    }
+
+
+def _csv(valor: str) -> list[str]:
+    """Lista de modelos desde el CSV de settings, sin vacíos."""
+    return [m.strip() for m in valor.split(",") if m.strip()]
+
+
+def _cloudflare_base_url() -> str:
+    """Endpoint OpenAI-compatible de Workers AI. A diferencia del resto, la URL
+    incorpora el id de cuenta, así que se arma en runtime. Si no está
+    configurado se devuelve cadena vacía: el proveedor quedará inservible y el
+    combo pasará al siguiente, en vez de mandar peticiones a una URL rota."""
+    account = settings.cloudflare_account_id.strip()
+    if not account:
+        return ""
+    return f"https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1"
+
+
+def _resolver_orden_proveedores(proveedor: str | None) -> list[str]:
+    """Traduce la elección del usuario (header X-LLM-Provider) al orden de
+    proveedores que se intentarán.
+
+    - modo LOCAL  -> solo Ollama, sin fallback: si falla, falla.
+    - modo EXTERNO con proveedor concreto -> ese primero, luego el resto de
+      externos (el "proxy" que da resiliencia si uno cae).
+    - sin elección -> todos los externos. Nunca se cae a local por accidente.
+    """
+    pid = (proveedor or "").strip().lower()
+    if pid in _ALIAS_LOCAL:
+        return [PROVEEDOR_LOCAL]
+    if pid in PROVEEDORES_EXTERNOS:
+        return [pid] + [p for p in PROVEEDORES_EXTERNOS if p != pid]
+    return list(PROVEEDORES_EXTERNOS)
+
+
+def get_llm_router(request: Request) -> LlmRouterService:
+    """Arma el router para ESTA petición, ya acotado al modo que eligió el
+    usuario. La decisión vive acá (infraestructura, que es quien conoce los
+    headers) y no dentro del router, que solo ejecuta la lista que recibe."""
+    proveedor = request.headers.get("X-LLM-Provider")
+    orden = _resolver_orden_proveedores(proveedor)
+    es_local = orden == [PROVEEDOR_LOCAL]
+
+    externos = catalogo_externo()
     provider_model_map = {
-        "openrouter": [m.strip() for m in settings.openrouter_models.split(",") if m.strip()],
-        "openai": [m.strip() for m in settings.openai_models.split(",") if m.strip()],
-        "gemini": [m.strip() for m in settings.gemini_models.split(",") if m.strip()],
-        "ollama": [],  # dinámico: se consultan vía Ollama API
+        **{pid: p.modelos for pid, p in externos.items()},
+        # Los modelos de Ollama no están en settings: el usuario los descarga
+        # cuando quiere. Se consultan en vivo, pero SOLO en modo local, para no
+        # cobrarle una llamada HTTP (y su timeout si Ollama está caído) a cada
+        # petición que en realidad va a un proveedor externo.
+        PROVEEDOR_LOCAL: modelos_chat_instalados(settings.ollama_base_url) if es_local else [],
     }
-    
+
     catalogo = ModelCatalogAdapter(provider_model_map)
-    
+
     providers = {
-        "openrouter": OpenAiCompatProviderAdapter(settings.openrouter_base_url, settings.openrouter_api_key),
-        "openai": OpenAiCompatProviderAdapter(settings.openai_base_url, settings.openai_api_key),
-        "gemini": OpenAiCompatProviderAdapter(settings.gemini_base_url, settings.gemini_api_key),
-        "ollama": OllamaProviderAdapter(settings.ollama_base_url, settings.ollama_requiere_gpu, settings.ollama_min_ram_gb),
+        **{
+            pid: OpenAiCompatProviderAdapter(p.base_url, p.api_key)
+            for pid, p in externos.items()
+        },
+        PROVEEDOR_LOCAL: OllamaProviderAdapter(
+            settings.ollama_base_url, settings.ollama_requiere_gpu, settings.ollama_min_ram_gb,
+        ),
     }
-    
-    return LlmRouterService(catalogo, providers)
+
+    logger.info(
+        "[LLM] modo=%s | pedido=%s | orden=%s",
+        "local" if es_local else "externo", proveedor or "(auto)", orden,
+    )
+    return LlmRouterService(catalogo, providers, orden_proveedores=orden)
 
 async def usar_config_llm(request: Request) -> None:
     """Fija, para la petición en curso, el proveedor de LLM y su API key tomados

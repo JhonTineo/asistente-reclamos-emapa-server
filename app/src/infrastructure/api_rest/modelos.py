@@ -5,9 +5,13 @@ import time
 import httpx
 
 from fastapi import APIRouter, Depends, HTTPException
-from app.src.infrastructure.api_rest.deps import usar_config_llm
+from app.src.infrastructure.api_rest.deps import usar_config_llm, catalogo_externo
 from app.src.infrastructure.config.settings import settings
 from app.src.infrastructure.config.llm_context import get_llm_ctx
+from app.src.infrastructure.adapters.llm.ollama_provider_adapter import (
+    modelos_chat_instalados,
+    es_modelo_de_embeddings,
+)
 from app.src.infrastructure.api_rest.schemas.modelo import (
     ModeloResponse,
     ModelosListResponse,
@@ -29,11 +33,6 @@ TOKENS_POR_RECLAMO_DEFAULT = 10_000
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _split(csv: str) -> list[str]:
-    """Convierte una cadena CSV en lista, filtrando vacíos."""
-    return [m.strip() for m in csv.split(",") if m.strip()]
-
-
 def _ollama_online() -> bool:
     """Comprueba si el servidor Ollama local responde."""
     try:
@@ -44,22 +43,23 @@ def _ollama_online() -> bool:
 
 
 def _listar_modelos_ollama() -> list[str]:
-    """Devuelve los nombres de modelos descargados en Ollama (vacío si no responde)."""
-    try:
-        r = httpx.get(f"{settings.ollama_base_url}/api/tags", timeout=3)
-        if r.status_code == 200:
-            return [m["name"] for m in r.json().get("models", [])]
-    except Exception:
-        pass
-    return []
+    """Modelos de CHAT descargados en Ollama (vacío si no responde).
+
+    Excluye los de solo-embeddings: ofrecerlos en el selector del frontend
+    garantiza un 400 de Ollama en cuanto el usuario elija uno."""
+    return modelos_chat_instalados(settings.ollama_base_url)
 
 
 def _modelos_cargados_ollama() -> list[str]:
-    """Modelos actualmente cargados en memoria de Ollama."""
+    """Modelos de CHAT actualmente cargados en memoria de Ollama.
+
+    Filtra los de embeddings por el mismo motivo que _listar_modelos_ollama:
+    el de embeddings vive cargado para el RAG y no es un modelo elegible."""
     try:
         r = httpx.get(f"{settings.ollama_base_url}/api/ps", timeout=3)
         if r.status_code == 200:
-            return [m["name"] for m in r.json().get("models", [])]
+            nombres = [m["name"] for m in r.json().get("models", [])]
+            return [n for n in nombres if not es_modelo_de_embeddings(n)]
     except Exception:
         pass
     return []
@@ -88,17 +88,10 @@ def proveedores() -> ProveedoresListResponse:
     """Catálogo de proveedores de inferencia para el frontend."""
     externos = [
         ProveedorResponse(
-            id="openrouter", label="OpenRouter", tipo="openai_compat",
-            requiere_key=True, modelos=_split(settings.openrouter_models),
-        ),
-        ProveedorResponse(
-            id="openai", label="OpenAI", tipo="openai_compat",
-            requiere_key=True, modelos=_split(settings.openai_models),
-        ),
-        ProveedorResponse(
-            id="gemini", label="Gemini", tipo="openai_compat",
-            requiere_key=True, modelos=_split(settings.gemini_models),
-        ),
+            id=p.id, label=p.label, tipo="openai_compat",
+            requiere_key=True, modelos=p.modelos,
+        )
+        for p in catalogo_externo().values()
     ]
 
     ollama_ok = _ollama_online()
@@ -119,11 +112,7 @@ def proveedores() -> ProveedoresListResponse:
 @router.get("", response_model=ModelosListResponse)
 def listar() -> ModelosListResponse:
     """Modelos disponibles para el frontend (externos + locales)."""
-    externos = (
-        _split(settings.openrouter_models)
-        + _split(settings.openai_models)
-        + _split(settings.gemini_models)
-    )
+    externos = [m for p in catalogo_externo().values() for m in p.modelos]
     locales = _listar_modelos_ollama()
 
     modelos = (

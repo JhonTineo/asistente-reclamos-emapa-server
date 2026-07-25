@@ -5,16 +5,19 @@ from app.src.application.ports.provider_port import PuertoProveedorLLM, MensajeL
 
 logger = logging.getLogger("services.llm_router")
 
-# Modelo usado cuando el llamador (frontend) no especifica ninguno.
+# Sentinela: "sin preferencia de modelo, usa lo mejor disponible". Es lo que
+# usan los agentes por defecto cuando el frontend no especifica `modelo`.
 #
-# El prefijo `openai/` NO es decorativo: el catálogo enruta por el id completo.
-# `openai/gpt-4o-mini` -> proveedor `openrouter`; `gpt-4o-mini` (sin prefijo)
-# -> proveedor `openai`, que es otra cuenta y otra cuota. Quitar el prefijo
-# cambia de proveedor en silencio y el síntoma es un 429 insufficient_quota.
-#
-# Vive acá, y no repetido en cada agente, para que un cambio de modelo no deje
-# a ninguno desincronizado.
-MODELO_EXTERNO_DEFAULT = "openai/gpt-4o-mini"
+# Con un id FIJO (p.ej. "openai/gpt-4o-mini") el fallback entre proveedores no
+# cruza proveedores distintos: ese id solo lo declara OpenRouter en el
+# catálogo, así que si OpenRouter falla, el router lanza error de inmediato en
+# vez de probar Groq/Cloudflare/etc, aunque estén configurados en el combo
+# (cada proveedor usa su propio nombre de modelo: "llama-3.3-70b-versatile" en
+# Groq no es "openai/gpt-4o-mini"). Con MODELO_AUTO, el router recorre
+# orden_proveedores probando en cada uno SU modelo preferido — así el proxy sí
+# cruza proveedores con nomenclaturas distintas.
+MODELO_AUTO = "auto"
+MODELO_EXTERNO_DEFAULT = MODELO_AUTO
 
 
 class LlmRouterService:
@@ -25,15 +28,22 @@ class LlmRouterService:
     def __init__(
         self,
         catalogo: PuertoCatalogoModelos,
-        providers: dict[str, PuertoProveedorLLM]
+        providers: dict[str, PuertoProveedorLLM],
+        orden_proveedores: list[str] | None = None,
     ):
         """
         :param catalogo: Puerto para consultar modelos disponibles.
-        :param providers: Diccionario de adaptadores de proveedores inyectados 
+        :param providers: Diccionario de adaptadores de proveedores inyectados
                           (ej. {"openai": OpenAiAdapter, "openrouter": ...})
+        :param orden_proveedores: Proveedores candidatos, en orden de intento.
+            Lo fija el composition root según el modo que eligió el usuario
+            (externo con proxy, o local sin proxy). El router NO decide el modo:
+            solo respeta la lista que recibe. Si es None, se usan todos los
+            proveedores inyectados (comportamiento histórico).
         """
         self.catalogo = catalogo
         self.providers = providers
+        self.orden_proveedores = orden_proveedores or list(providers.keys())
 
     def _ejecutar_con_fallback(
         self,
@@ -43,16 +53,31 @@ class LlmRouterService:
         esquema: dict[str, Any] | None = None,
         temperatura: float = 0.0
     ) -> str:
-        
-        modelo = self.catalogo.obtener_modelo(modelo_id)
-        if not modelo:
-            # Fallback generico si el modelo no está en catálogo: intentar
-            # usar el primer proveedor disponible asumiendo que lo soporta.
-            logger.warning(f"[LlmRouter] Modelo '{modelo_id}' no encontrado en catálogo. Intentando fallback genérico.")
-            provider_ids = list(self.providers.keys())
+        if modelo_id == MODELO_AUTO:
+            return self._ejecutar_auto(operacion, mensajes, esquema, temperatura)
+
+        # `orden_proveedores` acota el modo (externo / local). El catálogo acota
+        # quién declara este modelo. El intento real es la intersección, en el
+        # orden del modo: así el modo local NUNCA sale a un proveedor externo,
+        # y el modo externo nunca cae a Ollama por accidente.
+        soportan = self.catalogo.proveedores_para(modelo_id)
+        if soportan:
+            provider_ids = [p for p in self.orden_proveedores if p in soportan]
+            if not provider_ids:
+                raise RuntimeError(
+                    f"El modelo '{modelo_id}' lo sirven {soportan}, pero el modo "
+                    f"seleccionado solo permite {self.orden_proveedores}. "
+                    "Elige un modelo del proveedor activo."
+                )
         else:
-            provider_ids = self.catalogo.proveedores_para(modelo_id)
-            
+            # Modelo no declarado en el catálogo (p.ej. uno de Ollama recién
+            # descargado). Se intentan los proveedores del modo, nunca todos.
+            logger.warning(
+                "[LlmRouter] Modelo '%s' no está en el catálogo; se intentará con %s",
+                modelo_id, self.orden_proveedores,
+            )
+            provider_ids = list(self.orden_proveedores)
+
         if not provider_ids:
             raise RuntimeError(f"No hay proveedores configurados para el modelo {modelo_id}")
 
@@ -75,6 +100,51 @@ class LlmRouterService:
 
         raise RuntimeError(f"Todos los proveedores fallaron para el modelo {modelo_id}. Último error: {last_error}")
 
+    def _ejecutar_auto(
+        self,
+        operacion: str,
+        mensajes: list[MensajeLLM],
+        esquema: dict[str, Any] | None,
+        temperatura: float,
+    ) -> str:
+        """Recorre orden_proveedores probando, en CADA proveedor, su propio
+        modelo preferido (el primero de su lista configurada) — no un id fijo.
+        Es lo que permite que el proxy cruce proveedores aunque cada uno llame
+        distinto al mismo tipo de modelo."""
+        last_error: Exception | None = None
+        intentos = 0
+        for pid in self.orden_proveedores:
+            if pid not in self.providers:
+                continue
+            modelos = self.catalogo.modelos_para_proveedor(pid)
+            if not modelos:
+                logger.warning(
+                    "[LlmRouter] (auto) Proveedor '%s' sin modelos configurados; se omite.", pid,
+                )
+                continue
+
+            modelo_id = modelos[0]
+            intentos += 1
+            provider = self.providers[pid]
+            try:
+                if operacion == "texto":
+                    return provider.generar_texto(mensajes, modelo_id, temperatura)
+                elif operacion == "json":
+                    return provider.generar_json(mensajes, modelo_id, esquema, temperatura)
+            except Exception as e:
+                logger.error(
+                    "[LlmRouter] (auto) Error con proveedor '%s' modelo '%s': %s", pid, modelo_id, e,
+                )
+                last_error = e
+
+        if intentos == 0:
+            raise RuntimeError(
+                f"Ningún proveedor de {self.orden_proveedores} tiene modelos configurados."
+            )
+        raise RuntimeError(
+            f"Todos los proveedores del combo {self.orden_proveedores} fallaron en modo auto. "
+            f"Último error: {last_error}"
+        )
 
     def generar_texto(self, mensajes: list[MensajeLLM], modelo_id: str, temperatura: float = 0.0) -> str:
         """Genera texto delegando al mejor proveedor disponible."""
