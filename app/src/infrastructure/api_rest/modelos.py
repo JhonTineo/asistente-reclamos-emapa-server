@@ -5,12 +5,20 @@ import time
 import httpx
 
 from fastapi import APIRouter, Depends, HTTPException
-from app.src.infrastructure.api_rest.deps import usar_config_llm, catalogo_externo
+from app.src.infrastructure.api_rest.deps import (
+    usar_config_llm,
+    catalogo_externo,
+    PROVEEDOR_PREDETERMINADO,
+    MODELO_PREDETERMINADO,
+)
 from app.src.infrastructure.config.settings import settings
 from app.src.infrastructure.config.llm_context import get_llm_ctx
 from app.src.infrastructure.adapters.llm.ollama_provider_adapter import (
     modelos_chat_instalados,
     es_modelo_de_embeddings,
+)
+from app.src.infrastructure.adapters.llm.descubrimiento_modelos import (
+    descubrir_modelos_gratuitos,
 )
 from app.src.infrastructure.api_rest.schemas.modelo import (
     ModeloResponse,
@@ -18,6 +26,8 @@ from app.src.infrastructure.api_rest.schemas.modelo import (
     ModelosCargadosResponse,
     ModeloAccionRequest,
     ModeloAccionResponse,
+    ModeloDisponibleResponse,
+    ModelosProveedorResponse,
     ProveedorResponse,
     ProveedoresListResponse,
 )
@@ -85,7 +95,11 @@ def estado_local() -> dict:
 
 @router.get("/proveedores", response_model=ProveedoresListResponse)
 def proveedores() -> ProveedoresListResponse:
-    """Catálogo de proveedores de inferencia para el frontend."""
+    """Catálogo de proveedores de inferencia para el frontend.
+
+    Es ESTÁTICO a propósito: no consulta ninguna API externa, así que responde
+    al instante. Los modelos de cada proveedor se piden aparte, y solo del que
+    el usuario seleccione, con GET /modelos/proveedor/{id}."""
     externos = [
         ProveedorResponse(
             id=p.id, label=p.label, tipo="openai_compat",
@@ -105,7 +119,65 @@ def proveedores() -> ProveedoresListResponse:
 
     return ProveedoresListResponse(
         proveedores=externos + [local],
-        proveedor_default=externos[0].id if externos else "local",
+        proveedor_default=PROVEEDOR_PREDETERMINADO,
+    )
+
+
+@router.get("/proveedor/{proveedor_id}", response_model=ModelosProveedorResponse)
+def modelos_de_proveedor(proveedor_id: str) -> ModelosProveedorResponse:
+    """Modelos de chat que ese proveedor ofrece AHORA MISMO, consultados en vivo.
+
+    Se llama cuando el usuario selecciona un proveedor en el frontend, para que
+    el selector de modelos nunca ofrezca ids que el proveedor ya retiró (nos pasó
+    con OpenCode y Cloudflare). Si la consulta falla, se devuelve la lista
+    estática de settings con `descubierto=false` en vez de dejar el selector
+    vacío."""
+    pid = proveedor_id.strip().lower()
+
+    if pid in ("local", "ollama"):
+        return ModelosProveedorResponse(
+            proveedor="local",
+            modelos=[
+                ModeloDisponibleResponse(id=m, nombre=m, gratuito=True)
+                for m in _listar_modelos_ollama()
+            ],
+        )
+
+    p = catalogo_externo().get(pid)
+    if p is None:
+        raise HTTPException(status_code=404, detail=f"Proveedor desconocido: {proveedor_id}")
+
+    if not p.api_key or not p.base_url:
+        return ModelosProveedorResponse(
+            proveedor=pid, modelos=[], descubierto=False,
+            error="Proveedor sin API key o base_url configurada.",
+        )
+
+    try:
+        modelos = [
+            ModeloDisponibleResponse(id=m.id, nombre=m.nombre, gratuito=m.gratuito)
+            for m in descubrir_modelos_gratuitos(pid, p.base_url, p.api_key)
+        ]
+        descubierto, error = True, None
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[MODELOS] Descubrimiento falló para '%s': %s", pid, e)
+        modelos = [
+            ModeloDisponibleResponse(id=m, nombre=m, gratuito=False) for m in p.modelos
+        ]
+        descubierto, error = False, f"{type(e).__name__}: {e}"
+
+    # El predeterminado es de PAGO, así que el descubrimiento de gratuitos nunca
+    # lo devuelve: se inyecta a mano y se pone primero para que el frontend lo
+    # preseleccione.
+    if pid == PROVEEDOR_PREDETERMINADO:
+        modelos = [m for m in modelos if m.id != MODELO_PREDETERMINADO]
+        modelos.insert(0, ModeloDisponibleResponse(
+            id=MODELO_PREDETERMINADO, nombre=MODELO_PREDETERMINADO,
+            gratuito=False, predeterminado=True,
+        ))
+
+    return ModelosProveedorResponse(
+        proveedor=pid, modelos=modelos, descubierto=descubierto, error=error,
     )
 
 

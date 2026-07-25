@@ -93,7 +93,7 @@ class ObjetivosAgent:
         human = (
             f"Motivo del reclamo:\n{motivo}\n\n"
             f"Clasificación: {clasificacion or 'no especificada'}\n\n"
-            "Devuelve SOLO el JSON (lista de objetivos). /no_think"
+            "Devuelve SOLO el JSON (lista de objetivos)."
         )
 
         logger.debug("[PROMPT objetivos][SYSTEM]\n%s", system)

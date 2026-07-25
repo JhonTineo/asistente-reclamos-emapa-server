@@ -24,17 +24,6 @@ class Settings(BaseSettings):
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_models: str = "openai/gpt-4o-mini,openai/gpt-oss-20b:free"
 
-    # OpenCode Zen — modelos free sin tope publicado (limitado por rate).
-    opencode_api_key: str = ""
-    opencode_base_url: str = "https://opencode.ai/zen/v1"
-    opencode_models: str = "deepseek-v4-flash-free,nemotron-3-ultra-free"
-
-    # Cerebras — ~30M tok/mes. Su ToS concede uso "personal or business",
-    # el más claro de los cinco para un despliegue corporativo.
-    cerebras_api_key: str = ""
-    cerebras_base_url: str = "https://api.cerebras.ai/v1"
-    cerebras_models: str = "zai-glm-4.7,gpt-oss-120b"
-
     # Groq — ~15M tok/mes, latencia muy baja.
     groq_api_key: str = ""
     groq_base_url: str = "https://api.groq.com/openai/v1"
@@ -46,12 +35,59 @@ class Settings(BaseSettings):
     # como proveedor principal.
     cloudflare_api_key: str = ""
     cloudflare_account_id: str = ""
-    # Ids verificados 2026-07-25 contra /ai/models/search: Cloudflare renombró
-    # su catálogo y agregó sufijos de cuantización (fp8/fast). Los ids "pelados"
-    # (sin sufijo) ya no existen y devuelven 400 "No such model".
     cloudflare_models: str = "@cf/meta/llama-3.3-70b-instruct-fp8-fast,@cf/meta/llama-3.1-8b-instruct-fp8"
 
+    # Mistral — free "Experiment"
+    mistral_api_key: str = ""
+    mistral_base_url: str = "https://api.mistral.ai/v1"
+    mistral_models: str = "mistral-small-latest,mistral-large-latest"
+
+    # Gemini — ~1,500 req/día en Flash
+    gemini_api_key: str = ""
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    gemini_models: str = "gemini-2.0-flash,gemini-1.5-flash"
     
+
+    # OpenCode Zen — modelos free sin tope publicado (limitado por rate).
+    opencode_api_key: str = ""
+    opencode_base_url: str = "https://opencode.ai/zen/v1"
+    opencode_models: str = "deepseek-v4-flash-free,nemotron-3-ultra-free"
+
+    # GitHub Models — Azure AI gratuito para cuentas GitHub
+    githubmodels_api_key: str = ""
+    githubmodels_base_url: str = "https://models.inference.ai.azure.com"
+    githubmodels_models: str = "Llama-3.3-70B-Instruct,Mistral-small,Phi-3-mini-4k-instruct"
+
+    # Plugsky — proveedor asiático con alta cuota gratuita y modelos openai-compat
+    plugsky_api_key: str = ""
+    plugsky_base_url: str = "https://api.plugsky.com/v1"
+    plugsky_models: str = "gpt-4o-mini,claude-3-haiku-20240307"
+
+    
+
+
+
+#Provedores sin capa gratuita pero con bajo precio
+
+    # DeepSeek — muy barato oficial ($0.14 / 1M tokens)
+    deepseek_api_key: str = ""
+    deepseek_base_url: str = "https://api.deepseek.com/v1"
+    deepseek_models: str = "deepseek-chat,deepseek-reasoner"
+
+    # SiliconFlow — alternativa extremadamente barata/gratuita en China
+    siliconflow_api_key: str = ""
+    siliconflow_base_url: str = "https://api.siliconflow.cn/v1"
+    siliconflow_models: str = "Qwen/Qwen2.5-7B-Instruct,deepseek-ai/DeepSeek-V3"
+
+    # Cerebras — ~30M tok/mes. Su ToS concede uso "personal or business",
+    # el más claro de los cinco para un despliegue corporativo.
+    cerebras_api_key: str = ""
+    cerebras_base_url: str = "https://api.cerebras.ai/v1"
+    cerebras_models: str = "zai-glm-4.7,gpt-oss-120b"
+
+
+
+#Infraestructura de inferencia LOCAL (Ollama) — 
     # --- Requisitos de hardware para habilitar inferencia LOCAL (chat) ---
     # No aplica a los embeddings
     ollama_base_url: str = "http://ollama:11434"

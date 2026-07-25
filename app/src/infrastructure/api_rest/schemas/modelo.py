@@ -28,6 +28,25 @@ class ProveedoresListResponse(BaseModel):
     proveedor_default: str
 
 
+class ModeloDisponibleResponse(BaseModel):
+    id: str
+    nombre: str
+    gratuito: bool
+    # El frontend debe preseleccionar este y, si el usuario no elige nada, es
+    # el que se usará. Solo uno lo trae marcado en toda la lista.
+    predeterminado: bool = False
+
+
+class ModelosProveedorResponse(BaseModel):
+    """Modelos que un proveedor ofrece AHORA, consultados en vivo."""
+    proveedor: str
+    modelos: list[ModeloDisponibleResponse] = Field(default_factory=list)
+    # false = la consulta en vivo falló y esto viene de la lista estática de
+    # settings. El frontend puede avisar que el catálogo podría estar viejo.
+    descubierto: bool = True
+    error: str | None = None
+
+
 class ModelosCargadosResponse(BaseModel):
     modelos: list[str] = Field(default_factory=list, description="Modelos actualmente en memoria")
 

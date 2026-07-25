@@ -57,26 +57,29 @@ class LlmRouterService:
             return self._ejecutar_auto(operacion, mensajes, esquema, temperatura)
 
         # `orden_proveedores` acota el modo (externo / local). El catálogo acota
-        # quién declara este modelo. El intento real es la intersección, en el
-        # orden del modo: así el modo local NUNCA sale a un proveedor externo,
-        # y el modo externo nunca cae a Ollama por accidente.
+        # quién declara este modelo estáticamente.
         soportan = self.catalogo.proveedores_para(modelo_id)
+        provider_ids = []
+        
+        if self.orden_proveedores:
+            # Siempre intentar el primer proveedor de la lista, ya que suele ser 
+            # la elección explícita del usuario y podría tener el modelo por descubrimiento dinámico.
+            provider_ids.append(self.orden_proveedores[0])
+            
         if soportan:
-            provider_ids = [p for p in self.orden_proveedores if p in soportan]
-            if not provider_ids:
-                raise RuntimeError(
-                    f"El modelo '{modelo_id}' lo sirven {soportan}, pero el modo "
-                    f"seleccionado solo permite {self.orden_proveedores}. "
-                    "Elige un modelo del proveedor activo."
-                )
+            for p in self.orden_proveedores:
+                if p in soportan and p not in provider_ids:
+                    provider_ids.append(p)
         else:
             # Modelo no declarado en el catálogo (p.ej. uno de Ollama recién
-            # descargado). Se intentan los proveedores del modo, nunca todos.
+            # descargado, o uno dinámico puro). Se intentan los proveedores del modo.
             logger.warning(
                 "[LlmRouter] Modelo '%s' no está en el catálogo; se intentará con %s",
                 modelo_id, self.orden_proveedores,
             )
-            provider_ids = list(self.orden_proveedores)
+            for p in self.orden_proveedores:
+                if p not in provider_ids:
+                    provider_ids.append(p)
 
         if not provider_ids:
             raise RuntimeError(f"No hay proveedores configurados para el modelo {modelo_id}")
@@ -98,7 +101,12 @@ class LlmRouterService:
                 last_error = e
                 # Continua con el siguiente proveedor en la lista (Fallback)
 
-        raise RuntimeError(f"Todos los proveedores fallaron para el modelo {modelo_id}. Último error: {last_error}")
+        if last_error:
+            # Relanzamos la excepción original para que los exception_handlers de FastAPI 
+            # (ej. 402 Payment Required, 401 Auth) la procesen correctamente en vez de ser un 500
+            raise last_error
+            
+        raise RuntimeError(f"Todos los proveedores fallaron para el modelo {modelo_id}.")
 
     def _ejecutar_auto(
         self,

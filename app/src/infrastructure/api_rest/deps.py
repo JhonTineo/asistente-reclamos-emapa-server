@@ -29,14 +29,25 @@ logger = logging.getLogger("api.deps")
 #   1. openrouter (gpt-4o-mini)      — rápido y completo, validado en producción.
 #   2. groq (llama-3.3-70b-versatile)— rápido y completo.
 #   3. cloudflare (70b-fp8-fast)     — rápido y completo.
-#   4. opencode                      — funciona pero notablemente más lento.
-#   5. cerebras                      — 402 payment_required en la cuenta actual;
+#   4. gemini                         — rápido y completo.
+#   5. mistral                        — rápido y completo.
+#   6. opencode                      — funciona pero notablemente más lento.
+#   7. cerebras                      — 402 payment_required en la cuenta actual;
 #      último en la fila para que el resto no espere su fallo antes de intentar.
 # El modelo cloudflare 8B (llama-3.1-8b-instruct-fp8) mostró truncar el JSON de
 # forma INTERMITENTE con el prompt largo de objetivos (a veces completo, a veces
 # cortado a mitad de frase con finish_reason mal reportado como "stop"); se dejó
 # en segundo lugar en CLOUDFLARE_MODELS por si el 70b también llega a fallar.
-PROVEEDORES_EXTERNOS = ["openrouter", "groq", "cloudflare", "opencode", "cerebras"]
+PROVEEDORES_EXTERNOS = ["openrouter", "groq", "cloudflare", "mistral", "opencode", "plugsky", "githubmodels", "gemini", "deepseek", "siliconflow", "cerebras"]
+
+# Lo que el frontend debe preseleccionar. OJO: gpt-4o-mini NO es gratuito
+# (~0.15 USD / millón de tokens de entrada), pero es el de mejor relación
+# calidad/costo/velocidad para las tareas de este backend, así que se ofrece
+# siempre aunque el resto del selector sean modelos de capa gratuita. El
+# endpoint /modelos/proveedor/{id} lo inyecta aunque el descubrimiento de
+# gratuitos no lo devuelva, precisamente porque es de pago.
+PROVEEDOR_PREDETERMINADO = "openrouter"
+MODELO_PREDETERMINADO = "openai/gpt-4o-mini"
 
 # Proveedor de inferencia LOCAL. Es un modo aparte: al elegirlo no hay proxy
 # posible, solo cambian los modelos disponibles dentro del propio Ollama.
@@ -64,18 +75,48 @@ def catalogo_externo() -> dict[str, ProveedorExterno]:
             ProveedorExterno("openrouter", "OpenRouter",
                              settings.openrouter_base_url, settings.openrouter_api_key,
                              _csv(settings.openrouter_models)),
-            ProveedorExterno("cerebras", "Cerebras",
-                             settings.cerebras_base_url, settings.cerebras_api_key,
-                             _csv(settings.cerebras_models)),
+            
             ProveedorExterno("groq", "Groq",
                              settings.groq_base_url, settings.groq_api_key,
                              _csv(settings.groq_models)),
-            ProveedorExterno("opencode", "OpenCode Zen",
-                             settings.opencode_base_url, settings.opencode_api_key,
-                             _csv(settings.opencode_models)),
+            
             ProveedorExterno("cloudflare", "Cloudflare Workers AI",
                              _cloudflare_base_url(), settings.cloudflare_api_key,
                              _csv(settings.cloudflare_models)),
+
+            ProveedorExterno("gemini", "Gemini",
+                             settings.gemini_base_url, settings.gemini_api_key,
+                             _csv(settings.gemini_models)),
+
+            ProveedorExterno("mistral", "Mistral",
+                             settings.mistral_base_url, settings.mistral_api_key,
+                             _csv(settings.mistral_models)),
+
+            ProveedorExterno("plugsky", "Plugsky",
+                             settings.plugsky_base_url, settings.plugsky_api_key,
+                             _csv(settings.plugsky_models)),
+
+            ProveedorExterno("githubmodels", "GitHub Models",
+                             settings.githubmodels_base_url, settings.githubmodels_api_key,
+                             _csv(settings.githubmodels_models)),
+
+            ProveedorExterno("opencode", "OpenCode Zen",
+                             settings.opencode_base_url, settings.opencode_api_key,
+                             _csv(settings.opencode_models)),
+            
+
+           
+            ProveedorExterno("siliconflow", "SiliconFlow",
+                             settings.siliconflow_base_url, settings.siliconflow_api_key,
+                             _csv(settings.siliconflow_models)),
+
+             ProveedorExterno("deepseek", "DeepSeek",
+                             settings.deepseek_base_url, settings.deepseek_api_key,
+                             _csv(settings.deepseek_models)),
+
+            ProveedorExterno("cerebras", "Cerebras",
+                             settings.cerebras_base_url, settings.cerebras_api_key,
+                             _csv(settings.cerebras_models)),
         )
     }
 
