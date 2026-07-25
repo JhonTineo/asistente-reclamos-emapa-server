@@ -11,9 +11,8 @@ import json
 import re
 import logging
 
-from langchain_core.messages import SystemMessage, HumanMessage
-
-from app.src.application.adapters.llm import get_llm, log_uso_llm
+from app.src.application.ports.provider_port import MensajeLLM
+from app.src.application.services.llm.llm_router_service import LlmRouterService, MODELO_EXTERNO_DEFAULT
 from app.src.core.model.informe_atencion import ObjetivoInvestigacion
 
 logger = logging.getLogger("agent.objetivos")
@@ -47,8 +46,9 @@ MEDIOS = {
 
 class ObjetivosAgent:
 
-    def __init__(self, model: str | None = None):
-        self.llm = get_llm(model=model)
+    def __init__(self, llm_router: LlmRouterService, model: str | None = None):
+        self.llm_router = llm_router
+        self.model_id = model or MODELO_EXTERNO_DEFAULT
 
     def generar(self, motivo: str, clasificacion: str = "") -> list[ObjetivoInvestigacion]:
         if not motivo or not motivo.strip():
@@ -99,13 +99,15 @@ class ObjetivosAgent:
         logger.debug("[PROMPT objetivos][SYSTEM]\n%s", system)
         logger.debug("[PROMPT objetivos][HUMAN]\n%s", human)
 
-        response = self.llm.invoke([
-            SystemMessage(content=system),
-            HumanMessage(content=human),
-        ])
-        log_uso_llm(logger, "objetivos", response)
+        response_text = self.llm_router.generar_json(
+            mensajes=[
+                MensajeLLM(rol="system", contenido=system),
+                MensajeLLM(rol="user", contenido=human)
+            ],
+            modelo_id=self.model_id
+        )
 
-        objetivos = self._parse(response.content or "")
+        objetivos = self._parse(response_text or "")
         n_det = sum(1 for o in objetivos if o.determinante)
         logger.info(
             "[OBJETIVOS] %d objetivo(s) generados | determinantes=%d", len(objetivos), n_det,
@@ -122,14 +124,37 @@ class ObjetivosAgent:
 
     @staticmethod
     def _parse(texto: str) -> list[ObjetivoInvestigacion]:
-        match = re.search(r"\[.*\]", texto, re.DOTALL)
-        if not match:
-            logger.warning("[OBJETIVOS] El LLM no devolvió una lista JSON: %s", texto[:200])
-            return []
+        # El LLM puede devolver un array [...] o un objeto {key: [...]} 
+        # (response_format=json_object fuerza {})
+        texto = texto.strip()
         try:
-            crudos = json.loads(match.group())
-        except json.JSONDecodeError as e:
-            logger.warning("[OBJETIVOS] JSON inválido: %s | %s", e, texto[:200])
+            parsed = json.loads(texto)
+        except json.JSONDecodeError:
+            # Fallback: buscar array con regex
+            match = re.search(r"\[.*\]", texto, re.DOTALL)
+            if not match:
+                logger.warning("[OBJETIVOS] El LLM no devolvió JSON válido: %s", texto[:200])
+                return []
+            try:
+                parsed = json.loads(match.group())
+            except json.JSONDecodeError as e:
+                logger.warning("[OBJETIVOS] JSON inválido: %s | %s", e, texto[:200])
+                return []
+
+        # Si es un dict, buscar la primera lista dentro de sus valores
+        if isinstance(parsed, dict):
+            crudos = None
+            for v in parsed.values():
+                if isinstance(v, list):
+                    crudos = v
+                    break
+            if crudos is None:
+                # Es un solo objetivo como objeto suelto
+                crudos = [parsed]
+        elif isinstance(parsed, list):
+            crudos = parsed
+        else:
+            logger.warning("[OBJETIVOS] JSON no es lista ni dict: %s", texto[:200])
             return []
 
         objetivos: list[ObjetivoInvestigacion] = []

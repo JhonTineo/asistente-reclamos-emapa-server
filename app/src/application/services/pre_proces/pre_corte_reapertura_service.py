@@ -7,7 +7,7 @@ from typing import get_args, get_type_hints
 import pandas as pd
 
 from app.src.core.model.corte_reapertura import CorteReapertura, RegistroCorteReapertura
-from app.src.application.adapters.emapa_api import obtener_corte_reapertura
+from app.src.application.ports.emapa_api_port import PuertoEmapaAPI
 from app.src.application.services.pre_proces.df_utils import df_a_registros
 from app.src.application.services.pre_proces.ventana_utils import calcular_ventana
 
@@ -40,8 +40,14 @@ class PreCorteReaperturaService:
     origen la reporta con inconsistencias.
     """
 
+    def __init__(self, emapa_api: PuertoEmapaAPI):
+        self.emapa_api = emapa_api
+
     def preprocesar_corte_reapertura(
-        self, codsuc: str, codcliente: str, meses: int = 12,
+        self,
+        codsuc: str,
+        codcliente: str,
+        meses: int = 12,
         fecha_ref: str | None = None,
     ) -> dict:
         t1 = time.time()
@@ -49,7 +55,7 @@ class PreCorteReaperturaService:
         # analice primero; ver ventana_utils.py).
         ventana = calcular_ventana(fecha_ref, meses)
 
-        json_raw = obtener_corte_reapertura(codsuc, codcliente)
+        json_raw = self.emapa_api.obtener_corte_reapertura(codsuc, codcliente)
         logger.info("[PRE_CORTE_REAPERTURA] Datos obtenidos de EMAPA en %.2f s", time.time() - t1)
 
         corte, df = self._construir_corte(json_raw, ventana)

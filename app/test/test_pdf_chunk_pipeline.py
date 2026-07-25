@@ -28,7 +28,7 @@ REPO_ROOT = os.path.abspath(
 )
 sys.path.insert(0, REPO_ROOT)
 
-from app.src.application.services.chunck.pdf_chunk import (
+from app.src.application.services.rag.pdf_chunk import (
     extract_document_structure,
     parse_document,
     clean_article,

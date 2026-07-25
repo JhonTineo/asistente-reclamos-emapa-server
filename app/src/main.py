@@ -13,7 +13,6 @@ from app.src.infrastructure.api_rest.reclamos import router as reclamos_router
 from app.src.infrastructure.api_rest.normativa_documentos import router as normativa_documentos_router
 from app.src.infrastructure.api_rest.normativa_articulos import router as normativa_articulos_router
 from app.src.infrastructure.api_rest.normativa_busqueda import router as normativa_busqueda_router
-from app.src.application.adapters.llm import ModeloNoCargadoError, InferenciaLocalNoDisponibleError
 
 
 logging.basicConfig(
@@ -33,6 +32,11 @@ logging.getLogger("agent.objetivos").setLevel(logging.DEBUG)
 logging.getLogger("agent.conclusion").setLevel(logging.DEBUG)
 logging.getLogger("agent.conciliador").setLevel(logging.DEBUG)
 logging.getLogger("agent.resolucion").setLevel(logging.DEBUG)
+
+# Ver el texto crudo que devuelve el modelo antes de que el agente lo parsee.
+# Es lo que permite diagnosticar un parseo fallido: sin esto solo queda el error.
+logging.getLogger("tools.llm.openai_compat").setLevel(logging.DEBUG)
+logging.getLogger("tools.llm.ollama").setLevel(logging.DEBUG)
 
 app = FastAPI(
     title="Asistente Reclamos EMAPA",
@@ -68,24 +72,6 @@ app.include_router(normativa_articulos_router)
 app.include_router(normativa_busqueda_router)
 
 logger = logging.getLogger("api.main")
-
-
-@app.exception_handler(ModeloNoCargadoError)
-async def modelo_no_cargado_handler(request: Request, exc: ModeloNoCargadoError) -> JSONResponse:
-    """Sin esto, esta excepción (y cualquiera no controlada) escapa por fuera
-    de CORSMiddleware y el navegador la reporta como bloqueo CORS en vez de
-    mostrar el error real. Ver /modelos/cargar para encender un modelo."""
-    return JSONResponse(status_code=409, content={"detail": str(exc)})
-
-
-@app.exception_handler(InferenciaLocalNoDisponibleError)
-async def inferencia_local_no_disponible_handler(
-    request: Request, exc: InferenciaLocalNoDisponibleError
-) -> JSONResponse:
-    """El servidor no cumple los requisitos de hardware/estado para ofrecer
-    inferencia local (ver GET /modelos/proveedores para el detalle expuesto al
-    frontend, que debería impedir seleccionar 'local' en ese caso)."""
-    return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 
 def _mensaje_proveedor_externo(exc: openai.APIStatusError) -> str:

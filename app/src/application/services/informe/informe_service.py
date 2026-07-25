@@ -10,8 +10,8 @@ import logging
 
 from fastapi import HTTPException
 
-from app.src.application.adapters.emapa_api import buscar_reclamo_emapa
-from app.src.application.adapters.http import EmapaSinDatosError
+from app.src.application.ports.emapa_api_port import PuertoEmapaAPI
+from app.src.infrastructure.adapters.http_client import EmapaSinDatosError
 from app.src.application.services.informe.informe_store import informe_store, ReclamoEnAtencionError
 from app.src.application.services.investigacion.reclamo_service import campo_reclamo, codigo_inspeccion
 from app.src.core.model.reclamo import Reclamo
@@ -23,13 +23,14 @@ logger = logging.getLogger("services.informe_service")
 async def buscar_y_crear_informe_o_lanzar(
     codsede: str, codsuc: str, codreclamo: str, codcliente: str,
     token: str, sesion_id: str | None,
+    api: PuertoEmapaAPI,
 ) -> InformeAtencion:
     """Búsqueda del reclamo + creación de metadatos del informe, propia del
     flujo automatizado: a diferencia de GET /reclamo/... (que devuelve el error
     en el cuerpo con 200, pensado para que el usuario lo vea como mensaje de
     búsqueda), acá cualquier fallo lanza HTTPException y corta el proceso."""
     try:
-        datos = buscar_reclamo_emapa(codsede, codsuc, codreclamo, codcliente)
+        datos = api.buscar_reclamo(codsede, codsuc, codreclamo, codcliente)
     except EmapaSinDatosError:
         logger.warning(
             "[informe-atencion] Reclamo no encontrado | codsede=%s codsuc=%s codcliente=%s codreclamo=%s",

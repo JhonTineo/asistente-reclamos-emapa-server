@@ -1,7 +1,7 @@
 import re
 
 from app.src.application.services.rag.embeddings import EmbeddingService
-from app.src.application.services.rag.qdrant_store import QdrantStore
+from app.src.application.ports.vector_db_port import PuertoBaseVectorial
 
 
 def generar_slug(texto: str) -> str:
@@ -26,12 +26,13 @@ def indexar_en_qdrant(
     chunks: list[str],
     vectores: list[list[float]],
     metadata: list[dict],
-    coleccion: str
+    coleccion: str,
+    store: PuertoBaseVectorial
 ) -> int:
     if not chunks or not vectores or not metadata:
         return 0
     embedder = EmbeddingService()
-    qdrant = QdrantStore()
+    qdrant = store
     qdrant.create_collection(coleccion, embedder.dimension)
     points = []
     import uuid

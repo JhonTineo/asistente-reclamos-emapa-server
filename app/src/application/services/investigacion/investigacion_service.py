@@ -18,6 +18,8 @@ from app.src.infrastructure.api_rest.schemas.investigacion import (
     BuscarReclamoRequest, ResumenMedio, ProblemaNormadoSchema, MedioDisponible,
 )
 from app.src.application.usecase.agents.analista_medio import AnalistaMedioAgent
+from app.src.application.services.llm.llm_router_service import LlmRouterService
+from app.src.application.ports.emapa_api_port import PuertoEmapaAPI
 from app.src.application.services.informe.informe_store import informe_store
 from app.src.core.model.informe_atencion import BloqueMedio
 
@@ -61,6 +63,8 @@ async def analizar_medio_y_registrar(
     request: BuscarReclamoRequest,
     medio_id: str,
     medio_nombre: str,
+    api: PuertoEmapaAPI,
+    llm_router: LlmRouterService,
 ) -> ResumenMedio:
     """Analiza un medio, registra su bloque en el informe (store) y devuelve
     el ResumenMedio con los problemas detectados (aún sin fundamentar)."""
@@ -98,7 +102,7 @@ async def analizar_medio_y_registrar(
             detail=f"No se encontró inspección {etiqueta} para este reclamo.",
         )
 
-    analista = AnalistaMedioAgent(model=request.modelo)
+    analista = AnalistaMedioAgent(emapa_api=api, llm_router=llm_router, model=request.modelo)
     bloque, ventana = analista.analizar(
         medio_id=medio_id,
         medio_nombre=medio_nombre,
@@ -143,6 +147,8 @@ async def _analizar_un_medio_en_threadpool(
     request: BuscarReclamoRequest,
     medio_id: str,
     medio_nombre: str,
+    api: PuertoEmapaAPI,
+    llm_router: LlmRouterService,
 ) -> ResumenMedio:
     """Como ``analizar_medio_y_registrar``, pero corre la parte bloqueante
     (``analista.analizar``: HTTP a EMAPA + LLM) en un threadpool. Es lo que
@@ -165,7 +171,7 @@ async def _analizar_un_medio_en_threadpool(
             detail=f"No se encontró inspección {etiqueta} para este reclamo.",
         )
 
-    analista = AnalistaMedioAgent(model=request.modelo)
+    analista = AnalistaMedioAgent(emapa_api=api, llm_router=llm_router, model=request.modelo)
     bloque, ventana = await run_in_threadpool(
         analista.analizar,
         medio_id=medio_id,
@@ -210,6 +216,8 @@ async def _analizar_un_medio_en_threadpool(
 async def analizar_medios_en_paralelo(
     request: BuscarReclamoRequest,
     medios: list[tuple[str, str]],
+    api: PuertoEmapaAPI,
+    llm_router: LlmRouterService,
 ) -> tuple[list[str], list[MedioDisponible]]:
     """Analiza varios medios probatorios EN PARALELO (un threadpool por medio,
     orquestados con asyncio.gather) y registra cada bloque en el informe a
@@ -227,7 +235,7 @@ async def analizar_medios_en_paralelo(
 
     resultados = await asyncio.gather(
         *(
-            _analizar_un_medio_en_threadpool(request, medio_id, medio_nombre)
+            _analizar_un_medio_en_threadpool(request, medio_id, medio_nombre, api, llm_router)
             for medio_id, medio_nombre in medios
         ),
         return_exceptions=True,
@@ -258,6 +266,8 @@ def stream_analisis_medio(
     request: BuscarReclamoRequest,
     medio_id: str,
     medio_nombre: str,
+    api: PuertoEmapaAPI,
+    llm_router: LlmRouterService,
 ) -> StreamingResponse:
     """Analiza un medio en streaming (NDJSON). Emite dos eventos:
     1. ``preprocesamiento``: datos y problemas por reglas .
@@ -301,7 +311,7 @@ def stream_analisis_medio(
             }, ensure_ascii=False) + "\n"
             return
 
-        analista = AnalistaMedioAgent(model=request.modelo)
+        analista = AnalistaMedioAgent(emapa_api=api, llm_router=llm_router, model=request.modelo)
         try:
             # --- Fase 1: preprocesamiento  ---------------------------
             datos, problemas, ventana = await run_in_threadpool(

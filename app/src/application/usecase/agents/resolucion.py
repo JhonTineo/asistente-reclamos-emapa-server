@@ -1,7 +1,7 @@
 import time
 import logging
-from langchain_core.messages import SystemMessage
-from app.src.application.adapters.llm import get_llm, log_uso_llm
+from app.src.application.ports.provider_port import MensajeLLM
+from app.src.application.services.llm.llm_router_service import LlmRouterService, MODELO_EXTERNO_DEFAULT
 from app.src.core.model.informe_atencion import InformeAtencion
 
 logger = logging.getLogger("agent.resolucion")
@@ -37,9 +37,9 @@ class ResolucionAgent:
     lo fijó el informe (FUNDADO/INFUNDADO); el LLM solo lo fundamenta, no
     puede cambiarlo. El pie legal de atribuciones se agrega aparte, fijo."""
 
-    def __init__(self, model: str | None = None):
-        self.model = model
-        self.llm = get_llm(model=model)
+    def __init__(self, llm_router: LlmRouterService, model: str | None = None):
+        self.llm_router = llm_router
+        self.model_id = model or MODELO_EXTERNO_DEFAULT
 
     def generar_resolucion(
         self,
@@ -62,9 +62,11 @@ class ResolucionAgent:
         logger.info("[RESOLUCION] Invocando LLM...")
         t_llm_inicio = time.perf_counter()
 
-        response = self.llm.invoke([SystemMessage(content=prompt)])
-        log_uso_llm(logger, "resolucion", response)
-        considerandos = (response.content or "").strip()
+        response_text = self.llm_router.generar_texto(
+            mensajes=[MensajeLLM(rol="system", contenido=prompt)],
+            modelo_id=self.model_id
+        )
+        considerandos = (response_text or "").strip()
 
         contenido = f"{considerandos}\n{CIERRE_LEGAL}".strip()
 

@@ -1,7 +1,7 @@
 import time
 import logging
-from langchain_core.messages import SystemMessage
-from app.src.application.adapters.llm import get_llm, log_uso_llm
+from app.src.application.ports.provider_port import MensajeLLM
+from app.src.application.services.llm.llm_router_service import LlmRouterService, MODELO_EXTERNO_DEFAULT
 
 logger = logging.getLogger("agent.conciliador")
 
@@ -13,9 +13,9 @@ class ConciliadorAgent:
     la conclusión como propuesta formal de la empresa y cierra con la declaración
     del veredicto. El veredicto lo fija el informe; el LLM no puede cambiarlo."""
 
-    def __init__(self, model: str | None = None):
-        self.model = model
-        self.llm = get_llm(model=model)
+    def __init__(self, llm_router: LlmRouterService, model: str | None = None):
+        self.llm_router = llm_router
+        self.model_id = model or MODELO_EXTERNO_DEFAULT
 
     def generar_propuesta(
         self,
@@ -33,9 +33,11 @@ class ConciliadorAgent:
         logger.debug("[PROMPT conciliador][SYSTEM]\n%s", prompt)
         logger.info("[CONCILIADOR] Invocando LLM...")
 
-        response = self.llm.invoke([SystemMessage(content=prompt)])
-        log_uso_llm(logger, "conciliador", response)
-        contenido = response.content.strip() if response.content else ""
+        response_text = self.llm_router.generar_texto(
+            mensajes=[MensajeLLM(rol="system", contenido=prompt)],
+            modelo_id=self.model_id
+        )
+        contenido = response_text.strip() if response_text else ""
 
         t_duracion = time.perf_counter() - t_inicio
         logger.info("[CONCILIADOR] COMPLETADO | %d caracteres | tiempo=%.2fs", len(contenido), t_duracion)

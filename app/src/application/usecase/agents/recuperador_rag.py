@@ -1,5 +1,5 @@
 import logging
-from app.src.application.adapters.vector_db import QdrantStore
+from app.src.application.ports.vector_db_port import PuertoBaseVectorial
 
 logger = logging.getLogger("agent.recuperador_rag")
 
@@ -7,9 +7,9 @@ logger = logging.getLogger("agent.recuperador_rag")
 class RecuperadorRAGAgent():
     role = "recuperador_rag"
 
-    def __init__(self, model: str | None = None, collection: str | None = None):
+    def __init__(self, store: PuertoBaseVectorial, model: str | None = None, collection: str | None = None):
         super().__init__(model=model)
-        self.store = QdrantStore(collection_name=collection)
+        self.store = store
 
     def run(self, input_data: dict) -> dict:
         query_embedding = input_data.get("embedding")

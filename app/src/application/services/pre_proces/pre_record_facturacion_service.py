@@ -8,7 +8,7 @@ import pandas as pd
 
 from app.src.core.model.record_facturacion import RecordFacturacion, RegistroFacturacion
 from app.src.core.model.indicadores.targeta_lecturas_indicadores import INDICADORES_TARJETA_LECTURA
-from app.src.application.adapters.emapa_api import obtener_record_facturacion
+from app.src.application.ports.emapa_api_port import PuertoEmapaAPI
 from app.src.application.services.pre_proces.df_utils import df_a_registros, agregar_traducciones
 from app.src.application.services.pre_proces.ventana_utils import calcular_ventana
 
@@ -58,6 +58,9 @@ class PreRecordFacturacionService:
     luego cobrar por lectura suele originar el reclamo, sin responsabilidad de la
     empresa. La entidad guarda SOLO los errores hallados (no el detalle mensual)."""
 
+    def __init__(self, emapa_api: PuertoEmapaAPI):
+        self.emapa_api = emapa_api
+
     def preprocesar_record_facturacion(
         self, codsuc: str, codcliente: str, meses: int = 12,
         fecha_ref: str | None = None,
@@ -73,7 +76,7 @@ class PreRecordFacturacionService:
         # cualquier año válido de la ventana, solo para que responda); el
         # histórico completo se filtra después por la ventana calendario.
         anio = str(max((a for a, _ in ventana), default=datetime.now().year))
-        json_raw = obtener_record_facturacion(codsuc, codcliente, anio)
+        json_raw = self.emapa_api.obtener_record_facturacion(codsuc, codcliente, anio)
         logger.info("[PRE_RECORD_FACTURACION] Datos obtenidos de EMAPA en %.2f s", time.time() - t1)
 
         record, df = self._construir_record(json_raw, ventana)

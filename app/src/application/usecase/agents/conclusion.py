@@ -19,9 +19,8 @@ import re
 import json
 import logging
 
-from langchain_core.messages import SystemMessage, HumanMessage
-
-from app.src.application.adapters.llm import get_llm, log_uso_llm
+from app.src.application.ports.provider_port import MensajeLLM
+from app.src.application.services.llm.llm_router_service import LlmRouterService, MODELO_EXTERNO_DEFAULT
 from app.src.core.model.criterios_especialista import (
     CriterioEvaluacion, obtener_criterios, render_criterios,
 )
@@ -42,9 +41,10 @@ def _formatear_meses_reclamados(informe: InformeAtencion) -> str:
 
 class ConclusionAgent:
 
-    def __init__(self, model: str | None = None,
+    def __init__(self, llm_router: LlmRouterService, model: str | None = None,
                  criterios: list[CriterioEvaluacion] | None = None):
-        self.llm = get_llm(model=model)
+        self.llm_router = llm_router
+        self.model_id = model or MODELO_EXTERNO_DEFAULT
         # Criterios de especialista que guían la clasificación de cada objetivo.
         self.criterios = criterios if criterios is not None else obtener_criterios()
 
@@ -163,12 +163,14 @@ class ConclusionAgent:
         logger.debug("[PROMPT conclusion][SYSTEM]\n%s", system)
         logger.debug("[PROMPT conclusion][HUMAN]\n%s", human)
 
-        response = self.llm.invoke([
-            SystemMessage(content=system),
-            HumanMessage(content=human),
-        ])
-        log_uso_llm(logger, "conclusion", response)
-        return self._parse_evaluaciones(response.content or "")
+        response_text = self.llm_router.generar_json(
+            mensajes=[
+                MensajeLLM(rol="system", contenido=system),
+                MensajeLLM(rol="user", contenido=human)
+            ],
+            modelo_id=self.model_id
+        )
+        return self._parse_evaluaciones(response_text or "")
 
     @staticmethod
     def _parse_evaluaciones(texto: str) -> dict[int, dict]:
@@ -315,13 +317,15 @@ class ConclusionAgent:
         logger.debug("[PROMPT conclusion_redaccion][HUMAN]\n%s", human)
 
         try:
-            response = self.llm.invoke([
-                SystemMessage(content=system),
-                HumanMessage(content=human),
-            ])
-            log_uso_llm(logger, "conclusion_redaccion", response)
-            texto = (response.content or "").strip()
-        except Exception as e:  # noqa: BLE001
+            texto = self.llm_router.generar_texto(
+                mensajes=[
+                    MensajeLLM(rol="system", contenido=system),
+                    MensajeLLM(rol="user", contenido=human)
+                ],
+                modelo_id=self.model_id
+            )
+            texto = (texto or "").strip()
+        except Exception as e:
             logger.warning("[CONCLUSION] Falló la redacción con LLM: %s", e)
             texto = ""
 

@@ -8,14 +8,16 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    opencode_go_api_key: str = "local-dev"
-    opencode_go_base_url: str = "https://opencode.ai/zen/go/v1"
-
+    
     # --- Proveedores de LLM externo (compatibles con la API de OpenAI) ---
     # Las API keys aqui son solo un FALLBACK opcional (para pruebas locales o
     # backend-only). El frontend puede enviar su propia key por header
     # X-LLM-Api-Key en cada peticion. Los *_models son el catalogo que se
     # expone al frontend; no requieren key para listarse.
+
+    # OpenCode
+    opencode_go_api_key: str = "local-dev"
+    opencode_go_base_url: str = "https://opencode.ai/zen/go/v1"
 
     # OpenRouter
     openrouter_api_key: str = ""
@@ -32,21 +34,20 @@ class Settings(BaseSettings):
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
     gemini_models: str = "gemini-2.0-flash,gemini-1.5-flash"
 
-    ollama_base_url: str = "http://ollama:11434"
-
+    
     # --- Requisitos de hardware para habilitar inferencia LOCAL (chat) ---
     # No aplica a los embeddings (mucho más livianos, siempre corren en Ollama
     # local). Ajustables por env sin tocar código, p.ej. en un VPS con GPU.
+    ollama_base_url: str = "http://ollama:11434"
     ollama_requiere_gpu: bool = True
     ollama_min_ram_gb: float = 8.0
+    ollama_embedding_model: str = "nomic-embed-text"
+
+
 
     qdrant_url: str = "http://127.0.0.1:6333"
     qdrant_collection_name: str = "sunass_reglamento"
 
-    # Modelo de EMBEDDINGS (no de chat): a diferencia del modelo de chat, este
-    # sí necesita ser fijo, porque el índice de Qdrant se construyó con él;
-    # cambiarlo sin reindexar rompe la búsqueda semántica.
-    ollama_embedding_model: str = "nomic-embed-text"
 
     timeout_seconds: int = 60
     max_retries: int = 2

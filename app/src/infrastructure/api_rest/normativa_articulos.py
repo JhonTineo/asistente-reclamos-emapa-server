@@ -4,7 +4,7 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.src.application.services.rag.qdrant_store import QdrantStore
+from app.src.infrastructure.adapters.qdrant_adapter import QdrantAdapter
 from app.src.infrastructure.api_rest.schemas.normativa import (
     ActualizarArticuloRequest,
     ActualizarArticuloResponse,
@@ -41,7 +41,7 @@ def _calcular_point_id(article: str, numeral: str | None) -> str:
 @router.get("", response_model=ListarArticulosResponse)
 async def listar_articulos(coleccion: str = "sunass_reglamento") -> ListarArticulosResponse:
     """Lista todos los artículos (puntos) indexados en una colección."""
-    qdrant = QdrantStore()
+    qdrant = QdrantAdapter()
     puntos = qdrant.get_all(collection_name=coleccion)
     return ListarArticulosResponse(status="ok", coleccion=coleccion, total=len(puntos), puntos=puntos)
 
@@ -53,7 +53,7 @@ async def buscar_articulo(
     coleccion: str = Query("sunass_reglamento"),
 ) -> BuscarArticuloExactoResponse:
     """Busca un artículo exacto por número (+ numeral opcional) en una colección."""
-    qdrant = QdrantStore()
+    qdrant = QdrantAdapter()
     art_clean = extract_article_number(article)
     num_clean = numeral if numeral else None
     point_id = _calcular_point_id(article, numeral)
@@ -84,7 +84,7 @@ async def buscar_articulo(
 @router.put("", response_model=ActualizarArticuloResponse)
 async def actualizar_articulo(request: ActualizarArticuloRequest) -> ActualizarArticuloResponse:
     """Crea o actualiza (upsert) un artículo en la colección indicada."""
-    qdrant = QdrantStore()
+    qdrant = QdrantAdapter()
     from app.src.application.services.rag.embeddings import EmbeddingService
     embedder = EmbeddingService()
 
@@ -135,7 +135,7 @@ async def eliminar_articulo(
             raise HTTPException(status_code=400, detail="Debe proveer article y numeral, o point_id.")
         punto_id = _calcular_point_id(article, numeral)
 
-    qdrant = QdrantStore()
+    qdrant = QdrantAdapter()
     qdrant.delete(point_id=punto_id, collection_name=coleccion)
     return EliminarArticuloResponse(
         status="ok",

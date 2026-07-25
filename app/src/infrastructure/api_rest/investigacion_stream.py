@@ -18,7 +18,8 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
-from app.src.infrastructure.api_rest.deps import usar_token_emapa, usar_config_llm
+from app.src.infrastructure.api_rest.deps import usar_token_emapa, usar_config_llm, get_llm_router
+from app.src.application.services.llm.llm_router_service import LlmRouterService
 from app.src.application.services.investigacion.investigacion_service import (
     medios_determinantes,
     stream_analisis_medio,
@@ -29,6 +30,8 @@ from app.src.infrastructure.api_rest.schemas.investigacion import (
     ProblemaInforme,
 )
 from app.src.application.usecase.agents.fundamentacion_normativa import FundamentacionNormativaAgent
+from app.src.infrastructure.adapters.qdrant_adapter import QdrantAdapter
+from app.src.infrastructure.adapters.emapa_http_adapter import EmapaHttpAdapter
 from app.src.application.usecase.agents.conclusion import ConclusionAgent
 from app.src.application.services.informe.informe_store import informe_store
 from app.src.application.services.informe.render import construir_texto_informe
@@ -43,49 +46,49 @@ router = APIRouter(
 
 
 @router.post("/inspeccion-externa/stream", tags=["interactivo"])
-async def inspeccion_externa_stream(request: BuscarReclamoRequest) -> StreamingResponse:
+async def inspeccion_externa_stream(request: BuscarReclamoRequest, llm_router: LlmRouterService = Depends(get_llm_router)) -> StreamingResponse:
     """Versión streaming: emite preprocesamiento y luego el resumen del LLM.
     Pensada para uso interactivo (el frontend muestra progreso en vivo)."""
-    return stream_analisis_medio(request, "inspeccion_externa", "Inspección Externa")
+    return stream_analisis_medio(request, "inspeccion_externa", "Inspección Externa", EmapaHttpAdapter(), llm_router)
 
 
 @router.post("/inspeccion-interna/stream", tags=["interactivo"])
-async def inspeccion_interna_stream(request: BuscarReclamoRequest) -> StreamingResponse:
+async def inspeccion_interna_stream(request: BuscarReclamoRequest, llm_router: LlmRouterService = Depends(get_llm_router)) -> StreamingResponse:
     """Versión streaming: emite preprocesamiento y luego el resumen del LLM.
     Pensada para uso interactivo (el frontend muestra progreso en vivo)."""
-    return stream_analisis_medio(request, "inspeccion_interna", "Inspección Interna")
+    return stream_analisis_medio(request, "inspeccion_interna", "Inspección Interna", EmapaHttpAdapter(), llm_router)
 
 
 @router.post("/tarjeta-lectura/stream", tags=["interactivo"])
-async def tarjeta_lectura_stream(request: BuscarReclamoRequest) -> StreamingResponse:
+async def tarjeta_lectura_stream(request: BuscarReclamoRequest, llm_router: LlmRouterService = Depends(get_llm_router)) -> StreamingResponse:
     """Versión streaming: emite preprocesamiento y luego el resumen del LLM.
     Pensada para uso interactivo (el frontend muestra progreso en vivo)."""
-    return stream_analisis_medio(request, "tarjeta_lectura", "Tarjeta de Lecturas")
+    return stream_analisis_medio(request, "tarjeta_lectura", "Tarjeta de Lecturas", EmapaHttpAdapter(), llm_router)
 
 
 @router.post("/corte-reapertura/stream", tags=["interactivo"])
-async def corte_reapertura_stream(request: BuscarReclamoRequest) -> StreamingResponse:
+async def corte_reapertura_stream(request: BuscarReclamoRequest, llm_router: LlmRouterService = Depends(get_llm_router)) -> StreamingResponse:
     """Versión streaming: emite preprocesamiento y luego el resumen del LLM.
     Pensada para uso interactivo (el frontend muestra progreso en vivo)."""
-    return stream_analisis_medio(request, "corte_reapertura", "Cortes y Reaperturas")
+    return stream_analisis_medio(request, "corte_reapertura", "Cortes y Reaperturas", EmapaHttpAdapter(), llm_router)
 
 
 @router.post("/record-facturacion/stream", tags=["interactivo"])
-async def record_facturacion_stream(request: BuscarReclamoRequest) -> StreamingResponse:
+async def record_facturacion_stream(request: BuscarReclamoRequest, llm_router: LlmRouterService = Depends(get_llm_router)) -> StreamingResponse:
     """Versión streaming: emite preprocesamiento y luego el resumen del LLM.
     Pensada para uso interactivo (el frontend muestra progreso en vivo)."""
-    return stream_analisis_medio(request, "record_facturacion", "Record de Facturación")
+    return stream_analisis_medio(request, "record_facturacion", "Record de Facturación", EmapaHttpAdapter(), llm_router)
 
 
 @router.post("/saldo-detalle/stream", tags=["interactivo"])
-async def saldo_detalle_stream(request: BuscarReclamoRequest) -> StreamingResponse:
+async def saldo_detalle_stream(request: BuscarReclamoRequest, llm_router: LlmRouterService = Depends(get_llm_router)) -> StreamingResponse:
     """Versión streaming: emite preprocesamiento y luego el resumen del LLM.
     Pensada para uso interactivo (el frontend muestra progreso en vivo)."""
-    return stream_analisis_medio(request, "saldo_detalle", "Saldo Detalle")
+    return stream_analisis_medio(request, "saldo_detalle", "Saldo Detalle", EmapaHttpAdapter(), llm_router)
 
 
 @router.post("/conclusion/stream", tags=["interactivo"])
-async def generar_conclusion_stream(request: InformeRequest) -> StreamingResponse:
+async def generar_conclusion_stream(request: InformeRequest, llm_router: LlmRouterService = Depends(get_llm_router)) -> StreamingResponse:
     """Concluye el informe en streaming (NDJSON). Por cada problema de cada medio
     emite dos eventos a medida que se producen:
 
@@ -123,7 +126,7 @@ async def generar_conclusion_stream(request: InformeRequest) -> StreamingRespons
         )
         yield json.dumps({"evento": "inicio", "total_problemas": total}, ensure_ascii=False) + "\n"
 
-        fundamentador = FundamentacionNormativaAgent(model=request.modelo)
+        fundamentador = FundamentacionNormativaAgent(qdrant=QdrantAdapter(), llm_router=llm_router, model=request.modelo)
         problemas_resp: list[ProblemaInforme] = []
         indice = 0
 
@@ -174,7 +177,7 @@ async def generar_conclusion_stream(request: InformeRequest) -> StreamingRespons
                     )
 
             # --- Conclusión: veredicto FUNDADO/INFUNDADO ----------------------
-            conclusionador = ConclusionAgent(model=request.modelo)
+            conclusionador = ConclusionAgent(llm_router=llm_router, model=request.modelo)
             veredicto = await run_in_threadpool(conclusionador.concluir_y_asignar, informe)
             yield json.dumps({
                 "evento": "conclusion",

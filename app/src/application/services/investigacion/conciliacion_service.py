@@ -14,12 +14,13 @@ from app.src.infrastructure.api_rest.schemas.investigacion import (
 )
 from app.src.application.usecase.agents.conciliador import ConciliadorAgent
 from app.src.application.services.informe.informe_store import informe_store
+from app.src.application.services.llm.llm_router_service import LlmRouterService
 from app.src.core.model.conciliacion import Conciliacion
 
 logger = logging.getLogger("services.conciliacion_service")
 
 
-async def generar_propuesta_conciliacion(request: ConciliacionRequest) -> ConciliacionResponse:
+async def generar_propuesta_conciliacion(request: ConciliacionRequest, llm_router: LlmRouterService) -> ConciliacionResponse:
     """
     Genera la propuesta de conciliación a partir de la CONCLUSIÓN del informe de
     atención (leída del store), no del texto completo del informe. Requiere que
@@ -48,7 +49,7 @@ async def generar_propuesta_conciliacion(request: ConciliacionRequest) -> Concil
             ),
         )
 
-    conciliador = ConciliadorAgent(model=request.modelo)
+    conciliador = ConciliadorAgent(llm_router=llm_router, model=request.modelo)
     resultado = await run_in_threadpool(
         conciliador.generar_propuesta,
         request.codreclamo, informe.veredicto, informe.conclusion, informe.numero,

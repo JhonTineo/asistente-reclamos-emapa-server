@@ -58,7 +58,14 @@ class ProblemaInforme(BaseModel):
 
 class InformeResponse(BaseModel):
     codreclamo: str
-    informe: str
+    # Opcionales porque /investigacion/fundamentar-normativa no arma el texto
+    # del informe: devuelve el detalle estructurado (suministro, clasificación,
+    # objetivos) para que el frontend lo renderice. Los demás endpoints que
+    # usan este response_model sí mandan `informe` y omiten esos campos.
+    informe: str = ""
+    suministro: str | None = None
+    clasificacion: str | None = None
+    objetivos: list["ObjetivoInvestigacionSchema"] = Field(default_factory=list)
     problemas: list[ProblemaInforme] = Field(default_factory=list)
     tiempo: float
 
@@ -152,6 +159,11 @@ class ObjetivoInvestigacionSchema(BaseModel):
     descripcion: str
     medio: str | None = None
     determinante: bool = False
+
+
+# InformeResponse se define más arriba y referencia ObjetivoInvestigacionSchema
+# como forward ref; hay que resolverla ahora que la clase ya existe.
+InformeResponse.model_rebuild()
 
 
 class ObjetivosRequest(BaseModel):

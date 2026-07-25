@@ -13,11 +13,12 @@ from app.src.infrastructure.api_rest.schemas.investigacion import (
 )
 from app.src.application.usecase.agents.resolucion import ResolucionAgent
 from app.src.application.services.informe.informe_store import informe_store
+from app.src.application.services.llm.llm_router_service import LlmRouterService
 
-logger = logging.getLogger("services.resolucion_service")
+logger = logging.getLogger("service.resolucion")
 
 
-async def generar_resolucion_final(request: ResolucionRequest) -> ResolucionResponse:
+async def generar_resolucion_final(request: ResolucionRequest, llm_router: LlmRouterService) -> ResolucionResponse:
     """
     Genera la resolución final del reclamo. El tipo (FUNDADO/INFUNDADO) NO lo
     decide el LLM: se toma del veredicto ya fijado en el informe (paso de
@@ -69,7 +70,7 @@ async def generar_resolucion_final(request: ResolucionRequest) -> ResolucionResp
     propuesta_reclamante = request.propuesta_reclamante or (conciliacion.propuesta_reclamante if conciliacion else None)
     observaciones = request.observaciones or (conciliacion.observaciones if conciliacion else None)
 
-    resolucion_agent = ResolucionAgent(model=request.modelo)
+    resolucion_agent = ResolucionAgent(llm_router=llm_router, model=request.modelo)
     resultado = await run_in_threadpool(
         resolucion_agent.generar_resolucion,
         informe, propuesta_empresa, propuesta_reclamante, observaciones,

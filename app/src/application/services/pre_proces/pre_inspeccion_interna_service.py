@@ -3,12 +3,15 @@ import logging
 from dataclasses import fields
 from app.src.core.model.inspeccion_interna import InspeccionInterna, PuntosAgua
 from app.src.core.model.indicadores.inspeccion_interna_indicadores import INDICADORES_INSPECCION_INTERNA
-from app.src.application.adapters.emapa_api import obtener_inspeccion_interna
+from app.src.application.ports.emapa_api_port import PuertoEmapaAPI
 
 logger = logging.getLogger("services.pre_inspeccion_interna_service")
 
 
 class PreInspeccionInternaService:
+
+    def __init__(self, emapa_api: PuertoEmapaAPI):
+        self.emapa_api = emapa_api
 
     def preprocesar_inspeccion_interna(self, codsuc: str, codinspeccion: str | None) -> dict:
         """`codinspeccion` es el nroinspeccion vinculado al reclamo (extraído al
@@ -24,7 +27,7 @@ class PreInspeccionInternaService:
             return {"inspeccion": inspeccion, "observaciones": []}
 
         t1 = time.time()
-        json_raw = obtener_inspeccion_interna(codsuc, codinspeccion)
+        json_raw = self.emapa_api.obtener_inspeccion_interna(codsuc, codinspeccion)
         logger.info("[PRE_INSPECCION_INTERNA] Datos obtenidos de EMAPA en %.2f segundos", time.time() - t1)
 
         inspeccion = self._construir_inspeccion(json_raw)

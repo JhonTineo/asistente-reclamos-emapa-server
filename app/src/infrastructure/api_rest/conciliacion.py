@@ -1,6 +1,8 @@
+import logging
 from fastapi import APIRouter, Depends
 
-from app.src.infrastructure.api_rest.deps import usar_token_emapa, usar_config_llm
+from app.src.infrastructure.api_rest.deps import usar_token_emapa, usar_config_llm, get_llm_router
+from app.src.application.services.llm.llm_router_service import LlmRouterService
 from app.src.infrastructure.api_rest.schemas.investigacion import (
     ConciliacionRequest,
     ConciliacionResponse,
@@ -13,6 +15,8 @@ from app.src.application.services.investigacion.conciliacion_service import (
     generar_propuesta_conciliacion, actualizar_propuesta_conciliacion, actualizar_conciliacion,
 )
 
+logger = logging.getLogger("api.conciliacion")
+
 router = APIRouter(
     prefix="/conciliacion",
     tags=["conciliacion"],
@@ -21,13 +25,13 @@ router = APIRouter(
 
 
 @router.post("/propuesta", response_model=ConciliacionResponse)
-async def generar_propuesta(request: ConciliacionRequest) -> ConciliacionResponse:
+async def generar_propuesta(request: ConciliacionRequest, llm_router: LlmRouterService = Depends(get_llm_router)) -> ConciliacionResponse:
     """
     Genera la propuesta de conciliación a partir de la CONCLUSIÓN del informe de
-    atención (leída del store), no del texto completo del informe. Requiere que
-    la investigación ya haya sido concluida (POST /investigacion/conclusion).
+    atención, la propuesta de la empresa y la postura del reclamante. Guarda el
+    resultado en el informe del store.
     """
-    return await generar_propuesta_conciliacion(request)
+    return await generar_propuesta_conciliacion(request, llm_router)
 
 
 @router.patch("/propuesta", response_model=ActualizarPropuestaResponse)

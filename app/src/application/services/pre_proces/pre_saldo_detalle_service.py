@@ -6,7 +6,7 @@ from typing import get_args, get_type_hints
 import pandas as pd
 
 from app.src.core.model.saldo_detalle import SaldoDetalle, SaldoMensual
-from app.src.application.adapters.emapa_api import obtener_saldo_actual
+from app.src.application.ports.emapa_api_port import PuertoEmapaAPI
 from app.src.application.services.pre_proces.df_utils import df_a_registros
 from app.src.application.services.pre_proces.ventana_utils import calcular_ventana
 
@@ -53,16 +53,24 @@ class PreSaldoDetalleService:
     cobro indebido (importe por servicio no prestado), cobro de mora y meses no
     pagados. La entidad guarda SOLO los errores hallados (no el detalle mensual)."""
 
+    def __init__(self, emapa_api: PuertoEmapaAPI):
+        self.emapa_api = emapa_api
+
     def preprocesar_saldo_detalle(
-        self, codsuc: str, codcliente: str, meses: int = 12,
+        self,
+        codsuc: str,
+        codcliente: str,
+        meses: int = 12,
         fecha_ref: str | None = None,
     ) -> dict:
         t1 = time.time()
-        # Ventana CALENDARIO calculada de antemano (independiente de qué medio se
-        # analice primero; ver ventana_utils.py).
+        # "Saldo actual" en EMAPA devuelve la deuda vigente a la fecha de
+        # consulta, sin importar "fecha_ref" (la API no soporta fecha
+        # histórica). La ventana se usa solo para filtrar los recibos del
+        # histórico devuelto.
         ventana = calcular_ventana(fecha_ref, meses)
 
-        json_raw = obtener_saldo_actual(codsuc, codcliente)
+        json_raw = self.emapa_api.obtener_saldo_actual(codsuc, codcliente)
         logger.info("[PRE_SALDO_DETALLE] Datos obtenidos de EMAPA en %.2f s", time.time() - t1)
 
         saldo, df = self._construir_saldo(json_raw, ventana)

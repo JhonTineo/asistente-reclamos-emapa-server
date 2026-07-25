@@ -1,13 +1,13 @@
 from app.src.application.services.rag.embeddings import (EmbeddingService)
-from app.src.application.services.rag.qdrant_store import ( QdrantStore )
+from app.src.application.ports.vector_db_port import PuertoBaseVectorial
 import logging
 
 logger = logging.getLogger(__name__)
 class Retriever:
 
-    def __init__(self):
+    def __init__(self, store: PuertoBaseVectorial):
         self.embedder = EmbeddingService()
-        self.store = QdrantStore()
+        self.store = store
 
     def retrieve(
         self,

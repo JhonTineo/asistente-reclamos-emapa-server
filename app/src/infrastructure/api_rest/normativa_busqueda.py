@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 from app.src.application.services.rag.retriever import Retriever
-from app.src.application.services.rag.qdrant_store import QdrantStore
+from app.src.infrastructure.adapters.qdrant_adapter import QdrantAdapter
 from app.src.infrastructure.api_rest.schemas.normativa import (
     ArticuloRelacionado,
     BuscarNormativaRequest,
@@ -23,7 +23,7 @@ REGLAMENTO_COLLECTION = "sunass_reglamento"
 
 # Usa EmbeddingService (Ollama nomic-embed-text), el mismo modelo con el que
 # se indexó, para que el score coseno sea significativo.
-retriever = Retriever()
+retriever = Retriever(store=QdrantAdapter())
 
 
 @router.post("", response_model=BuscarNormativaResponse)
@@ -80,7 +80,7 @@ async def buscar_palabra_clave(request: BuscarPalabraClaveRequest) -> BuscarPala
     """Busca por palabra clave: coincidencias exactas (substring normalizado,
     sin tildes/mayúsculas) y semánticas (similitud vectorial) en la colección
     indicada."""
-    qdrant = QdrantStore()
+    qdrant = QdrantAdapter()
     resultados = qdrant.search_by_keyword(
         keyword=request.query,
         collection_name=request.coleccion,

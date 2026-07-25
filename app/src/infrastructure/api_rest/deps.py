@@ -4,12 +4,39 @@ import logging
 
 from fastapi import Request, HTTPException
 
-from app.src.application.adapters.emapa_api import set_emapa_token, emapa_token_ctx
-from app.src.application.adapters.proveedores import set_llm_ctx
+from app.src.infrastructure.adapters.emapa_http_adapter import EmapaHttpAdapter, emapa_token_ctx
+from app.src.infrastructure.config.llm_context import set_llm_ctx
 from app.src.application.services.informe.informe_store import informe_store
+from app.src.application.services.llm.llm_router_service import LlmRouterService
+from app.src.infrastructure.adapters.llm.model_catalog_adapter import ModelCatalogAdapter
+from app.src.infrastructure.adapters.llm.openai_provider_adapter import OpenAiCompatProviderAdapter
+from app.src.infrastructure.adapters.llm.ollama_provider_adapter import OllamaProviderAdapter
+from app.src.infrastructure.config.settings import settings
 
 logger = logging.getLogger("api.deps")
 
+def get_llm_router() -> LlmRouterService:
+    # Construir el mapa de modelos por proveedor desde los settings
+    # Nota: Ollama no tiene un catálogo estático en settings; sus modelos
+    # se descubren dinámicamente vía su API. Aquí se deja vacío y el
+    # router aceptará cualquier modelo para el proveedor "ollama".
+    provider_model_map = {
+        "openrouter": [m.strip() for m in settings.openrouter_models.split(",") if m.strip()],
+        "openai": [m.strip() for m in settings.openai_models.split(",") if m.strip()],
+        "gemini": [m.strip() for m in settings.gemini_models.split(",") if m.strip()],
+        "ollama": [],  # dinámico: se consultan vía Ollama API
+    }
+    
+    catalogo = ModelCatalogAdapter(provider_model_map)
+    
+    providers = {
+        "openrouter": OpenAiCompatProviderAdapter(settings.openrouter_base_url, settings.openrouter_api_key),
+        "openai": OpenAiCompatProviderAdapter(settings.openai_base_url, settings.openai_api_key),
+        "gemini": OpenAiCompatProviderAdapter(settings.gemini_base_url, settings.gemini_api_key),
+        "ollama": OllamaProviderAdapter(settings.ollama_base_url, settings.ollama_requiere_gpu, settings.ollama_min_ram_gb),
+    }
+    
+    return LlmRouterService(catalogo, providers)
 
 async def usar_config_llm(request: Request) -> None:
     """Fija, para la petición en curso, el proveedor de LLM y su API key tomados
@@ -51,7 +78,7 @@ async def usar_token_emapa(request: Request) -> None:
     auth = auth.strip()
     token = auth[7:].strip() if auth[:7].lower() == "bearer " else auth
     logger.info("[AUTH] Token parseado (primeros 20 chars): %s…", token[:20])
-    set_emapa_token(token)
+    EmapaHttpAdapter().set_token(token)
 
 
 async def requerir_token_emapa(request: Request) -> str:
@@ -82,7 +109,7 @@ async def asegurar_token_emapa(codreclamo: str) -> None:
         return
     token = informe_store.obtener_token(codreclamo)
     if token:
-        set_emapa_token(token)
+        EmapaHttpAdapter().set_token(token)
         logger.debug("[AUTH] Token recuperado del store para reclamo %s", codreclamo)
     else:
         logger.debug("[AUTH] Sin token guardado para reclamo %s; se usará .env", codreclamo)

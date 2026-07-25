@@ -2,8 +2,8 @@ import json
 import time
 import logging
 from dataclasses import asdict
-from langchain_core.messages import HumanMessage, SystemMessage
-from app.src.application.adapters.llm import get_llm, log_uso_llm
+from app.src.application.ports.provider_port import MensajeLLM
+from app.src.application.services.llm.llm_router_service import LlmRouterService, MODELO_EXTERNO_DEFAULT
 from app.src.application.services.pre_proces.pre_inspeccion_externa_service import PreInspeccionExternaService
 from app.src.application.services.pre_proces.pre_inspeccion_interna_service import PreInspeccionInternaService
 from app.src.application.services.pre_proces.pre_targeta_lecturas_service import PreTargetaLecturasService
@@ -11,6 +11,7 @@ from app.src.application.services.pre_proces.pre_corte_reapertura_service import
 from app.src.application.services.pre_proces.pre_record_facturacion_service import PreRecordFacturacionService
 from app.src.application.services.pre_proces.pre_saldo_detalle_service import PreSaldoDetalleService
 from app.src.application.services.pre_proces.problemas_normalizer import extraer_problemas
+from app.src.application.ports.emapa_api_port import PuertoEmapaAPI
 from app.src.core.model.informe_atencion import BloqueMedio
 
 logger = logging.getLogger("agent.analista_medio")
@@ -136,15 +137,15 @@ INSTRUCCIONES_POR_MEDIO: dict[str, list[str]] = {
 }
 
 class AnalistaMedioAgent:
-    def __init__(self, model: str | None = None):
-        self.model = model
-        self.llm = get_llm(model=model)
-        self.pre_ext_service = PreInspeccionExternaService()
-        self.pre_int_service = PreInspeccionInternaService()
-        self.pre_tarj_service = PreTargetaLecturasService()
-        self.pre_corte_service = PreCorteReaperturaService()
-        self.pre_record_service = PreRecordFacturacionService()
-        self.pre_saldo_service = PreSaldoDetalleService()
+    def __init__(self, emapa_api: PuertoEmapaAPI, llm_router: LlmRouterService, model: str | None = None):
+        self.llm_router = llm_router
+        self.model_id = model or MODELO_EXTERNO_DEFAULT
+        self.pre_ext_service = PreInspeccionExternaService(emapa_api)
+        self.pre_int_service = PreInspeccionInternaService(emapa_api)
+        self.pre_tarj_service = PreTargetaLecturasService(emapa_api)
+        self.pre_corte_service = PreCorteReaperturaService(emapa_api)
+        self.pre_record_service = PreRecordFacturacionService(emapa_api)
+        self.pre_saldo_service = PreSaldoDetalleService(emapa_api)
 
     def analizar(
         self, medio_id: str, medio_nombre: str, codsuc: str, codcliente: str,
@@ -215,12 +216,14 @@ class AnalistaMedioAgent:
         logger.debug("[PROMPT analista_medio][SYSTEM]\n%s", prompt)
         logger.debug("[PROMPT analista_medio][HUMAN]\n%s", human)
 
-        response = self.llm.invoke([
-            SystemMessage(content=prompt),
-            HumanMessage(content=human)
-        ])
-        log_uso_llm(logger, f"analista_medio/{medio_nombre}", response)
-        return response.content if response.content else ""
+        response_text = self.llm_router.generar_texto(
+            mensajes=[
+                MensajeLLM(rol="system", contenido=prompt),
+                MensajeLLM(rol="user", contenido=human)
+            ],
+            modelo_id=self.model_id
+        )
+        return response_text
 
     def interpretar(self, medio_id: str, medio_nombre: str, datos: dict, problemas: list,
                     clasificacion: str, enfoque: str | None = None) -> str:

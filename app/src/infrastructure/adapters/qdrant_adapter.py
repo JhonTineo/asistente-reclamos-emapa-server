@@ -1,48 +1,48 @@
 import os
-from qdrant_client import ( QdrantClient )
-from qdrant_client.http.models import (
-    Distance,
-    VectorParams,
-    PointStruct,
-    Filter,
-    FieldCondition,
-    MatchValue
-)
+import logging
+import unicodedata
+from typing import List, Dict, Any, Optional
 
+from qdrant_client import QdrantClient
+from qdrant_client.http import models as qmodels
+from qdrant_client.http.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
 
-class QdrantStore:
-    def __init__(self):
-        self.collection_name = os.getenv(
-            "QDRANT_COLLECTION_NAME",
-            "sunass_reglamento"
+from app.src.application.ports.vector_db_port import PuertoBaseVectorial
+
+logger = logging.getLogger(__name__)
+
+class QdrantAdapter(PuertoBaseVectorial):
+    """
+    Adaptador de Infraestructura para Qdrant.
+    Unifica la lógica antigua de QdrantStore y vector_db bajo el nuevo Puerto.
+    """
+
+    def __init__(self, client: QdrantClient = None, collection_name: str = None, dim: int = 768):
+        self.collection_name = (
+            collection_name
+            or os.getenv("QDRANT_COLLECTION_NAME", "sunass_reglamento")
         )
-        self.client = QdrantClient(
-            url=os.getenv(
-                "QDRANT_URL",
-                "http://localhost:6333"
-            )
-        )
+        self.dim = dim
+        
+        if client is not None:
+            self.client = client
+        else:
+            self.client = QdrantClient(url=os.getenv("QDRANT_URL", "http://127.0.0.1:6333"))
 
-    def create_collection(
-        self,
-        collection_name: str,
-        dimension: int
-    ):
-        collections = self.client.get_collections()
-        existing = [
-            c.name
-            for c in collections.collections
-        ]
-        if collection_name in existing:
+    def create_collection(self, collection_name: Optional[str] = None, dimension: int = 768) -> None:
+        target = collection_name or self.collection_name
+        if self.collection_exists(target):
             return
+            
         self.client.create_collection(
-            collection_name=collection_name,
+            collection_name=target,
             vectors_config=VectorParams(
                 size=dimension,
                 distance=Distance.COSINE
             )
         )
-        
+        logger.info(f"Colección Qdrant creada: {target}")
+
     def collection_exists(self, collection_name: str) -> bool:
         try:
             collections = self.client.get_collections()
@@ -50,40 +50,32 @@ class QdrantStore:
         except Exception:
             return False
 
-    def get_collections(self) -> list[str]:
+    def get_collections(self) -> List[str]:
         try:
             collections = self.client.get_collections()
             return [c.name for c in collections.collections]
         except Exception:
             return []
 
-    def upsert(
-        self,
-        points,
-        collection_name: str | None = None
-    ):
-        target_collection = collection_name or self.collection_name
+    def upsert(self, points: List[Dict[str, Any]], collection_name: Optional[str] = None) -> None:
+        target = collection_name or self.collection_name
         qdrant_points = []
-        for point in points:
+        for p in points:
             qdrant_points.append(
                 PointStruct(
-                    id=point["id"],
-                    vector=point["vector"],
-                    payload=point["payload"]
+                    id=p["id"],
+                    vector=p["vector"],
+                    payload=p.get("payload", {})
                 )
             )
+
         self.client.upsert(
-            collection_name=target_collection,
+            collection_name=target,
             points=qdrant_points
         )
 
-    def search(
-        self,
-        vector,
-        top_k=5,
-        collection_name: str | None = None
-    ):
-        target_collection = collection_name or self.collection_name
+    def search(self, vector: List[float], top_k: int = 5, collection_name: Optional[str] = None) -> List[Dict[str, Any]]:
+        target = collection_name or self.collection_name
         query_filter = Filter(
             must_not=[
                 FieldCondition(
@@ -92,12 +84,15 @@ class QdrantStore:
                 )
             ]
         )
+        
+        # En qdrant-client >= 1.15 se recomienda usar query_points
         results = self.client.query_points(
-            collection_name=target_collection,
+            collection_name=target,
             query=vector,
             query_filter=query_filter,
             limit=top_k
         )
+
         return [
             {
                 "id": p.id,
@@ -106,28 +101,26 @@ class QdrantStore:
             }
             for p in results.points
         ]
-    
-    def count(self):
-        return self.client.count(
-            collection_name=self.collection_name
-        ).count
         
-    def delete(self, point_id: str, collection_name: str | None = None):
-        target_collection = collection_name or self.collection_name
+    def count(self) -> int:
+        return self.client.count(collection_name=self.collection_name).count
+        
+    def delete(self, point_id: str, collection_name: Optional[str] = None) -> None:
+        target = collection_name or self.collection_name
         self.client.set_payload(
-            collection_name=target_collection,
+            collection_name=target,
             payload={"estado": "inactivo"},
             points=[point_id]
         )
-        
-    def get_all(self, collection_name: str | None = None):
-        target_collection = collection_name or self.collection_name
+
+    def get_all(self, collection_name: Optional[str] = None) -> List[Dict[str, Any]]:
+        target = collection_name or self.collection_name
         points = []
         try:
             offset = None
             while True:
                 results, next_offset = self.client.scroll(
-                    collection_name=target_collection,
+                    collection_name=target,
                     limit=100,
                     offset=offset,
                     with_payload=True,
@@ -145,14 +138,8 @@ class QdrantStore:
             pass
         return points
 
-    def search_by_keyword(
-        self,
-        keyword: str,
-        collection_name: str | None = None,
-        top_k: int = 15
-    ):
-        target_collection = collection_name or self.collection_name
-        import unicodedata
+    def search_by_keyword(self, keyword: str, collection_name: Optional[str] = None, top_k: int = 15) -> List[Dict[str, Any]]:
+        target = collection_name or self.collection_name
 
         def _normalize(s: str) -> str:
             if not s:
@@ -161,14 +148,12 @@ class QdrantStore:
             return "".join(c for c in s if not unicodedata.combining(c)).lower()
 
         norm_keyword = _normalize(keyword)
-
-        # 1. Búsqueda exacta
         exact_matches = []
         try:
             offset = None
             while True:
                 results, next_offset = self.client.scroll(
-                    collection_name=target_collection,
+                    collection_name=target,
                     limit=100,
                     offset=offset,
                     with_payload=True,
@@ -198,24 +183,5 @@ class QdrantStore:
                     break
         except Exception:
             pass
-
-        # 2. Búsqueda semántica vectorial
-        semantic_matches = []
-        try:
-            from app.src.application.services.rag.embeddings import EmbeddingService
-            embedder = EmbeddingService()
-            vector = embedder.encode(keyword)
-            sem_results = self.search(vector=vector, top_k=top_k, collection_name=target_collection)
-            exact_ids = {m["id"] for m in exact_matches}
-            for p in sem_results:
-                if p["id"] not in exact_ids and p.get("score", 0) > 0.45:
-                    semantic_matches.append({
-                        "id": p["id"],
-                        "tipo_coincidencia": "semántica (similitud)",
-                        "score": round(float(p.get("score", 0)), 4),
-                        "payload": p.get("payload", {})
-                    })
-        except Exception:
-            pass
-
-        return exact_matches + semantic_matches
+            
+        return exact_matches[:top_k]

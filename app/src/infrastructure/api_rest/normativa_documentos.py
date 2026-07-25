@@ -5,13 +5,13 @@ import uuid
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 
-from app.src.application.services.chunck.md_embedding_service import (
+from app.src.application.services.rag.md_embedding_service import (
     parse_md_to_chunks,
     generar_embeddings,
     indexar_en_qdrant,
 )
-from app.src.application.services.chunck.chunk_and_index import build_index
-from app.src.application.services.rag.qdrant_store import QdrantStore
+from app.src.application.services.rag.chunk_and_index import build_index
+from app.src.infrastructure.adapters.qdrant_adapter import QdrantAdapter
 from app.src.infrastructure.api_rest.schemas.normativa import (
     VectorizarMarkdownResponse,
     VectorizarPdfResponse,
@@ -41,7 +41,7 @@ async def cargar_markdown(file: UploadFile = File(...)) -> VectorizarMarkdownRes
     logger.info(f"Archivo recibido: {file.filename}, texto: {texto_md.decode('utf-8')} bytes")
     coleccion = sanitize_filename(file.filename)
 
-    qdrant = QdrantStore()
+    qdrant = QdrantAdapter()
     if qdrant.collection_exists(coleccion):
         raise HTTPException(
             status_code=400,
@@ -50,7 +50,7 @@ async def cargar_markdown(file: UploadFile = File(...)) -> VectorizarMarkdownRes
 
     chunks, metadata = parse_md_to_chunks(texto_md.decode("utf-8"))
     vectores = generar_embeddings(chunks)
-    indexados = indexar_en_qdrant(chunks, vectores, metadata, coleccion)
+    indexados = indexar_en_qdrant(chunks, vectores, metadata, coleccion, store=qdrant)
     logger.info(f"Documentos indexados en colección '{coleccion}': {indexados}")
     return VectorizarMarkdownResponse(
         status="ok",
@@ -83,9 +83,9 @@ async def cargar_pdf(
             f"Formato El Peruano: {is_el_peruano})"
         )
 
-        # Extrae texto, chunkea, vectoriza y sube a Qdrant.
         build_index(
             pdf_path=temp_path,
+            store=QdrantAdapter(),
             coleccion=coleccion,
             norma=norma,
             is_el_peruano=is_el_peruano,
@@ -108,6 +108,6 @@ async def cargar_pdf(
 @router.get("", response_model=ListarDocumentosResponse)
 async def listar_documentos() -> ListarDocumentosResponse:
     """Lista las colecciones (normativas/documentos) cargadas en Qdrant."""
-    qdrant = QdrantStore()
+    qdrant = QdrantAdapter()
     colecciones = qdrant.get_collections()
     return ListarDocumentosResponse(status="ok", total=len(colecciones), documentos=colecciones)

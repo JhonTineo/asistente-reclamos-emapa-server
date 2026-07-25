@@ -1,82 +1,24 @@
 import json
-from langchain_core.prompts import (ChatPromptTemplate)
-from app.src.application.adapters.llm import get_llm
+import logging
+from app.src.application.ports.provider_port import MensajeLLM
+from app.src.application.services.llm.llm_router_service import LlmRouterService, MODELO_EXTERNO_DEFAULT
 
-PROMPT = ChatPromptTemplate.from_messages(
-    [
-        (
-            "system",
-            """
-Eres un especialista jurídico en
-regulación SUNASS.
-
-Debes analizar:
-
-1. Reclamo.
-2. Evidencias.
-3. Artículos normativos.
-4. Resumen analítico de servicio anual brindado por EMAPA.
-
-No utilices conocimiento externo.
-
-Responde únicamente JSON.
-
-Formato:
-
-{{
-    "clasificacion":"",
-    "procede":true,
-    "nivel_confianza":0.0,
-    "articulos_aplicables":[],
-    "fundamento":"",
-    "requiere_revision_humana":false
-}}
-"""
-        ),
-        (
-            "user",
-            """
-RECLAMO
-
-{detalle}
-
-CLASIFICACIÓN DE RECLAMO
-
-{clasificacion}
-
-
-EVIDENCIAS
-
-{evidencias}
-
-
-ARTICULOS
-
-{articulos}
-
-RESUMEN ANALÍTICO DE SERVICIO ANUAL BRINDADO POR EMAPA
-
-{resumen_servicio}
-"""
-        )
-    ]
-)
-
+logger = logging.getLogger("agent.dictaminador")
 
 class DictaminadorAgent:
 
-    def __init__(self):
-
-        self.llm = get_llm()
+    def __init__(self, llm_router: LlmRouterService, model: str | None = None):
+        self.llm_router = llm_router
+        self.model_id = model or MODELO_EXTERNO_DEFAULT
 
     def run(
         self,
-        detalle,
-        clasificacion,
-        evidencias,
-        articulos,
-        resumen_servicio
-    ):
+        detalle: str,
+        clasificacion: str,
+        evidencias: list | dict | str,
+        articulos: str,
+        resumen_servicio: str
+    ) -> dict:
 
         if isinstance(evidencias, (dict, list)):
             texto_evidencias = json.dumps(
@@ -87,18 +29,43 @@ class DictaminadorAgent:
         else:
             texto_evidencias = str(evidencias)
 
-        chain = PROMPT | self.llm
-
-        result = chain.invoke(
-            {
-                "detalle": detalle,
-                "evidencias": texto_evidencias,
-                "articulos": articulos,
-                "resumen_servicio": resumen_servicio,
-                "clasificacion": clasificacion
-            }
+        system = (
+            "Eres un especialista jurídico en regulación SUNASS.\n"
+            "Debes analizar:\n"
+            "1. Reclamo.\n"
+            "2. Evidencias.\n"
+            "3. Artículos normativos.\n"
+            "4. Resumen analítico de servicio anual brindado por EMAPA.\n\n"
+            "No utilices conocimiento externo.\n"
+            "Responde únicamente JSON.\n"
+            "Formato:\n"
+            "{\n"
+            '    "clasificacion":"",\n'
+            '    "procede":true,\n'
+            '    "nivel_confianza":0.0,\n'
+            '    "articulos_aplicables":[],\n'
+            '    "fundamento":"",\n'
+            '    "requiere_revision_humana":false\n'
+            "}"
         )
 
-        return json.loads(
-            result.content
+        human = (
+            f"RECLAMO\n{detalle}\n\n"
+            f"CLASIFICACIÓN DE RECLAMO\n{clasificacion}\n\n"
+            f"EVIDENCIAS\n{texto_evidencias}\n\n"
+            f"ARTICULOS\n{articulos}\n\n"
+            f"RESUMEN ANALÍTICO DE SERVICIO ANUAL BRINDADO POR EMAPA\n{resumen_servicio}"
         )
+
+        try:
+            response_text = self.llm_router.generar_json(
+                mensajes=[
+                    MensajeLLM(rol="system", contenido=system),
+                    MensajeLLM(rol="user", contenido=human)
+                ],
+                modelo_id=self.model_id
+            )
+            return json.loads(response_text)
+        except Exception as e:
+            logger.warning("[DICTAMINADOR] Error: %s", e)
+            return {"error": str(e)}

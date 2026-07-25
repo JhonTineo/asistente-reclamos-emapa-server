@@ -8,15 +8,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from app.src.application.services.rag.embeddings import EmbeddingService
-from app.src.application.services.rag.qdrant_store import QdrantStore
+from app.src.application.ports.vector_db_port import PuertoBaseVectorial
 
-from app.src.application.services.chunck.pdf_chunk import (
+from app.src.application.services.rag.pdf_chunk import (
     extract_document_structure,
     parse_document,
     clean_article
 )
 
-from app.src.application.services.chunck.legal_chunker import (
+from app.src.application.services.rag.legal_chunker import (
     split_numerals
 )
 
@@ -44,12 +44,12 @@ def extract_articles(pdf_path, is_el_peruano=True):
     return articles
 
 
-def build_index(pdf_path, coleccion="sunass_reglamento", norma="Reglamento Calidad Servicios Saneamiento", is_el_peruano=True):
+def build_index(pdf_path, store: PuertoBaseVectorial, coleccion="sunass_reglamento", norma="Reglamento Calidad Servicios Saneamiento", is_el_peruano=True):
     articles = extract_articles(pdf_path, is_el_peruano=is_el_peruano)
 
     embedder = EmbeddingService()
 
-    qdrant = QdrantStore()
+    qdrant = store
 
     qdrant.create_collection(
         collection_name=coleccion,
@@ -165,5 +165,9 @@ if __name__ == "__main__":
             os.path.join(SRC_DIR, "storage", "files")
         )
 
+    # Punto de composición del script: acá sí se elige el adaptador concreto.
+    from app.src.infrastructure.adapters.qdrant_adapter import QdrantAdapter
+
+    store = QdrantAdapter()
     for pdf in pdfs:
-        build_index(pdf)
+        build_index(pdf, store)

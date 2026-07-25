@@ -17,8 +17,8 @@ from app.src.infrastructure.api_rest.schemas.informe import (
 from app.src.infrastructure.api_rest.schemas.reclamo import (
     ClasificarRapidoRequest, ClasificarRapidoResponse, FinalizarAtencionResponse,
 )
-from app.src.application.adapters.emapa_api import buscar_reclamo_emapa
-from app.src.application.adapters.http import EmapaSinDatosError
+from app.src.infrastructure.adapters.emapa_http_adapter import EmapaHttpAdapter
+from app.src.infrastructure.adapters.http_client import EmapaSinDatosError
 from app.src.application.services.informe.informe_store import informe_store, ReclamoEnAtencionError
 from app.src.application.services.informe.render import construir_texto_informe
 from app.src.application.services.informe.sustentacion import construir_sustentacion
@@ -30,7 +30,9 @@ from app.src.core.model.reclamo import Reclamo
 # implementados ahí (objetivos, conclusión) en vez de duplicarlos. No hay
 # import circular: investigacion.py no importa de acá.
 from app.src.infrastructure.api_rest.investigacion import (
-    generar_objetivos, generar_conclusion,
+    generar_objetivos,
+    re_generar_conclusion,
+    fundamentar_normativa,
 )
 from app.src.infrastructure.api_rest.deps import usar_token_emapa, requerir_token_emapa, usar_config_llm
 
@@ -68,7 +70,7 @@ async def buscar_reclamo(
     logger.info("[API /reclamo] codsede=%s | codsuc=%s | codcliente=%s | codreclamo=%s",
                 codsede, codsuc, codcliente, codreclamo)
     try:
-        datos = buscar_reclamo_emapa(codsede, codsuc, codreclamo, codcliente)
+        datos = EmapaHttpAdapter().buscar_reclamo(codsede, codsuc, codreclamo, codcliente)
     except EmapaSinDatosError:
         tiempo = time.perf_counter() - t_inicio
         logger.warning(
@@ -294,10 +296,14 @@ _MEDIOS_ANALIZABLES: list[tuple[str, str]] = [
     ("inspeccion_interna", "Inspección Interna"),
 ]
 
+from app.src.infrastructure.api_rest.deps import usar_token_emapa, requerir_token_emapa, usar_config_llm, get_llm_router
+from app.src.application.services.llm.llm_router_service import LlmRouterService
+
 @router.post("/informe-atencion", response_model=InformeAutomaticoResponse, tags=["automatizacion"])
 async def generar_informe_atencion(
     request: InformeAutomaticoRequest,
     token: str = Depends(requerir_token_emapa),
+    llm_router: LlmRouterService = Depends(get_llm_router),
 ) -> InformeAutomaticoResponse:
     """
     Orquesta el flujo COMPLETO del informe de atención en una sola llamada,
@@ -324,12 +330,12 @@ async def generar_informe_atencion(
     # --- 1. Búsqueda + creación de metadatos --------------------------------
     informe = await buscar_y_crear_informe_o_lanzar(
         request.codsede, request.codsuc, request.codreclamo, request.codcliente,
-        token, request.sesion_id,
+        token, request.sesion_id, EmapaHttpAdapter(),
     )
     clasificacion = informe.clasificacion or ""
 
     # --- 2. Objetivos de investigación --------------------------------------
-    await generar_objetivos(ObjetivosRequest(codreclamo=request.codreclamo, modelo=request.modelo))
+    await generar_objetivos(ObjetivosRequest(codreclamo=request.codreclamo, modelo=request.modelo), llm_router)
 
     # --- 3. Análisis de los medios probatorios (EN PARALELO) ---------------
     req_medio = BuscarReclamoRequest(
@@ -341,16 +347,17 @@ async def generar_informe_atencion(
         modelo=request.modelo,
     )
     medios_analizados, medios_omitidos = await analizar_medios_en_paralelo(
-        req_medio, _MEDIOS_ANALIZABLES
+        req_medio, _MEDIOS_ANALIZABLES, EmapaHttpAdapter(), llm_router
     )
 
     # --- 4. Conclusión (fundamentación + veredicto) -------------------------
-    conclusion_resp = await generar_conclusion(
+    conclusion_resp = await re_generar_conclusion(
         InformeRequest(
             codreclamo=request.codreclamo,
             clasificacion=clasificacion,
             modelo=request.modelo,
-        )
+        ),
+        llm_router
     )
 
     informe = informe_store.obtener(request.codreclamo)

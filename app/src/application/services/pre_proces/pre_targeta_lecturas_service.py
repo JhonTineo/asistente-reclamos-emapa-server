@@ -7,7 +7,7 @@ import pandas as pd
 
 from app.src.core.model.targeta_lecturas import TargetaLecturas, LecturaMensual
 from app.src.core.model.indicadores.targeta_lecturas_indicadores import INDICADORES_TARJETA_LECTURA
-from app.src.application.adapters.emapa_api import obtener_tarjeta_lectura
+from app.src.application.ports.emapa_api_port import PuertoEmapaAPI
 from app.src.application.services.pre_proces.df_utils import df_a_registros, agregar_traducciones
 from app.src.application.services.pre_proces.ventana_utils import calcular_ventana
 
@@ -45,6 +45,9 @@ _HINTS = get_type_hints(LecturaMensual)
 CAMPOS_NUMERICOS = [n for n, t in _HINTS.items() if float in get_args(t) or t is float]
 
 class PreTargetaLecturasService:
+
+    def __init__(self, emapa_api: PuertoEmapaAPI):
+        self.emapa_api = emapa_api
     
     def preprocesar_targeta_lecturas(
         self, codsuc: str, codcliente: str, meses: int = 12,
@@ -59,7 +62,7 @@ class PreTargetaLecturasService:
         logger.info("[PRE_TARGETA_LECTURAS] Ventana: %d meses (%s .. %s)",
                     len(ventana), ventana[0], ventana[-1])
 
-        json_raw = obtener_tarjeta_lectura(codsuc, codcliente)
+        json_raw = self.emapa_api.obtener_tarjeta_lectura(codsuc, codcliente)
         logger.info("[PRE_TARGETA_LECTURAS] Datos obtenidos de EMAPA en %.2f segundos", time.time() - t1)
 
         targeta, df = self._construir_targeta(json_raw, ventana)

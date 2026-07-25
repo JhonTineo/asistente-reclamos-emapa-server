@@ -11,10 +11,12 @@ Dado un ProblemaNormado detectado en un medio probatorio:
 import json
 import re
 import logging
-from langchain_core.messages import SystemMessage, HumanMessage
-from app.src.application.adapters.llm import get_llm, log_uso_llm
+from app.src.application.ports.provider_port import MensajeLLM
+from app.src.application.services.llm.llm_router_service import LlmRouterService, MODELO_EXTERNO_DEFAULT
 from app.src.application.services.rag.retriever import Retriever
 from app.src.core.model.informe_atencion import ProblemaNormado
+from app.src.application.ports.vector_db_port import PuertoBaseVectorial
+
 
 logger = logging.getLogger("agent.fundamentacion_normativa")
 
@@ -70,11 +72,13 @@ def _concepto(detalle: str) -> str:
     return detalle.split(":", 1)[0].strip()
 
 
+
 class FundamentacionNormativaAgent:
 
-    def __init__(self, model: str | None = None):
-        self.retriever = Retriever()
-        self.llm = get_llm(model=model)
+    def __init__(self, qdrant: PuertoBaseVectorial, llm_router: LlmRouterService, model: str | None = None):
+        self.retriever = Retriever(qdrant)
+        self.llm_router = llm_router
+        self.model_id = model or MODELO_EXTERNO_DEFAULT
 
     # ------------------------------------------------------------------ #
     # 1) Búsqueda vectorial
@@ -156,15 +160,17 @@ class FundamentacionNormativaAgent:
             len(articulos),
         )
 
-        response = self.llm.invoke([
-            SystemMessage(content=system),
-            HumanMessage(content=human),
-        ])
-        log_uso_llm(logger, "fundamentacion", response)
+        response_text = self.llm_router.generar_json(
+            mensajes=[
+                MensajeLLM(rol="system", contenido=system),
+                MensajeLLM(rol="user", contenido=human)
+            ],
+            modelo_id=self.model_id
+        )
 
-        logger.info("RESPUESTA LLM (raw): %s", response.content)
+        logger.info("RESPUESTA LLM (raw): %s", response_text)
 
-        return self._parse_json(response.content or "")
+        return self._parse_json(response_text or "")
 
     @staticmethod
     def _parse_json(texto: str) -> dict:
