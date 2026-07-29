@@ -10,6 +10,7 @@ from app.src.infrastructure.api_rest.schemas.investigacion import (
     ResumenMedio, ProblemaNormadoSchema, ProblemaInforme,
     SustentacionResponse,
     ObjetivosRequest, BuscarReclamoRequest, InformeRequest,
+    IniciarInvestigacionRequest, IniciarInvestigacionResponse,
 )
 from app.src.infrastructure.api_rest.schemas.informe import (
     InformeAutomaticoRequest, InformeAutomaticoResponse,
@@ -22,10 +23,10 @@ from app.src.infrastructure.adapters.http_client import EmapaSinDatosError
 from app.src.application.services.informe.informe_store import informe_store, ReclamoEnAtencionError
 from app.src.application.services.informe.render import construir_texto_informe
 from app.src.application.services.informe.sustentacion import construir_sustentacion
-from app.src.application.services.informe.informe_service import buscar_y_crear_informe_o_lanzar
-from app.src.application.services.investigacion.reclamo_service import campo_reclamo, codigo_inspeccion
+from app.src.application.services.informe.informe_service import (
+    buscar_y_crear_informe_o_lanzar, crear_informe_desde_datos,
+)
 from app.src.application.services.investigacion.investigacion_service import analizar_medios_en_paralelo
-from app.src.core.model.reclamo import Reclamo
 # Orquestador (POST /informe-atencion): reusa los pasos de investigación ya
 # implementados ahí (objetivos, conclusión) en vez de duplicarlos. No hay
 # import circular: investigacion.py no importa de acá.
@@ -101,55 +102,68 @@ async def buscar_reclamo(
     tiempo = time.perf_counter() - t_inicio
     logger.info("[API /reclamo] OK | tiempo=%.2fs", tiempo)
 
-    # Motivo (lo que reclama el cliente) y clasificación (desCodReclamo).
-    motivo = campo_reclamo(datos, "motivo")
-    clasificacion = campo_reclamo(datos, "desCodReclamo")
-
-    # Código de inspección (nroinspeccion) vinculado a ESTE reclamo
-    codinspeccion_interna = codigo_inspeccion(datos, "inspeccion_interna")
-    codinspeccion_externa = codigo_inspeccion(datos, "inspeccion_externa")
-    if not codinspeccion_interna:
-        logger.warning("[API /reclamo] Reclamo %s sin inspección interna vinculada", codreclamo)
-    if not codinspeccion_externa:
-        logger.warning("[API /reclamo] Reclamo %s sin inspección externa vinculada", codreclamo)
-
-    # Entidad de dominio Reclamo: datos de EMAPA que el resto de la
-    # investigación necesita, ya tipados (se arma una sola vez aquí).
-    datos_reclamo = Reclamo(
-        codcliente=campo_reclamo(datos, "codcliente") or None,
-        reclamante=campo_reclamo(datos, "reclamante") or None,
-        propietario=campo_reclamo(datos, "propietario") or None,
-        dni=campo_reclamo(datos, "dniCliente") or campo_reclamo(datos, "nrodocident") or None,
-        tipo_reclamo=campo_reclamo(datos, "descTipoReclamo") or None,
-        clasificacion_reclamo=clasificacion or None,
-        motivo_reclamo=motivo or None,
-        meses_reclamados=campo_reclamo(datos, "mesanio") or None,
-        fecha_recepcion=campo_reclamo(datos, "fecharec") or None,
-        estado_reclamo=campo_reclamo(datos, "descEstadoRec") or None,
-        codinspeccion_interna=codinspeccion_interna,
-        codinspeccion_externa=codinspeccion_externa,
-    )
-
-    # Se crean los metadatos del informe de atención y quedan en el
-    # store, listos para ir llenándose con cada medio analizado.
+    # Extracción de campos + entidad de dominio Reclamo + creación de metadatos
+    # en el store (se guarda también el token para reutilizarlo en la
+    # investigación). Mismo núcleo que usa POST /iniciar-investigacion.
     try:
-        informe = informe_store.crear_metadata(
-            codreclamo=codreclamo,
-            suministro=codcliente,
-            datos_reclamo=datos_reclamo,
-            sesion_id=sesion_id,
-        )
+        informe = crear_informe_desde_datos(datos, codreclamo, codcliente, token, sesion_id)
     except ReclamoEnAtencionError as e:
         logger.warning("[API /reclamo] %s", e)
         logger.info("=" * 60)
         raise HTTPException(status_code=409, detail=str(e))
-    # Se guarda el token con el que se buscó el reclamo para reutilizarlo en
-    # las consultas de investigación de este mismo reclamo.
-    informe_store.guardar_token(codreclamo, token)
     logger.info("=" * 60)
     return BuscarReclamoResponse(
         codreclamo=codreclamo,
         datos=datos,
+        informe=InformeMetadata(
+            numero=informe.numero,
+            fecha=informe.fecha.isoformat(),
+            asunto=informe.asunto,
+            reclamo=informe.reclamo,
+            suministro=informe.suministro,
+            destinatario=informe.destinatario,
+            datos_reclamo=ReclamoSchema(**vars(informe.datos_reclamo)) if informe.datos_reclamo else None,
+        ),
+        tiempo=tiempo,
+    )
+
+
+@router.post("/iniciar-investigacion", response_model=IniciarInvestigacionResponse)
+async def iniciar_investigacion(
+    request: IniciarInvestigacionRequest,
+    token: str = Depends(requerir_token_emapa),
+) -> IniciarInvestigacionResponse:
+    """
+    Arranca la investigación creando el informe de atención a partir del detalle
+    del reclamo YA obtenido por el frontend (pantalla de detalle), SIN volver a
+    consultar EMAPA.
+
+    Hace exactamente lo mismo que GET /reclamo/{codsede}/{codsuc}/{codreclamo}/
+    {codcliente} de la creación de la entidad de dominio en adelante (extrae los
+    campos, arma el `Reclamo`, crea los metadatos y guarda el token), pero
+    recibiendo el detalle en el cuerpo. Evita una segunda búsqueda del mismo
+    reclamo, ya que la pantalla de detalle lo trajo con la misma consulta EMAPA.
+    """
+    t_inicio = time.perf_counter()
+    logger.info("=" * 60)
+    logger.info(
+        "[API /iniciar-investigacion] codreclamo=%s | codcliente=%s",
+        request.codreclamo, request.codcliente,
+    )
+    try:
+        informe = crear_informe_desde_datos(
+            request.datos, request.codreclamo, request.codcliente, token, request.sesion_id,
+        )
+    except ReclamoEnAtencionError as e:
+        logger.warning("[API /iniciar-investigacion] %s", e)
+        logger.info("=" * 60)
+        raise HTTPException(status_code=409, detail=str(e))
+
+    tiempo = time.perf_counter() - t_inicio
+    logger.info("[API /iniciar-investigacion] OK | tiempo=%.2fs", tiempo)
+    logger.info("=" * 60)
+    return IniciarInvestigacionResponse(
+        codreclamo=request.codreclamo,
         informe=InformeMetadata(
             numero=informe.numero,
             fecha=informe.fecha.isoformat(),

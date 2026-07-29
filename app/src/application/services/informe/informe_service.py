@@ -20,6 +20,58 @@ from app.src.core.model.informe_atencion import InformeAtencion
 logger = logging.getLogger("services.informe_service")
 
 
+def crear_informe_desde_datos(
+    datos: dict,
+    codreclamo: str,
+    codcliente: str,
+    token: str,
+    sesion_id: str | None,
+) -> InformeAtencion:
+    """Crea la entidad de dominio del informe de atención a partir del detalle
+    CRUDO del reclamo (el mismo JSON que devuelve EMAPA en
+    `reclamo/obtener/detalle/...`, con su clave `data`). Extrae los campos, arma
+    el `Reclamo`, crea los metadatos en el store y guarda el token.
+
+    NO llama a EMAPA: el detalle ya viene dado (lo tiene el frontend desde la
+    pantalla de detalle, o lo acaba de traer la búsqueda). Es el núcleo común de
+    la búsqueda manual, el flujo automatizado y el arranque desde el frontend.
+
+    Lanza `ReclamoEnAtencionError` (que los endpoints traducen a 409) si otra
+    sesión ya está atendiendo el mismo reclamo."""
+    motivo = campo_reclamo(datos, "motivo")
+    clasificacion = campo_reclamo(datos, "desCodReclamo")
+    codinspeccion_interna = codigo_inspeccion(datos, "inspeccion_interna")
+    codinspeccion_externa = codigo_inspeccion(datos, "inspeccion_externa")
+    if not codinspeccion_interna:
+        logger.warning("[informe] Reclamo %s sin inspección interna vinculada", codreclamo)
+    if not codinspeccion_externa:
+        logger.warning("[informe] Reclamo %s sin inspección externa vinculada", codreclamo)
+
+    datos_reclamo = Reclamo(
+        codcliente=campo_reclamo(datos, "codcliente") or None,
+        reclamante=campo_reclamo(datos, "reclamante") or None,
+        propietario=campo_reclamo(datos, "propietario") or None,
+        dni=campo_reclamo(datos, "dniCliente") or campo_reclamo(datos, "nrodocident") or None,
+        tipo_reclamo=campo_reclamo(datos, "descTipoReclamo") or None,
+        clasificacion_reclamo=clasificacion or None,
+        motivo_reclamo=motivo or None,
+        meses_reclamados=campo_reclamo(datos, "mesanio") or None,
+        fecha_recepcion=campo_reclamo(datos, "fecharec") or None,
+        estado_reclamo=campo_reclamo(datos, "descEstadoRec") or None,
+        codinspeccion_interna=codinspeccion_interna,
+        codinspeccion_externa=codinspeccion_externa,
+    )
+
+    informe = informe_store.crear_metadata(
+        codreclamo=codreclamo,
+        suministro=codcliente,
+        datos_reclamo=datos_reclamo,
+        sesion_id=sesion_id,
+    )
+    informe_store.guardar_token(codreclamo, token)
+    return informe
+
+
 async def buscar_y_crear_informe_o_lanzar(
     codsede: str, codsuc: str, codreclamo: str, codcliente: str,
     token: str, sesion_id: str | None,
@@ -44,39 +96,8 @@ async def buscar_y_crear_informe_o_lanzar(
         logger.error("[informe-atencion] Error EMAPA: %s", str(e))
         raise HTTPException(status_code=502, detail=str(e))
 
-    motivo = campo_reclamo(datos, "motivo")
-    clasificacion = campo_reclamo(datos, "desCodReclamo")
-    codinspeccion_interna = codigo_inspeccion(datos, "inspeccion_interna")
-    codinspeccion_externa = codigo_inspeccion(datos, "inspeccion_externa")
-    if not codinspeccion_interna:
-        logger.warning("[informe-atencion] Reclamo %s sin inspección interna vinculada", codreclamo)
-    if not codinspeccion_externa:
-        logger.warning("[informe-atencion] Reclamo %s sin inspección externa vinculada", codreclamo)
-
-    datos_reclamo = Reclamo(
-        codcliente=campo_reclamo(datos, "codcliente") or None,
-        reclamante=campo_reclamo(datos, "reclamante") or None,
-        propietario=campo_reclamo(datos, "propietario") or None,
-        dni=campo_reclamo(datos, "dniCliente") or campo_reclamo(datos, "nrodocident") or None,
-        tipo_reclamo=campo_reclamo(datos, "descTipoReclamo") or None,
-        clasificacion_reclamo=clasificacion or None,
-        motivo_reclamo=motivo or None,
-        meses_reclamados=campo_reclamo(datos, "mesanio") or None,
-        fecha_recepcion=campo_reclamo(datos, "fecharec") or None,
-        estado_reclamo=campo_reclamo(datos, "descEstadoRec") or None,
-        codinspeccion_interna=codinspeccion_interna,
-        codinspeccion_externa=codinspeccion_externa,
-    )
-
     try:
-        informe = informe_store.crear_metadata(
-            codreclamo=codreclamo,
-            suministro=codcliente,
-            datos_reclamo=datos_reclamo,
-            sesion_id=sesion_id,
-        )
+        informe = crear_informe_desde_datos(datos, codreclamo, codcliente, token, sesion_id)
     except ReclamoEnAtencionError as e:
         raise HTTPException(status_code=409, detail=str(e))
-
-    informe_store.guardar_token(codreclamo, token)
     return informe

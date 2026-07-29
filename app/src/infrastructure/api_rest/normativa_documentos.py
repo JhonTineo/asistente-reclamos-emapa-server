@@ -2,6 +2,7 @@ import logging
 import os
 import re
 import uuid
+import tempfile
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 
@@ -72,7 +73,8 @@ async def cargar_pdf(
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="El archivo debe ser un PDF.")
 
-    temp_path = f"/tmp/{uuid.uuid4()}_{file.filename}"
+    temp_dir = tempfile.gettempdir()
+    temp_path = os.path.join(temp_dir, f"{uuid.uuid4()}_{file.filename}")
     try:
         with open(temp_path, "wb") as f:
             content = await file.read()

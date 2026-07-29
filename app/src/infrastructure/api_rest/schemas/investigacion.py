@@ -122,6 +122,26 @@ class BuscarReclamoRequest(BaseModel):
     modelo: str | None = None
 
 
+class IniciarInvestigacionRequest(BaseModel):
+    codreclamo: str = Field(description="Código del reclamo (clave del informe en el store)")
+    codcliente: str = Field(description="Código de cliente / suministro")
+    datos: dict = Field(
+        description=(
+            "Detalle CRUDO del reclamo tal como lo devuelve EMAPA en "
+            "reclamo/obtener/detalle/... (incluida su clave 'data'), ya obtenido "
+            "por el frontend en la pantalla de detalle. Evita una segunda "
+            "consulta a EMAPA para el mismo reclamo."
+        )
+    )
+    sesion_id: str | None = Field(
+        default=None,
+        description=(
+            "Identificador de la pestaña/sesión del frontend. Si otra sesión ya "
+            "está atendiendo este reclamo, se rechaza con 409."
+        ),
+    )
+
+
 class ReclamoSchema(BaseModel):
     codcliente: str | None = None
     reclamante: str | None = None
@@ -148,6 +168,16 @@ class InformeMetadata(BaseModel):
 class BuscarReclamoResponse(BaseModel):
     codreclamo: str
     datos: dict | None = None
+    informe: InformeMetadata | None = None
+    error: str | None = None
+    tiempo: float
+
+
+class IniciarInvestigacionResponse(BaseModel):
+    # A diferencia de BuscarReclamoResponse, NO devuelve `datos` (el detalle
+    # crudo del reclamo): el frontend ya lo tiene (fue quien lo mandó), así que
+    # reenviarlo sería redundante. Solo interesa el informe de atención creado.
+    codreclamo: str
     informe: InformeMetadata | None = None
     error: str | None = None
     tiempo: float
@@ -301,6 +331,15 @@ class ActualizarPropuestaResponse(BaseModel):
 
 # --- Edición manual de los demás datos de la conciliación (no la propuesta de
 # la empresa, que ya tiene su propio PATCH /conciliacion/propuesta arriba) ---
+class GuardarConciliacionRequest(BaseModel):
+    codreclamo: str = Field(description="Código del reclamo")
+    propuesta_empresa: str | None = Field(default=None, description="Propuesta de la EPS")
+    propuesta_reclamante: str | None = Field(default=None, description="Postura del cliente")
+    puntos_acuerdo: str | None = Field(default=None, description="Puntos de acuerdo")
+    puntos_desacuerdo: str | None = Field(default=None, description="Puntos de desacuerdo")
+    observaciones: str | None = Field(default=None, description="Observaciones adicionales")
+
+
 class ActualizarConciliacionRequest(BaseModel):
     codreclamo: str = Field(description="Código del reclamo (clave del informe en el store)")
     propuesta_reclamante: str | None = Field(default=None, description="Postura/propuesta del cliente frente a la conciliación")

@@ -10,9 +10,10 @@ from app.src.infrastructure.api_rest.schemas.investigacion import (
     ActualizarPropuestaResponse,
     ActualizarConciliacionRequest,
     ActualizarConciliacionResponse,
+    GuardarConciliacionRequest,
 )
 from app.src.application.services.investigacion.conciliacion_service import (
-    generar_propuesta_conciliacion, actualizar_propuesta_conciliacion, actualizar_conciliacion,
+    generar_propuesta_conciliacion, actualizar_propuesta_conciliacion, actualizar_conciliacion, guardar_conciliacion
 )
 
 logger = logging.getLogger("api.conciliacion")
@@ -24,14 +25,25 @@ router = APIRouter(
 )
 
 
-@router.post("/propuesta", response_model=ConciliacionResponse)
-async def generar_propuesta(request: ConciliacionRequest, llm_router: LlmRouterService = Depends(get_llm_router)) -> ConciliacionResponse:
+@router.get("/propuesta", response_model=ConciliacionResponse)
+async def generar_propuesta(codreclamo: str, modelo: str | None = None, llm_router: LlmRouterService = Depends(get_llm_router)) -> ConciliacionResponse:
     """
     Genera la propuesta de conciliación a partir de la CONCLUSIÓN del informe de
     atención, la propuesta de la empresa y la postura del reclamante. Guarda el
     resultado en el informe del store.
     """
-    return await generar_propuesta_conciliacion(request, llm_router)
+    from app.src.infrastructure.api_rest.schemas.investigacion import ConciliacionRequest
+    req = ConciliacionRequest(codreclamo=codreclamo, modelo=modelo)
+    return await generar_propuesta_conciliacion(req, llm_router)
+
+
+@router.post("/propuesta", response_model=ActualizarConciliacionResponse)
+async def guardar_datos_conciliacion(request: GuardarConciliacionRequest) -> ActualizarConciliacionResponse:
+    """
+    Guarda todos los datos de la conciliación: propuesta de la empresa, postura
+    del reclamante, puntos de acuerdo/desacuerdo y observaciones.
+    """
+    return guardar_conciliacion(request)
 
 
 @router.patch("/propuesta", response_model=ActualizarPropuestaResponse)
