@@ -45,17 +45,28 @@ class OpenAiCompatProviderAdapter(PuertoProveedorLLM):
     Adaptador para cualquier proveedor que sea compatible con la API de OpenAI.
     Esto incluye OpenAI, OpenRouter, y Gemini (usando su base_url de OpenAI compat).
     """
-    def __init__(self, base_url: str, api_key: str):
+    def __init__(self, base_url: str, api_key: str, provider_id: str | None = None):
         self.base_url = base_url
         self.api_key = api_key
+        # Id del proveedor al que pertenece este adaptador ("openrouter", "groq"…).
+        # Se usa para decidir si la API key que mandó el usuario por header aplica:
+        # esa key es del proveedor que el usuario eligió, NO del resto.
+        self.provider_id = (provider_id or "").strip().lower()
 
     def _crear_cliente(self, modelo_id: str, temperatura: float) -> ChatOpenAI:
         from app.src.infrastructure.config.llm_context import get_llm_ctx
         ctx = get_llm_ctx()
-        
-        # Si el usuario mandó una API key explícitamente, la usamos sobre la del sistema.
-        api_key = ctx.get("api_key") or self.api_key
-        
+
+        # La API key del header solo pertenece al proveedor que el usuario eligió
+        # (ctx["proveedor"]). En modo "auto" el router prueba OTROS proveedores en
+        # cascada; a esos hay que autenticarlos con SU propia key de entorno, no
+        # con la del header. Sin esta condición, todos los proveedores del combo
+        # se llamaban con la key del proveedor activo (p.ej. la de OpenRouter) y
+        # devolvían 401.
+        ctx_proveedor = (ctx.get("proveedor") or "").strip().lower()
+        key_del_header = ctx.get("api_key") if ctx_proveedor == self.provider_id else None
+        api_key = key_del_header or self.api_key
+
         logger.info(
             "[OpenAI Compat] _crear_cliente | base_url=%s | modelo=%s | api_key=%s",
             self.base_url, modelo_id,

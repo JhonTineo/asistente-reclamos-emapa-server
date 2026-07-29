@@ -23,7 +23,6 @@ class RegistroFacturacion:
 @dataclass
 class RecordFacturacion:
     # Escalares
-    codcliente: str | None = None
     categoria: str | None = None              # categoría tarifaria (traducida: COMERCIAL, DOMESTICO…)
     formaPredominante: str | None = None      # forma de facturación más frecuente
     totalMeses: int = 0

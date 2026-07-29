@@ -17,7 +17,6 @@ class RegistroCorteReapertura:
 @dataclass
 class CorteReapertura:
     # Escalares
-    codcliente: str | None = None
     # Indica que la API devolvió registros pero ninguno cae en la ventana analizada.
     sinRegistrosEnVentana: bool = False
     totalRegistrosOriginales: int = 0

@@ -49,9 +49,9 @@ INSTRUCCIONES_POR_MEDIO: dict[str, list[str]] = {
         _REGLA_SOLO_DATOS,
         "",
         "Estructura sugerida, solo con los campos disponibles:",
-        "- Empieza con la fecha (fechainspeccion) y quién la realizó "
-        "(nomresponsable): 'Con fecha [fechainspeccion], el señor(a) "
-        "[nomresponsable] realizó la inspección externa al predio…'.",
+        "- Empieza con la fecha (fechainspeccion) "
+        "'Con fecha [fechainspeccion], se realizó la inspección externa "
+        "al predio del señor [nomresponsable]'.",
         "- Estado de funcionamiento del medidor (funcionamed) y si se pudo tomar "
         "lectura.",
         "- Fugas: si se detectaron (fugas) y de qué tipo (tipofugas).",
@@ -87,8 +87,8 @@ INSTRUCCIONES_POR_MEDIO: dict[str, list[str]] = {
         "",
         "Menciona, si están presentes:",
         "- Consumos atípicos o excesivos y en qué meses (errorConsumo).",
-        "- Si un consumo elevado retornó al promedio en un mes posterior (fuga no "
-        "visible ya reparada), CON las cifras (fugaReparada).",
+        "- Si un consumo elevado retornó al promedio en un mes posterior "
+        "o en algun mes se encontro (fugaReparada).",
         "- Errores de lectura o de registro del medidor (errorLecturas, errorServicio).",
         "NO menciones metadatos ni totales de registros.",
         _CIERRE,

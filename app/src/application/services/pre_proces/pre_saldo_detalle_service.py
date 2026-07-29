@@ -90,7 +90,6 @@ class PreSaldoDetalleService:
             return SaldoDetalle(), pd.DataFrame(columns=COLUMNAS)
 
         df_raw = pd.DataFrame(registros)
-        codcliente = str(df_raw["codcliente"].iloc[0]) if "codcliente" in df_raw.columns else None
 
         # Renombra el tipo de servicio del JSON al nombre de la entidad.
         if CAMPO_TIPOSERVICIO_JSON in df_raw.columns:
@@ -117,7 +116,7 @@ class PreSaldoDetalleService:
         if "tiposervicio" in df.columns and df["tiposervicio"].notna().any():
             tipo_servicio = str(df["tiposervicio"].dropna().mode().iloc[0])
         saldo = SaldoDetalle(
-            codcliente=codcliente, tipoServicio=tipo_servicio, registros=df_a_registros(df), **indicadores
+            tipoServicio=tipo_servicio, registros=df_a_registros(df), **indicadores
         )
         return saldo, df
 

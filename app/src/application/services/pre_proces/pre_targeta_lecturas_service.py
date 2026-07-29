@@ -122,7 +122,6 @@ class PreTargetaLecturasService:
 
         indicadores = self._calcular_indicadores(df)
         targeta = TargetaLecturas(
-            codcliente=_primer("codcliente"),
             nomtar=_primer("nomtar"),
             destipoactividad=_primer("destipoactividad"),
             tipopromedio=tipopromedio,

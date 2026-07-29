@@ -19,7 +19,6 @@ class SaldoMensual:
 @dataclass
 class SaldoDetalle:
     # Escalares
-    codcliente: str | None = None
     tipoServicio: str | None = None            # tipo de servicio predominante
     totalMeses: int = 0
     # Hallazgos: SOLO los meses "con problema" (no el detalle de todos los meses),

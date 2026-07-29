@@ -176,7 +176,7 @@ def get_llm_router(request: Request) -> LlmRouterService:
 
     providers = {
         **{
-            pid: OpenAiCompatProviderAdapter(p.base_url, p.api_key)
+            pid: OpenAiCompatProviderAdapter(p.base_url, p.api_key, provider_id=pid)
             for pid, p in externos.items()
         },
         PROVEEDOR_LOCAL: OllamaProviderAdapter(

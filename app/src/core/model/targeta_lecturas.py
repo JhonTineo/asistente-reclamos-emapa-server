@@ -22,7 +22,6 @@ class LecturaMensual:
 @dataclass
 class TargetaLecturas:
     # Escalares constantes del suministro.
-    codcliente: str | None = None
     nomtar: str | None = None
     destipoactividad: str | None = None
     tipopromedio: str | None = None
