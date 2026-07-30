@@ -53,6 +53,12 @@ def construir_texto_informe(informe: InformeAtencion) -> str:
         for i, bloque in enumerate(informe.bloques, start=1)
     ]
 
+    # La fundamentación normativa es el punto numerado que sigue a los resúmenes
+    # de los medios y precede a la conclusión (como el punto normativo del
+    # informe real que cita el artículo/numeral aplicable).
+    if informe.fundamentacion_normativa:
+        cuerpo.append(f"{len(informe.bloques) + 1}. {informe.fundamentacion_normativa}")
+
     partes = ["\n".join(cabecera), "\n\n".join(cuerpo)]
 
     if informe.conclusion:

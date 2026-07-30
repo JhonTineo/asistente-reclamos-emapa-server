@@ -1,4 +1,3 @@
-import asyncio
 import time
 import logging
 from fastapi import APIRouter, HTTPException, Depends
@@ -24,9 +23,9 @@ from app.src.infrastructure.api_rest.schemas.investigacion import (
     ActualizarResumenResponse,
     ActualizarConclusionRequest,
     ActualizarConclusionResponse,
+    ActualizarFundamentacionRequest,
+    ActualizarFundamentacionResponse,
 )
-from app.src.application.usecase.agents.fundamentacion_normativa import FundamentacionNormativaAgent
-from app.src.infrastructure.adapters.qdrant_adapter import QdrantAdapter
 from app.src.infrastructure.adapters.emapa_http_adapter import EmapaHttpAdapter
 from app.src.application.usecase.agents.objetivos import ObjetivosAgent
 from app.src.application.usecase.agents.conclusion import ConclusionAgent
@@ -34,8 +33,10 @@ from app.src.application.usecase.agents.conclusion import ConclusionAgent
 from app.src.application.services.informe.informe_store import informe_store
 from app.src.application.services.informe.render import construir_texto_informe
 from app.src.application.services.investigacion.investigacion_service import (
-    enfoque_para_medio, codigo_inspeccion_para_medio, medios_determinantes,
     analizar_medio_y_registrar,
+)
+from app.src.application.services.investigacion.fundamentacion_service import (
+    fundamentar_normativa_sync,
 )
 
 logger = logging.getLogger("api.investigacion")
@@ -145,66 +146,25 @@ async def saldo_detalle(request: BuscarReclamoRequest, llm_router: LlmRouterServ
 
 @router.post("/fundamentar-normativa", response_model=InformeResponse, tags=["automatizacion"])
 async def fundamentar_normativa(request: InformeRequest, llm_router: LlmRouterService = Depends(get_llm_router)) -> InformeResponse:
-    """Para cada problema detectado en los medios determinantes (ver
-    ``medios_determinantes``), busca normativa y consulta al LLM qué procede hacer.
+    """Selecciona 1-3 hallazgos determinantes (de los medios determinantes) con
+    relación directa con el motivo y redacta UN párrafo de fundamentación
+    normativa, que se guarda en el informe (se renderiza antes de la conclusión).
     Sin streaming: pensada para flujos automatizados."""
-    t_inicio = time.perf_counter()
-    logger.info("=" * 60)
-    logger.info("[API /investigacion/fundamentar-normativa] codreclamo=%s", request.codreclamo)
+    resultado = await fundamentar_normativa_sync(request, llm_router)
 
     informe = informe_store.obtener(request.codreclamo)
-    if not informe:
-        raise HTTPException(
-            status_code=404, detail=f"No hay informe en curso para {request.codreclamo}",
-        )
-    if not informe.objetivos:
-        raise HTTPException(
-            status_code=400,
-            detail="El informe no tiene objetivos. Ejecute /investigacion/objetivos primero.",
-        )
-
-    # Solo fundamenta los hallazgos de los medios marcados como determinantes
-    # (los que deciden el veredicto).
-    m_det = medios_determinantes(informe)
-    if not m_det:
-        logger.warning(
-            "[API /investigacion/fundamentar-normativa] No hay objetivos "
-            "determinantes. Se fundamentarán TODOS los problemas.",
-        )
-        problemas = informe.problemas
-    else:
-        logger.info("[API /investigacion/fundamentar-normativa] Medios determinantes: %s", m_det)
-        problemas = [p for p in informe.problemas if p.medio_id in m_det]
-
-    if not problemas:
-        logger.info("[API /investigacion/fundamentar-normativa] Sin problemas para fundamentar")
-    else:
-        logger.info(
-            "[API /investigacion/fundamentar-normativa] %d problema(s) a fundamentar",
-            len(problemas),
-        )
-        fundamentador = FundamentacionNormativaAgent(qdrant=QdrantAdapter(), llm_router=llm_router, model=request.modelo)
-
-        async def _fundamentar_uno(p):
-            return await run_in_threadpool(fundamentador.fundamentar, p)
-
-        problemas_fundamentados = await asyncio.gather(*[_fundamentar_uno(p) for p in problemas])
-        for original, nuevo in zip(problemas, problemas_fundamentados):
-            original.__dict__.update(nuevo.__dict__)
-
-    tiempo = time.perf_counter() - t_inicio
-    logger.info(
-        "[API /investigacion/fundamentar-normativa] COMPLETADO | tiempo=%.2fs",
-        tiempo,
-    )
-    logger.info("=" * 60)
+    problemas = [
+        ProblemaInforme(medio_id=b.medio_id, **{k: getattr(p, k) for k in ("tipo", "detalle", "seleccionado", "articulos", "accion", "responsable", "base_legal")})
+        for b in informe.bloques for p in b.problemas
+    ]
     return InformeResponse(
         codreclamo=informe.reclamo,
         suministro=informe.suministro,
         clasificacion=informe.clasificacion,
         objetivos=[ObjetivoInvestigacionSchema(**vars(o)) for o in informe.objetivos] if informe.objetivos else [],
-        problemas=[ProblemaInforme(**vars(p)) for p in informe.problemas],
-        tiempo=tiempo,
+        problemas=problemas,
+        fundamentacion=resultado.get("fundamentacion"),
+        tiempo=resultado.get("tiempo", 0.0),
     )
 
 
@@ -228,42 +188,21 @@ async def re_generar_conclusion(request: InformeRequest, llm_router: LlmRouterSe
             detail="El informe no tiene objetivos. Ejecute /investigacion/objetivos primero.",
         )
 
-    agente = ConclusionAgent(llm_router=llm_router, model=request.modelo)
-    clasificacion = request.clasificacion or informe.clasificacion or ""
-    fundamentador = FundamentacionNormativaAgent(
-        qdrant=QdrantAdapter(), llm_router=llm_router, model=request.modelo,
-    )
-    problemas_resp: list[ProblemaInforme] = []
-    medios_det = medios_determinantes(informe)
-    total_a_fundamentar = sum(
-        len(b.problemas) for b in informe.bloques if not medios_det or b.medio_id in medios_det
-    )
-    logger.info(
-        "[API /investigacion/conclusion] Fundamentando %d problema(s) de medios "
-        "determinantes %s (de %d bloque(s))",
-        total_a_fundamentar, sorted(medios_det) or "TODOS", len(informe.bloques),
-    )
-    idx = 0
-    for bloque in informe.bloques:
-        fundamentar_medio = not medios_det or bloque.medio_id in medios_det
-        for problema in bloque.problemas:
-            if fundamentar_medio:
-                idx += 1
-                logger.info(
-                    "[API /investigacion/conclusion] Problema %d/%d | medio=%s | tipo=%s",
-                    idx, total_a_fundamentar, bloque.medio_id, problema.tipo,
-                )
-                fundamentador.fundamentar(problema, clasificacion, contexto=informe.motivo or "")
-            problemas_resp.append(
-                ProblemaInforme(
-                    medio_id=bloque.medio_id,
-                    tipo=problema.tipo,
-                    detalle=problema.detalle,
-                    accion=problema.accion,
-                    responsable=problema.responsable,
-                    base_legal=problema.base_legal,
-                )
-            )
+    # La fundamentación normativa YA se realizó en su propio paso
+    # (/investigacion/fundamentar-normativa) y quedó guardada en el informe; la
+    # conclusión la consume, sin volver a fundamentar por problema.
+    problemas_resp: list[ProblemaInforme] = [
+        ProblemaInforme(
+            medio_id=bloque.medio_id,
+            tipo=problema.tipo,
+            detalle=problema.detalle,
+            accion=problema.accion,
+            responsable=problema.responsable,
+            base_legal=problema.base_legal,
+        )
+        for bloque in informe.bloques
+        for problema in bloque.problemas
+    ]
 
     # Conclusión: veredicto FUNDADO/INFUNDADO por regla sobre los objetivos.
     veredicto = ConclusionAgent(llm_router=llm_router, model=request.modelo).concluir_y_asignar(informe)
@@ -330,6 +269,26 @@ async def actualizar_conclusion(request: ActualizarConclusionRequest) -> Actuali
     return ActualizarConclusionResponse(
         codreclamo=request.codreclamo,
         conclusion=request.conclusion,
+        informe_texto=construir_texto_informe(informe),
+    )
+
+
+@router.patch("/fundamentar-normativa", response_model=ActualizarFundamentacionResponse)
+async def actualizar_fundamentacion(request: ActualizarFundamentacionRequest) -> ActualizarFundamentacionResponse:
+    """
+    Edita a mano el párrafo de fundamentación normativa, sin re-seleccionar
+    problemas ni invocar al LLM. Devuelve el informe re-renderizado.
+    """
+    actualizado = informe_store.actualizar_fundamentacion(request.codreclamo, request.fundamentacion)
+    if not actualizado:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No hay un informe en curso para el reclamo {request.codreclamo}.",
+        )
+    informe = informe_store.obtener(request.codreclamo)
+    return ActualizarFundamentacionResponse(
+        codreclamo=request.codreclamo,
+        fundamentacion=request.fundamentacion,
         informe_texto=construir_texto_informe(informe),
     )
 

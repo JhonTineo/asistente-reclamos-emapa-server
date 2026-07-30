@@ -21,16 +21,16 @@ from starlette.concurrency import run_in_threadpool
 from app.src.infrastructure.api_rest.deps import usar_token_emapa, usar_config_llm, get_llm_router
 from app.src.application.services.llm.llm_router_service import LlmRouterService
 from app.src.application.services.investigacion.investigacion_service import (
-    medios_determinantes,
     stream_analisis_medio,
+)
+from app.src.application.services.investigacion.fundamentacion_service import (
+    fundamentar_normativa_stream,
 )
 from app.src.infrastructure.api_rest.schemas.investigacion import (
     BuscarReclamoRequest,
     InformeRequest,
     ProblemaInforme,
 )
-from app.src.application.usecase.agents.fundamentacion_normativa import FundamentacionNormativaAgent
-from app.src.infrastructure.adapters.qdrant_adapter import QdrantAdapter
 from app.src.infrastructure.adapters.emapa_http_adapter import EmapaHttpAdapter
 from app.src.application.usecase.agents.conclusion import ConclusionAgent
 from app.src.application.services.informe.informe_store import informe_store
@@ -87,15 +87,26 @@ async def saldo_detalle_stream(request: BuscarReclamoRequest, llm_router: LlmRou
     return stream_analisis_medio(request, "saldo_detalle", "Saldo Detalle", EmapaHttpAdapter(), llm_router)
 
 
+@router.post("/fundamentar-normativa/stream", tags=["interactivo"])
+async def fundamentar_normativa_stream_endpoint(request: InformeRequest, llm_router: LlmRouterService = Depends(get_llm_router)) -> StreamingResponse:
+    """Fundamentación normativa en streaming (NDJSON). Emite, a medida que se
+    producen: ``candidatos`` (hallazgos determinantes seleccionados),
+    ``articulos`` (por hallazgo) y ``fundamentacion`` (el párrafo final, que se
+    guarda en el informe y se renderiza antes de la conclusión).
+    Se ejecuta entre el análisis de los medios y la conclusión."""
+    return fundamentar_normativa_stream(request, llm_router)
+
+
 @router.post("/conclusion/stream", tags=["interactivo"])
 async def generar_conclusion_stream(request: InformeRequest, llm_router: LlmRouterService = Depends(get_llm_router)) -> StreamingResponse:
-    """Concluye el informe en streaming (NDJSON). Por cada problema de cada medio
-    emite dos eventos a medida que se producen:
+    """Concluye el informe en streaming (NDJSON). Evalúa los objetivos
+    determinantes contra sus hallazgos (puerta lógica) y consume el párrafo de
+    fundamentación ya generado (paso /fundamentar-normativa); NO vuelve a
+    fundamentar por problema. Emite:
 
-    1. ``articulos``: los artículos SUNASS recuperados para ese problema.
-    2. ``fundamentacion``: la inferencia del LLM (acción, responsable, base legal).
+    1. ``conclusion``: veredicto (FUNDADO/INFUNDADO) y su párrafo.
+    2. ``informe``: el texto en lenguaje natural ya armado.
 
-    Al final emite ``informe`` con el texto en lenguaje natural ya armado.
     Pensada para uso interactivo (el frontend muestra progreso en vivo).
     """
 
@@ -115,67 +126,23 @@ async def generar_conclusion_stream(request: InformeRequest, llm_router: LlmRout
             }, ensure_ascii=False) + "\n"
             return
 
-        clasificacion = request.clasificacion or informe.clasificacion or ""
-
-        # Solo se fundamentan los hallazgos de los medios DETERMINANTES (los que
-        # deciden el veredicto); los demás se incluyen sin fundamentar. Si no hay
-        # determinantes, se fundamenta todo (respaldo).
-        medios_det = medios_determinantes(informe)
-        total = sum(
-            len(b.problemas) for b in informe.bloques if not medios_det or b.medio_id in medios_det
-        )
-        yield json.dumps({"evento": "inicio", "total_problemas": total}, ensure_ascii=False) + "\n"
-
-        fundamentador = FundamentacionNormativaAgent(qdrant=QdrantAdapter(), llm_router=llm_router, model=request.modelo)
-        problemas_resp: list[ProblemaInforme] = []
-        indice = 0
+        # La fundamentación normativa YA se realizó en su propio paso
+        # (/investigacion/fundamentar-normativa) y quedó guardada en el informe;
+        # aquí la conclusión la consume, sin volver a fundamentar por problema.
+        problemas_resp: list[ProblemaInforme] = [
+            ProblemaInforme(
+                medio_id=bloque.medio_id,
+                tipo=problema.tipo,
+                detalle=problema.detalle,
+                accion=problema.accion,
+                responsable=problema.responsable,
+                base_legal=problema.base_legal,
+            )
+            for bloque in informe.bloques
+            for problema in bloque.problemas
+        ]
 
         try:
-            for bloque in informe.bloques:
-                fundamentar_medio = not medios_det or bloque.medio_id in medios_det
-                for problema in bloque.problemas:
-                    if fundamentar_medio:
-                        # --- Fase 1: recuperación de artículos -------------------
-                        articulos = await run_in_threadpool(
-                            fundamentador.fundamentar_articulos, problema, informe.motivo or "",
-                        )
-                        yield json.dumps({
-                            "evento": "articulos",
-                            "indice": indice,
-                            "medio_id": bloque.medio_id,
-                            "tipo": problema.tipo,
-                            "detalle": problema.detalle,
-                            "articulos": problema.articulos,
-                        }, ensure_ascii=False) + "\n"
-
-                        # --- Fase 2: inferencia del LLM --------------------------
-                        await run_in_threadpool(
-                            fundamentador.fundamentar_interpretacion,
-                            problema, articulos, clasificacion, informe.motivo or "",
-                        )
-                        yield json.dumps({
-                            "evento": "fundamentacion",
-                            "indice": indice,
-                            "medio_id": bloque.medio_id,
-                            "tipo": problema.tipo,
-                            "detalle": problema.detalle,
-                            "accion": problema.accion,
-                            "responsable": problema.responsable,
-                            "base_legal": problema.base_legal,
-                        }, ensure_ascii=False) + "\n"
-                        indice += 1
-
-                    problemas_resp.append(
-                        ProblemaInforme(
-                            medio_id=bloque.medio_id,
-                            tipo=problema.tipo,
-                            detalle=problema.detalle,
-                            accion=problema.accion,
-                            responsable=problema.responsable,
-                            base_legal=problema.base_legal,
-                        )
-                    )
-
             # --- Conclusión: veredicto FUNDADO/INFUNDADO ----------------------
             conclusionador = ConclusionAgent(llm_router=llm_router, model=request.modelo)
             veredicto = await run_in_threadpool(conclusionador.concluir_y_asignar, informe)

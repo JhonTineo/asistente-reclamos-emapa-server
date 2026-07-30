@@ -34,6 +34,18 @@ CONSULTA_POR_TIPO = {
         "fuga no visible reparada por el usuario y facturación de los meses "
         "afectados según el promedio histórico de consumos"
     ),
+    "fugaNoVisible": (
+        "fuga no visible detectada en la inspección; si el usuario la repara en "
+        "el plazo, los consumos afectados se facturan según el promedio histórico"
+    ),
+    "fugaVisible": (
+        "fuga visible a través de los puntos de salida de agua del predio; la "
+        "empresa prestadora factura según la diferencia de lecturas del medidor"
+    ),
+    "fugas": (
+        "fuga de agua hallada en la inspección del predio y su efecto en la "
+        "facturación por diferencia de lecturas o por promedio histórico"
+    ),
     "errorLecturas": (
         "error en la lectura del medidor, consumo negativo y lectura que no "
         "corresponde al periodo"
@@ -276,3 +288,208 @@ class FundamentacionNormativaAgent:
         for problema in problemas:
             self.fundamentar(problema, clasificacion, contexto)
         return problemas
+
+    # ================================================================== #
+    # Flujo NUEVO: selección de problemas determinantes + párrafo único
+    # ------------------------------------------------------------------ #
+    # En lugar de fundamentar TODOS los problemas de los medios determinantes
+    # (que arrastra hallazgos de contexto y cita artículos flojos), se hace:
+    #   1) de la lista de problemas de los medios determinantes (agrupados por
+    #      objetivo), el LLM selecciona los 1-3 con relación DIRECTA con el motivo;
+    #   2) se recuperan artículos por cada problema seleccionado (RAG por tipo);
+    #   3) se redacta UN párrafo de fundamentación normativa.
+    # El resto de problemas se muestran igual (tarjetas), pero sin artículos.
+    # ================================================================== #
+    @staticmethod
+    def _medios_determinantes(informe) -> set[str]:
+        """Medios de los objetivos determinantes. Se calcula local para no
+        acoplar el agente al servicio de investigación (evita import circular)."""
+        if not informe or not getattr(informe, "objetivos", None):
+            return set()
+        return {o.medio for o in informe.objetivos if o.determinante and o.medio}
+
+    @staticmethod
+    def pool_determinante(informe) -> list[ProblemaNormado]:
+        """Lista completa de problemas de los medios determinantes, en orden de
+        bloque estable. Es el conjunto de tarjetas que ve el front; la selección
+        marca `seleccionado` sobre estos mismos objetos."""
+        medios_det = FundamentacionNormativaAgent._medios_determinantes(informe)
+        pool: list[ProblemaNormado] = []
+        for bloque in informe.bloques:
+            if bloque.medio_id in medios_det:
+                pool.extend(bloque.problemas)
+        return pool
+
+    def seleccionar_determinantes(self, informe) -> list[ProblemaNormado]:
+        """De la lista de problemas de los medios determinantes (agrupados por
+        objetivo, con el motivo como contexto), pide al LLM los 1-3 problemas con
+        relación DIRECTA con el motivo. Marca `seleccionado=True` en esos
+        problemas (in-place) y los devuelve. NO envía el resumen del medio."""
+        medios_det = self._medios_determinantes(informe)
+        if not medios_det:
+            logger.info("[FUNDAMENTACION] Sin medios determinantes; nada que seleccionar")
+            return []
+
+        # Pool estable y su medio de origen (para agrupar por objetivo por índice).
+        pool: list[ProblemaNormado] = []
+        medio_de_pool: list[str] = []
+        for bloque in informe.bloques:
+            if bloque.medio_id in medios_det:
+                for p in bloque.problemas:
+                    pool.append(p)
+                    medio_de_pool.append(bloque.medio_id)
+        if not pool:
+            logger.info("[FUNDAMENTACION] Medios determinantes sin problemas; nada que seleccionar")
+            return []
+
+        idxs_por_medio: dict[str, list[int]] = {}
+        for i, mid in enumerate(medio_de_pool):
+            idxs_por_medio.setdefault(mid, []).append(i)
+
+        # Prompt: motivo + problemas AGRUPADOS POR OBJETIVO determinante (su
+        # pregunta como encabezado + los problemas de su medio, indexados).
+        grupos: list[str] = []
+        for o in informe.objetivos:
+            if not o.determinante:
+                continue
+            lineas = [f"Objetivo: {o.descripcion}"]
+            idxs = idxs_por_medio.get(o.medio, [])
+            if idxs:
+                lineas += [f"  [{i}] {pool[i].detalle}" for i in idxs]
+            else:
+                lineas.append("  (sin problemas registrados en este medio)")
+            grupos.append("\n".join(lineas))
+
+        system = (
+            "Eres un analista de reclamos de EMAPA. Debes seleccionar, de la lista "
+            "de PROBLEMAS agrupados por objetivo, los 1 a 3 problemas con relación "
+            "DIRECTA con el motivo del reclamo y que, según el Reglamento de Calidad "
+            "SUNASS, deciden si corresponde corregir la facturación.\n"
+            "Reglas:\n"
+            "- Elige los MÍNIMOS que deciden el caso (entre 1 y 3); descarta "
+            "problemas de contexto, de meses lejanos o ajenos al motivo.\n"
+            "- Refiérete a cada problema elegido por su número de índice [n].\n"
+            "Responde SOLO con un JSON: una lista de enteros con los índices "
+            "elegidos (p. ej. [0, 2])."
+        )
+        human = (
+            f"Motivo del reclamo:\n{informe.motivo or 'no especificado'}\n\n"
+            f"Problemas agrupados por objetivo:\n\n" + "\n\n".join(grupos) + "\n\n"
+            "Devuelve SOLO el JSON con los índices de los 1-3 problemas determinantes."
+        )
+
+        logger.info(
+            "PROMPT LLM seleccionar_determinantes\n"
+            "===================== SYSTEM =====================\n%s\n"
+            "===================== HUMAN ======================\n%s\n"
+            "==================================================",
+            system, human,
+        )
+        response_text = self.llm_router.generar_json(
+            mensajes=[
+                MensajeLLM(rol="system", contenido=system),
+                MensajeLLM(rol="user", contenido=human),
+            ],
+            modelo_id=self.model_id,
+        )
+        logger.info("RESPUESTA LLM seleccion (raw): %s", response_text)
+
+        indices = self._parse_indices(response_text or "", len(pool))
+        seleccionados = [pool[i] for i in indices]
+        for p in seleccionados:
+            p.seleccionado = True
+        logger.info(
+            "[FUNDAMENTACION] %d problema(s) determinante(s) seleccionado(s) de %d",
+            len(seleccionados), len(pool),
+        )
+        return seleccionados
+
+    @staticmethod
+    def _parse_indices(texto: str, n: int) -> list[int]:
+        """Extrae la lista de índices [n] elegidos por el LLM (admite enteros o
+        objetos {"indice": n}); descarta los fuera de rango y limita a 3."""
+        match = re.search(r"\[.*\]", texto, re.DOTALL)
+        if not match:
+            logger.warning("[FUNDAMENTACION] selección sin lista JSON: %s", texto[:200])
+            return []
+        try:
+            crudos = json.loads(match.group())
+        except json.JSONDecodeError as e:
+            logger.warning("[FUNDAMENTACION] JSON de selección inválido: %s | %s", e, texto[:200])
+            return []
+        indices: list[int] = []
+        for v in crudos:
+            if isinstance(v, dict):
+                v = v.get("indice", v.get("index"))
+            try:
+                i = int(v)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= i < n and i not in indices:
+                indices.append(i)
+        return indices[:3]
+
+    def redactar_parrafo(
+        self,
+        problemas: list[ProblemaNormado],
+        articulos_por_problema: list[list[dict]],
+        motivo: str = "",
+        clasificacion: str = "",
+    ) -> str:
+        """Fase final: UN párrafo de fundamentación normativa para los problemas
+        determinantes seleccionados, citando SOLO los artículos provistos que
+        realmente regulan cada problema (o solo los hechos si ninguno aplica)."""
+        secciones: list[str] = []
+        for problema, articulos in zip(problemas, articulos_por_problema):
+            if articulos:
+                arts = "\n".join(
+                    f"    [Art. {a['payload'].get('numeral') or a['payload'].get('article')}] "
+                    f"{a['payload'].get('text', '')}"
+                    for a in articulos
+                )
+            else:
+                arts = "    (no se recuperaron artículos con relevancia suficiente)"
+            secciones.append(f"- Hallazgo: {problema.detalle}\n  Artículos recuperados:\n{arts}")
+        hallazgos_texto = "\n\n".join(secciones)
+
+        system = (
+            "Eres un analista normativo de EMAPA. Redactas el PÁRRAFO de "
+            "fundamentación normativa de un informe de atención, según el "
+            "Reglamento de Calidad SUNASS (RCD 061-2018-SUNASS-CD).\n"
+            "Reglas:\n"
+            "- Escribe UN SOLO párrafo formal, CONCRETO y sin relleno (sin viñetas "
+            "ni JSON, sin título).\n"
+            "- Nombra el hecho concreto y cita el/los artículo(s) recuperado(s) que "
+            "REGULAN ese hecho (por su numeral); puedes citar más de uno si ambos "
+            "aplican. Di qué corresponde facturar según la norma.\n"
+            "- TERMINA una vez enunciado qué manda la norma. NO agregues una oración "
+            "de cierre especulativa o editorial que vaya más allá de la norma (p. ej. "
+            "conjeturar que una reparación «podría haber sido necesaria» o especular "
+            "sobre las causas del consumo): no aporta y alarga el párrafo.\n"
+            "- Si NINGÚN artículo recuperado regula el hecho, fundaméntalo solo por "
+            "los hechos; NO inventes artículos ni cifras que no estén en los datos.\n"
+            "- No adelantes el veredicto (FUNDADO/INFUNDADO): eso lo decide la "
+            "conclusión."
+        )
+        human = (
+            f"Motivo del reclamo:\n{motivo or 'no especificado'}\n\n"
+            f"Tipo de reclamo: {clasificacion or 'no especificado'}\n\n"
+            f"Hallazgos determinantes y su normativa recuperada:\n\n{hallazgos_texto}\n\n"
+            "Redacta el párrafo de fundamentación normativa."
+        )
+
+        logger.info(
+            "PROMPT LLM redactar_parrafo\n"
+            "===================== SYSTEM =====================\n%s\n"
+            "===================== HUMAN ======================\n%s\n"
+            "==================================================",
+            system, human,
+        )
+        texto = self.llm_router.generar_texto(
+            mensajes=[
+                MensajeLLM(rol="system", contenido=system),
+                MensajeLLM(rol="user", contenido=human),
+            ],
+            modelo_id=self.model_id,
+        )
+        return (texto or "").strip()

@@ -13,6 +13,10 @@ class ProblemaNormado:
     detalle: str                       # texto concreto CON cifras (para el LLM)
 
     # --- se llena en la fase de fundamentación normativa ---
+    # `seleccionado`: el problema fue elegido como determinante (1-3) y por tanto
+    # se fundamenta (RAG + párrafo). Los no seleccionados se muestran igual como
+    # tarjeta, pero sin artículos.
+    seleccionado: bool = False
     articulos: list[dict] = field(default_factory=list)   # recuperados de Qdrant
     accion: str | None = None
     responsable: str | None = None     # "cliente" | "empresa" | "no_determinable"
@@ -61,6 +65,10 @@ class InformeAtencion:
     # --- cuerpo (se llena por medio, paso 3-4) ---
     bloques: list[BloqueMedio] = field(default_factory=list)
     ventana_meses: list[tuple[int, int]] = field(default_factory=list)
+    # Párrafo de fundamentación normativa: se genera tras analizar los medios
+    # (a partir de los hallazgos determinantes) y se renderiza como punto final,
+    # antes de la conclusión, tal como el punto normativo de los informes reales.
+    fundamentacion_normativa: str | None = None
     veredicto: str | None = None       # "FUNDADO" | "INFUNDADO" (puerta lógica)
     conclusion: str | None = None      # texto de la conclusión (paso final)
     # --- pasos posteriores a la conclusión (paso 4-5) ---

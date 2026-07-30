@@ -116,6 +116,18 @@ class ConclusionAgent:
     def _evaluar_objetivos(
         self, informe: InformeAtencion, hallazgos_por_medio: dict[str, str],
     ) -> dict[int, dict]:
+        # Solo se evalúan los objetivos DETERMINANTES: son los únicos que la
+        # puerta lógica mira para decidir el veredicto. El resultado de los
+        # objetivos de contexto no se usa en ningún lado (ni en la puerta, ni en
+        # la redacción, ni en el response), así que evaluarlos es trabajo perdido.
+        determinantes = [o for o in informe.objetivos if o.determinante]
+        if not determinantes:
+            logger.info(
+                "[CONCLUSION] Sin objetivos determinantes; no se evalúa "
+                "(la puerta dará INFUNDADO por defecto)"
+            )
+            return {}
+
         todos_los_hallazgos = (
             "\n".join(hallazgos_por_medio.values()) or "(sin hallazgos registrados)"
         )
@@ -123,7 +135,7 @@ class ConclusionAgent:
         # tiene asignado); si no tiene medio asignado, recibe todos los
         # hallazgos como contexto general. .
         bloques_objetivo = []
-        for o in informe.objetivos:
+        for o in determinantes:
             etiqueta = f"{o.id}. {o.descripcion}" + (f" [medio: {o.medio}]" if o.medio else "")
             hallazgos_obj = (
                 hallazgos_por_medio.get(o.medio, "(el medio aún no fue analizado)")
@@ -203,29 +215,6 @@ class ConclusionAgent:
     # ------------------------------------------------------------------ #
     # Redacción de la conclusión (LLM, coherente con la puerta lógica)
     # ------------------------------------------------------------------ #
-    @staticmethod
-    def _norma_aplicable(informe: InformeAtencion, medios: set[str] | None = None) -> str:
-        """Texto de la norma APLICABLE de los medios (determinantes): SOLO los
-        problemas cuya fundamentación halló un artículo pertinente (con
-        `base_legal` asignada tras el guardarraíl de abstención). Devuelve cadena
-        VACÍA si no se halló ninguno; en ese caso la conclusión se apoya solo en
-        los hechos y los criterios, sin citar normas ni inventarlas."""
-        lineas: list[str] = []
-        for bloque in informe.bloques:
-            if medios is not None and bloque.medio_id not in medios:
-                continue
-            for p in bloque.problemas:
-                if not p.base_legal:
-                    continue
-                partes = [f"- {p.detalle} → {p.accion or 'corrección'} ({p.base_legal})"]
-                for art in (p.articulos or []):
-                    texto = (art.get("texto") or "").strip()
-                    if texto:
-                        num = art.get("numeral") or art.get("article") or ""
-                        partes.append(f"  Art. {num}: {texto}")
-                lineas.append("\n".join(partes))
-        return "\n".join(lineas)
-
     def _redactar_conclusion(
         self,
         informe: InformeAtencion,
@@ -245,10 +234,10 @@ class ConclusionAgent:
             for o in determinantes
         ) or "(sin objetivos determinantes)"
 
-        # Norma aplicable de los medios determinantes (solo artículos pertinentes).
-        # Puede estar vacía: en ese caso la conclusión se apoya solo en los hechos.
-        medios_det = {o.medio for o in determinantes if o.medio}
-        norma_aplicable = self._norma_aplicable(informe, medios_det or None)
+        # La base normativa YA NO se reconstruye por-problema: se consume el
+        # párrafo de fundamentación normativa ya generado (paso de fundamentación).
+        # Puede estar vacío: en ese caso la conclusión se apoya solo en los hechos.
+        norma_aplicable = (informe.fundamentacion_normativa or "").strip()
         hay_norma = bool(norma_aplicable)
 
         meses_reclamados = _formatear_meses_reclamados(informe)
@@ -280,9 +269,10 @@ class ConclusionAgent:
         # cambia por esto: lo fijó la puerta lógica).
         if hay_norma:
             regla_norma = (
-                "- Como sustento normativo, cita el artículo/numeral incluido en "
-                "«Norma aplicable» y úsalo tal cual; NO inventes otros ni cifras que "
-                "no estén ahí.\n"
+                "- Como sustento normativo, apóyate en la FUNDAMENTACIÓN NORMATIVA "
+                "ya establecida (abajo) y sé coherente con ella: cita el "
+                "artículo/numeral que ahí figure y úsalo tal cual; NO inventes otros "
+                "ni cifras que no estén ahí.\n"
             )
         else:
             regla_norma = (
@@ -310,7 +300,7 @@ class ConclusionAgent:
             f"Meses reclamados: {meses_reclamados}\n\n"
             f"Motivo del reclamo:\n{informe.motivo or 'no especificado'}\n\n"
             f"Verificaciones determinantes y su resultado:\n{determinantes_texto}\n\n"
-            + (f"Norma aplicable (artículos pertinentes hallados):\n{norma_aplicable}\n\n"
+            + (f"Fundamentación normativa ya establecida:\n{norma_aplicable}\n\n"
                if hay_norma else "")
             + "Redacta la conclusión."
         )

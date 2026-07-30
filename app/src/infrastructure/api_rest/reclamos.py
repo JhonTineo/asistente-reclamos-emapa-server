@@ -255,6 +255,7 @@ async def obtener_informe_completo(codreclamo: str) -> InformeCompletoResponse:
         objetivos=[ObjetivoInvestigacionSchema(**vars(o)) for o in informe.objetivos],
         resumenes=resumenes,
         ventana_meses=informe.ventana_meses,
+        fundamentacion=informe.fundamentacion_normativa,
         veredicto=informe.veredicto,
         conclusion=informe.conclusion,
         problemas=problemas,
@@ -364,7 +365,19 @@ async def generar_informe_atencion(
         req_medio, _MEDIOS_ANALIZABLES, EmapaHttpAdapter(), llm_router
     )
 
-    # --- 4. Conclusión (fundamentación + veredicto) -------------------------
+    # --- 4. Fundamentación normativa: selecciona los hallazgos determinantes y
+    # redacta el párrafo que la conclusión consumirá (debe correr ANTES de la
+    # conclusión; esta ya no vuelve a fundamentar por su cuenta).
+    await fundamentar_normativa(
+        InformeRequest(
+            codreclamo=request.codreclamo,
+            clasificacion=clasificacion,
+            modelo=request.modelo,
+        ),
+        llm_router
+    )
+
+    # --- 5. Conclusión (veredicto + redacción sobre el párrafo) -------------
     conclusion_resp = await re_generar_conclusion(
         InformeRequest(
             codreclamo=request.codreclamo,

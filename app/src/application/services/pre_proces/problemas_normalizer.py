@@ -2,6 +2,7 @@
 uniforme de ProblemaNormado, independiente del medio probatorio.
 """
 
+import re
 import logging
 
 from app.src.core.model.targeta_lecturas import TargetaLecturas
@@ -94,6 +95,41 @@ def problemas_de_corte(corte: CorteReapertura) -> list[ProblemaNormado]:
     return problemas
 
 
+# Las inspecciones registran la fuga hallada dentro del predio en un campo de
+# OBSERVACIÓN de texto libre (p.ej. obsinsinteriores), no en un campo estructurado.
+# Como la fuga es el hallazgo que decide muchos reclamos de consumo (Art. 88.3:
+# visible → diferencia de lecturas; no visible reparada → promedio), se extrae de
+# ahí a un ProblemaNormado con regla, clasificándola en visible / no visible.
+def _fugas_desde_observaciones(textos: list[str | None]) -> list[ProblemaNormado]:
+    """Busca menciones de 'FUGA' en campos de observación libre y arma un
+    ProblemaNormado por cada mención (dedup por detalle). El `tipo` distingue
+    fugaNoVisible / fugaVisible / fugas (genérica) para dirigir el RAG; el
+    `detalle` es la oración que contiene la fuga (desde 'FUGA' hasta el punto)."""
+    problemas: list[ProblemaNormado] = []
+    vistos: set[str] = set()
+    for texto in textos:
+        if not texto or "FUGA" not in texto.upper():
+            continue
+        # Cláusula: desde la primera aparición de FUGA hasta el siguiente punto.
+        idx = texto.upper().find("FUGA")
+        fin = texto.find(".", idx)
+        fragmento = (texto[idx:] if fin == -1 else texto[idx:fin]).strip()
+        fragmento = re.sub(r"\s+", " ", fragmento)
+        detalle = fragmento.capitalize()
+        if not detalle or detalle in vistos:
+            continue
+        vistos.add(detalle)
+        frag_upper = fragmento.upper()
+        if "NO VISIBLE" in frag_upper:
+            tipo = "fugaNoVisible"
+        elif "VISIBLE" in frag_upper:
+            tipo = "fugaVisible"
+        else:
+            tipo = "fugas"
+        problemas.append(ProblemaNormado(tipo=tipo, detalle=detalle))
+    return problemas
+
+
 def problemas_de_inspeccion_externa(inspeccion: InspeccionExterna) -> list[ProblemaNormado]:
     """Hallazgos: condición atípica, fugas, equipo en mal estado (medidor,
     caja, conexión). Las observaciones NO se consideran problema (son texto
@@ -109,12 +145,19 @@ def problemas_de_inspeccion_externa(inspeccion: InspeccionExterna) -> list[Probl
     if inspeccion.atipico and inspeccion.atipico != ind["atipico"]["0"]:
         problemas.append(ProblemaNormado(tipo="atipico", detalle=inspeccion.atipico))
 
+    fuga_estructurada = False
     if inspeccion.fugas and inspeccion.fugas != ind["fugas"]["0"]:
         detalle = inspeccion.fugas
         tipofugas_normal = {ind["tipofugas"]["000"], ind["tipofugas"]["001"]}
         if inspeccion.tipofugas and inspeccion.tipofugas not in tipofugas_normal:
             detalle = f"{detalle} {inspeccion.tipofugas}"
         problemas.append(ProblemaNormado(tipo="fugas", detalle=detalle))
+        fuga_estructurada = True
+
+    # Fuga mencionada en las observaciones (solo si no vino ya por el campo
+    # estructurado, para no duplicar el mismo hallazgo).
+    if not fuga_estructurada:
+        problemas.extend(_fugas_desde_observaciones([inspeccion.observacionmed, inspeccion.observacionsum]))
 
     if inspeccion.funcionamed and inspeccion.funcionamed != ind["funcionamed"]["1"]:
         problemas.append(ProblemaNormado(tipo="equipo", detalle=inspeccion.funcionamed))
@@ -142,6 +185,11 @@ def problemas_de_inspeccion_interna(inspeccion: InspeccionInterna) -> list[Probl
 
     if inspeccion.estadoabas and inspeccion.estadoabas != ind["estadoabas"]["1"]:
         problemas.append(ProblemaNormado(tipo="equipo", detalle=inspeccion.estadoabas))
+
+    # Fuga hallada dentro del predio: vive en las observaciones libres.
+    problemas.extend(_fugas_desde_observaciones([
+        inspeccion.obsinsinteriores, inspeccion.observaciones, inspeccion.obsperrepins,
+    ]))
 
     return problemas
 

@@ -14,6 +14,7 @@ class InvestigacionRequest(BaseModel):
 class ProblemaNormadoSchema(BaseModel):
     tipo: str
     detalle: str
+    seleccionado: bool = False
     articulos: list[dict] = Field(default_factory=list)
     accion: str | None = None
     responsable: str | None = None
@@ -51,6 +52,8 @@ class ProblemaInforme(BaseModel):
     medio_id: str
     tipo: str
     detalle: str
+    seleccionado: bool = False
+    articulos: list[dict] = Field(default_factory=list)
     accion: str | None = None
     responsable: str | None = None
     base_legal: str | None = None
@@ -67,6 +70,9 @@ class InformeResponse(BaseModel):
     clasificacion: str | None = None
     objetivos: list["ObjetivoInvestigacionSchema"] = Field(default_factory=list)
     problemas: list[ProblemaInforme] = Field(default_factory=list)
+    # Párrafo de fundamentación normativa (nuevo flujo /fundamentar-normativa):
+    # se genera de los hallazgos determinantes y se renderiza antes de la conclusión.
+    fundamentacion: str | None = None
     tiempo: float
 
 
@@ -243,6 +249,17 @@ class ActualizarConclusionResponse(BaseModel):
     informe_texto: str
 
 
+class ActualizarFundamentacionRequest(BaseModel):
+    codreclamo: str = Field(description="Código del reclamo (clave del informe en el store)")
+    fundamentacion: str = Field(description="Nuevo texto del párrafo de fundamentación normativa (edición manual)")
+
+
+class ActualizarFundamentacionResponse(BaseModel):
+    codreclamo: str
+    fundamentacion: str
+    informe_texto: str
+
+
 # --- Informe de Sustentación del Régimen de Facturación (documento aparte) ---
 class CategoriaUsoSchema(BaseModel):
     codigo: str
@@ -373,6 +390,7 @@ class InformeCompletoResponse(BaseModel):
     objetivos: list[ObjetivoInvestigacionSchema] = Field(default_factory=list)
     resumenes: list[ResumenMedio] = Field(default_factory=list)
     ventana_meses: list[tuple[int, int]] = Field(default_factory=list)
+    fundamentacion: str | None = None
     veredicto: str | None = None
     conclusion: str | None = None
     problemas: list[ProblemaInforme] = Field(default_factory=list)

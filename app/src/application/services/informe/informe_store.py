@@ -154,6 +154,17 @@ class InformeAtencionStore:
             logger.info("[INFORME_STORE] Conclusión editada a mano: reclamo=%s", codreclamo)
             return True
 
+    def actualizar_fundamentacion(self, codreclamo: str, texto: str) -> bool:
+        """Edita a mano el párrafo de fundamentación normativa, sin re-seleccionar
+        problemas ni regenerar nada. Devuelve False si no hay informe."""
+        with self._lock:
+            informe = self._data.get(codreclamo)
+            if informe is None:
+                return False
+            informe.fundamentacion_normativa = texto
+            logger.info("[INFORME_STORE] Fundamentación editada a mano: reclamo=%s", codreclamo)
+            return True
+
     def actualizar_propuesta(self, codreclamo: str, texto: str) -> bool:
         """Edita a mano el texto de la propuesta de conciliación (de la
         empresa). Devuelve False si no hay informe para ese reclamo."""
