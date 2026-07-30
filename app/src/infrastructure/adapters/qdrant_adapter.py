@@ -8,6 +8,7 @@ from qdrant_client.http import models as qmodels
 from qdrant_client.http.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
 
 from app.src.application.ports.vector_db_port import PuertoBaseVectorial
+from app.src.application.services.rag.legal_chunker import normalizar_numero_articulo
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,12 @@ class QdrantAdapter(PuertoBaseVectorial):
             )
         )
         logger.info(f"Colección Qdrant creada: {target}")
+
+    def delete_collection(self, collection_name: Optional[str] = None) -> None:
+        target = collection_name or self.collection_name
+        if self.collection_exists(target):
+            self.client.delete_collection(collection_name=target)
+            logger.info(f"Colección Qdrant eliminada: {target}")
 
     def collection_exists(self, collection_name: str) -> bool:
         try:
@@ -112,6 +119,43 @@ class QdrantAdapter(PuertoBaseVectorial):
             payload={"estado": "inactivo"},
             points=[point_id]
         )
+
+    def get_by_article(self, article: str, collection_name: Optional[str] = None, incluir_inactivos: bool = True) -> List[Dict[str, Any]]:
+        """Devuelve todos los puntos (numerales) de un mismo artículo.
+
+        Compara por número de artículo normalizado, de modo que '62-A', '62 - A'
+        y 'ARTÍCULO 62-A' se resuelven al mismo artículo.
+        """
+        art_norm = normalizar_numero_articulo(article)
+        encontrados = []
+        for p in self.get_all(collection_name=collection_name):
+            payload = p.get("payload") or {}
+            if not incluir_inactivos and payload.get("estado") == "inactivo":
+                continue
+            if normalizar_numero_articulo(payload.get("article", "")) == art_norm:
+                encontrados.append(p)
+        return encontrados
+
+    def deactivate_article(self, article: str, collection_name: Optional[str] = None) -> List[str]:
+        """Desactiva (soft-delete) TODOS los numerales de un artículo.
+
+        Se usa antes de reinsertar la versión modificada de un artículo, para
+        que no queden numerales viejos conviviendo con los nuevos.
+        Devuelve los IDs desactivados.
+        """
+        target = collection_name or self.collection_name
+        ids = [
+            p["id"]
+            for p in self.get_by_article(article, collection_name=target)
+            if (p.get("payload") or {}).get("estado") != "inactivo"
+        ]
+        if ids:
+            self.client.set_payload(
+                collection_name=target,
+                payload={"estado": "inactivo"},
+                points=ids,
+            )
+        return ids
 
     def get_all(self, collection_name: Optional[str] = None) -> List[Dict[str, Any]]:
         target = collection_name or self.collection_name

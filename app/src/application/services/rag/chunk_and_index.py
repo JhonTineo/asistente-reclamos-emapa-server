@@ -1,6 +1,4 @@
 import os
-import re
-import uuid
 import glob
 import logging
 
@@ -17,16 +15,12 @@ from app.src.application.services.rag.pdf_chunk import (
 )
 
 from app.src.application.services.rag.legal_chunker import (
-    split_numerals
+    ARTICLE_NUMBER_RE,
+    normalizar_numero_articulo,
+    calcular_point_id
 )
 
 logger = logging.getLogger(__name__)
-
-
-ARTICLE_NUMBER_RE = re.compile(
-    r"ART[IÍ]CULO\s+(\d+)",
-    re.IGNORECASE
-)
 
 
 def extract_articles(pdf_path, is_el_peruano=True):
@@ -44,12 +38,17 @@ def extract_articles(pdf_path, is_el_peruano=True):
     return articles
 
 
-def build_index(pdf_path, store: PuertoBaseVectorial, coleccion="sunass_reglamento", norma="Reglamento Calidad Servicios Saneamiento", is_el_peruano=True):
+def build_index(pdf_path, store: PuertoBaseVectorial, coleccion="sunass_reglamento", norma="Reglamento Calidad Servicios Saneamiento", is_el_peruano=True, modificado_por=None, vigencia_desde=None, recrear=False):
     articles = extract_articles(pdf_path, is_el_peruano=is_el_peruano)
 
     embedder = EmbeddingService()
 
     qdrant = store
+
+    # Reindexado limpio: se borra la colección para no dejar duplicados de una
+    # indexación previa (p.ej. con IDs distintos).
+    if recrear:
+        qdrant.delete_collection(collection_name=coleccion)
 
     qdrant.create_collection(
         collection_name=coleccion,
@@ -62,57 +61,45 @@ def build_index(pdf_path, store: PuertoBaseVectorial, coleccion="sunass_reglamen
 
         match = ARTICLE_NUMBER_RE.search(article["articulo"])
 
-        article_number = match.group(1) if match else None
+        article_number = (
+            normalizar_numero_articulo(match.group(1)) if match else None
+        )
 
+        if article_number is None:
+            logger.warning(
+                "Bloque sin número de artículo, se omite: %.60s",
+                article["articulo"]
+            )
+            continue
+
+        # Un punto por artículo completo (encabezado + cuerpo). El ID
+        # determinista (numeral=None) hace que reindexar o editar el artículo lo
+        # sobreescriba en vez de duplicarlo.
         article_text = (
             article["articulo"] + "\n" + article["texto"]
         ).strip()
 
-        chunks = split_numerals(
-            article_number,
-            article_text
-        )
+        embedding = embedder.encode(article_text)
 
-        for chunk in chunks:
-
-            embedding = embedder.encode(
-                chunk["text"],
-            )
-
-            # Crear un ID basado en el articulo y numeral para que las actualizaciones sobre el mismo articulo lo sobreescriban
-            unique_str = f"{chunk.get('article', '')}_{chunk.get('numeral', '')}"
-            points.append(
-                {
-                    "id": str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_str)),
-                    "vector": embedding,
-                    "payload": {
-
-                        "norma":
-                        norma,
-
-                        "source":
-                        os.path.basename(pdf_path),
-
-                        "titulo":
-                        article["titulo"],
-
-                        "capitulo":
-                        article["capitulo"],
-
-                        "subcapitulo":
-                        article["subcapitulo"],
-
-                        "article":
-                        chunk["article"],
-
-                        "numeral":
-                        chunk["numeral"],
-
-                        "text":
-                        chunk["text"]
-                    }
+        points.append(
+            {
+                "id": calcular_point_id(article_number, None),
+                "vector": embedding,
+                "payload": {
+                    "norma": norma,
+                    "source": os.path.basename(pdf_path),
+                    "titulo": article["titulo"],
+                    "capitulo": article["capitulo"],
+                    "subcapitulo": article["subcapitulo"],
+                    "article": article_number,
+                    "numeral": None,
+                    "text": article_text,
+                    "estado": "vigente",
+                    "modificado_por": modificado_por,
+                    "vigencia_desde": vigencia_desde,
                 }
-            )
+            }
+        )
 
     batch_size = 100
 

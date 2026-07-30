@@ -265,11 +265,13 @@ class ConclusionAgent:
             )
         else:
             formula = (
-                f"«En consecuencia, la facturación emitida en el mes en reclamo "
-                f"({meses_reclamados}) es correcta, de acuerdo a diferencias de "
-                "lecturas, ya que [el medidor registraba consumo/estaba operativo y "
-                "no se halló problema atribuible a la empresa], por lo tanto se "
-                "declara INFUNDADO»"
+                f"«En consecuencia, toda vez que [hecho verificado concreto que "
+                f"sustenta el INFUNDADO; usa la evidencia de las verificaciones "
+                f"determinantes — p.ej. 'el usuario tuvo fuga visible en un inodoro' "
+                f"o 'la facturación del mes reclamado corresponde a lectura real del "
+                f"medidor sin error atribuible a la empresa'], se procedió a la "
+                f"facturación por diferencias de lectura del reclamo del mes de "
+                f"{meses_reclamados}, por lo tanto se declara INFUNDADO»"
             )
 
         # Cita de la norma: condicional. Si la búsqueda vectorial halló un

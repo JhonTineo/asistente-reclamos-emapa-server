@@ -193,9 +193,22 @@ class AnalistaMedioAgent:
         )
         return datos, problemas, ventana
 
+    @staticmethod
+    def _campos_a_omitir(medio_id: str) -> set[str]:
+        """Campos que NO van al prompt del LLM: siempre 'registros' (detalle
+        mensual, ruidoso); y los campos de cabecera del suministro
+        (CAMPOS_SOLO_DOCUMENTO) SOLO en la tarjeta, porque existen solo ahí y son
+        para el informe de sustentación. OJO: record_facturacion tiene su propio
+        campo 'categoria' (la categoría tarifaria, que el prompt SÍ necesita); si
+        aplicáramos CAMPOS_SOLO_DOCUMENTO a todos los medios, ese 'categoria' se
+        omitiría y el LLM lo inventaría."""
+        if medio_id == "tarjeta_lectura":
+            return CAMPOS_SOLO_DOCUMENTO | {"registros"}
+        return {"registros"}
+
     def _resumen_llm(self, medio_id: str, medio_nombre: str, datos: dict, clasificacion: str,
                      enfoque: str | None = None) -> str:
-        omitir = CAMPOS_SOLO_DOCUMENTO | {"registros"}
+        omitir = self._campos_a_omitir(medio_id)
         datos_para_prompt = {k: v for k, v in datos.items() if k not in omitir}
         datos_texto = json.dumps(datos_para_prompt, ensure_ascii=False, indent=2)
         prompt = self._construir_prompt(medio_id, medio_nombre, datos_texto)
@@ -237,8 +250,8 @@ class AnalistaMedioAgent:
                 # No se llama al LLM: se deja constancia de los datos que se le
                 # habrían mandado (los mismos que arma _resumen_llm), para poder
                 # verificar en el log qué trajo EMAPA aunque no haya prompt real.
-                omitir = CAMPOS_SOLO_DOCUMENTO | {"registros"}
-                datos_sin_omitir = {k: v for k, v in datos.items() if k not in omitir}
+                datos_sin_omitir = {k: v for k, v in datos.items()
+                                    if k not in self._campos_a_omitir(medio_id)}
                 logger.info(
                     "Sin llamada al LLM (frase base) | medio=%s | frase=%r | datos_que_se_hubieran_mandado=%s",
                     medio_nombre, frase, json.dumps(datos_sin_omitir, ensure_ascii=False),

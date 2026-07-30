@@ -48,6 +48,44 @@ class ActualizarArticuloRequest(BaseModel):
     subcapitulo: str | None = ""
     norma: str | None = "Reglamento Calidad Servicios Saneamiento"
     coleccion: str | None = "sunass_reglamento"
+    modificado_por: str | None = Field(
+        None, description="Resolución que modificó el artículo, ej: R.CD 038-2025-SUNASS-CD"
+    )
+    vigencia_desde: str | None = Field(
+        None, description="Fecha de vigencia del cambio, ej: 2025-05-15"
+    )
+
+
+class ReemplazarArticuloRequest(BaseModel):
+    """Reemplaza un artículo COMPLETO: desactiva todos sus numerales previos y
+    reinserta la versión nueva re-troceada en numerales."""
+    article: str = Field(..., description="Número de artículo, ej: ARTÍCULO 60")
+    text: str = Field(..., description="Texto completo y actualizado del artículo")
+    palabras_clave: list[str] | None = []
+    titulo: str | None = ""
+    capitulo: str | None = ""
+    subcapitulo: str | None = ""
+    norma: str | None = "Reglamento Calidad Servicios Saneamiento"
+    coleccion: str | None = "sunass_reglamento"
+    modificado_por: str | None = Field(
+        None, description="Resolución que modificó el artículo, ej: R.CD 038-2025-SUNASS-CD"
+    )
+    vigencia_desde: str | None = Field(
+        None, description="Fecha de vigencia del cambio, ej: 2025-05-15"
+    )
+
+
+class NumeralInsertado(BaseModel):
+    id: str
+    numeral: str | None = None
+
+
+class ReemplazarArticuloResponse(BaseModel):
+    status: str
+    mensaje: str
+    article: str
+    desactivados: list[str]
+    insertados: list[NumeralInsertado]
 
 
 class ActualizarArticuloResponse(BaseModel):
@@ -128,3 +166,45 @@ class BuscarPalabraClaveResponse(BaseModel):
     coincidencias_exactas: int
     coincidencias_semanticas: int
     puntos: list[PuntoPalabraClave]
+
+
+# --- Reconstrucción / verificación de consistencia ---
+
+class NumeralReconstruido(BaseModel):
+    numeral: str | None = None
+    text: str
+    modificado_por: str | None = None
+    vigencia_desde: str | None = None
+    id: str | int
+
+
+class ArticuloReconstruido(BaseModel):
+    article: str
+    titulo: str | None = None
+    capitulo: str | None = None
+    subcapitulo: str | None = None
+    norma: str | None = None
+    modificado_por: str | None = None
+    numerales: list[NumeralReconstruido]
+
+
+class Inconsistencia(BaseModel):
+    article: str
+    tipo: str = Field(
+        ...,
+        description=(
+            "numeral_faltante | chunk_suelto_con_numerales | numeral_duplicado | "
+            "numeral_no_coincide"
+        ),
+    )
+    detalle: str
+
+
+class ReconstruccionResponse(BaseModel):
+    status: str
+    coleccion: str
+    total_articulos: int
+    total_numerales_activos: int
+    total_inactivos: int
+    inconsistencias: list[Inconsistencia]
+    articulos: list[ArticuloReconstruido]

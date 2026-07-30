@@ -67,9 +67,13 @@ async def cargar_pdf(
     coleccion: str = Form(...),
     norma: str = Form(...),
     is_el_peruano: bool = Form(False),
+    recrear: bool = Form(False),
 ) -> VectorizarPdfResponse:
-    """Sube un documento en PDF, extrae el texto, lo trocea y lo indexa en la
-    colección indicada."""
+    """Sube un documento en PDF, extrae los artículos y los indexa (un punto por
+    artículo) en la colección indicada.
+
+    `recrear=true` borra la colección antes de indexar: úsalo para reconstruir
+    la base desde cero y evitar duplicados de una indexación previa."""
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="El archivo debe ser un PDF.")
 
@@ -91,6 +95,7 @@ async def cargar_pdf(
             coleccion=coleccion,
             norma=norma,
             is_el_peruano=is_el_peruano,
+            recrear=recrear,
         )
 
         return VectorizarPdfResponse(

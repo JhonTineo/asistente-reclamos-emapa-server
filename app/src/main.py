@@ -13,6 +13,7 @@ from app.src.infrastructure.api_rest.reclamos import router as reclamos_router
 from app.src.infrastructure.api_rest.normativa_documentos import router as normativa_documentos_router
 from app.src.infrastructure.api_rest.normativa_articulos import router as normativa_articulos_router
 from app.src.infrastructure.api_rest.normativa_busqueda import router as normativa_busqueda_router
+from app.src.infrastructure.api_rest.normativa_reconstruccion import router as normativa_reconstruccion_router
 
 
 logging.basicConfig(
@@ -70,6 +71,7 @@ app.include_router(reclamos_router)
 app.include_router(normativa_documentos_router)
 app.include_router(normativa_articulos_router)
 app.include_router(normativa_busqueda_router)
+app.include_router(normativa_reconstruccion_router)
 
 logger = logging.getLogger("api.main")
 
