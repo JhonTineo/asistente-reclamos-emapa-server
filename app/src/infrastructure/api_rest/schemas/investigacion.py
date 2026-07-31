@@ -42,10 +42,33 @@ class InvestigacionResponse(BaseModel):
     tiempo_total: float
 
 
+class ArticuloSeleccion(BaseModel):
+    """Artículo curado por el usuario para un problema (o recuperado por RAG)."""
+    article: str | None = None
+    numeral: str | None = None
+    texto: str | None = None
+    score: float | None = None
+    aplica: bool = True
+    manual: bool = False
+
+
+class ProblemaSeleccion(BaseModel):
+    """Un problema marcado como determinante por el usuario. `articulos=None`
+    significa que el backend debe recuperarlos por RAG (problema recién marcado);
+    una lista (aunque vacía) significa que ya vienen curados y se usan tal cual."""
+    medio_id: str
+    detalle: str
+    articulos: list[ArticuloSeleccion] | None = None
+
+
 class InformeRequest(BaseModel):
     codreclamo: str = Field(description="Código del reclamo (clave del informe en el store)")
     clasificacion: str | None = Field(default=None, description="Clasificación del reclamo (contexto para la fundamentación)")
     modelo: str | None = None
+    # Selección MANUAL de problemas determinantes desde el front. Si viene, la
+    # fundamentación NO usa el selector por LLM: usa exactamente estos problemas
+    # (y sus artículos curados, si los trae). Si es None, es el pase automático.
+    seleccion: list[ProblemaSeleccion] | None = None
 
 
 class ProblemaInforme(BaseModel):

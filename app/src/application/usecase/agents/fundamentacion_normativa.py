@@ -429,27 +429,79 @@ class FundamentacionNormativaAgent:
                 indices.append(i)
         return indices[:3]
 
+    def marcar_aplica(
+        self,
+        problema: ProblemaNormado,
+        articulos_raw: list[dict],
+        clasificacion: str = "",
+        contexto: str = "",
+    ) -> list[dict]:
+        """De los artículos recuperados por RAG, pide al LLM cuáles REGULAN el
+        problema y devuelve el payload de artículos con un flag `aplica` por cada
+        uno (y `manual=False`). Es la relevancia por artículo que luego el usuario
+        puede curar en el front."""
+        payload = self.articulos_a_payload(articulos_raw)
+        for a in payload:
+            a["aplica"] = False
+            a["manual"] = False
+        if not payload:
+            return payload
+
+        listado = "\n".join(
+            f"[{i}] Art. {a['numeral'] or a['article']}: {a['texto']}"
+            for i, a in enumerate(payload)
+        )
+        system = (
+            "Eres un analista normativo de EMAPA. De la lista de ARTÍCULOS del "
+            "Reglamento de Calidad SUNASS, decide cuáles REGULAN DIRECTAMENTE el "
+            "hallazgo indicado (no basta que sean del mismo tema). Un artículo que "
+            "no trata la situación del hallazgo NO aplica.\n"
+            "Responde SOLO con un JSON: una lista de enteros con los índices [n] de "
+            "los artículos que SÍ aplican (p. ej. [0, 2]). Si ninguno aplica, [ ]."
+        )
+        human = (
+            f"Hallazgo: {problema.detalle}\n"
+            f"Tipo de reclamo: {clasificacion or 'no especificado'}\n"
+            + (f"Motivo (contexto): {contexto}\n" if contexto else "")
+            + f"\nArtículos:\n{listado}\n\n"
+            "Devuelve SOLO el JSON con los índices de los artículos que aplican."
+        )
+        logger.info(
+            "PROMPT LLM marcar_aplica | hallazgo=%s | articulos=%d", problema.detalle, len(payload),
+        )
+        response_text = self.llm_router.generar_json(
+            mensajes=[
+                MensajeLLM(rol="system", contenido=system),
+                MensajeLLM(rol="user", contenido=human),
+            ],
+            modelo_id=self.model_id,
+        )
+        logger.info("RESPUESTA LLM marcar_aplica (raw): %s", response_text)
+        for i in self._parse_indices(response_text or "", len(payload)):
+            payload[i]["aplica"] = True
+        return payload
+
     def redactar_parrafo(
         self,
         problemas: list[ProblemaNormado],
-        articulos_por_problema: list[list[dict]],
         motivo: str = "",
         clasificacion: str = "",
     ) -> str:
         """Fase final: UN párrafo de fundamentación normativa para los problemas
-        determinantes seleccionados, citando SOLO los artículos provistos que
-        realmente regulan cada problema (o solo los hechos si ninguno aplica)."""
+        determinantes seleccionados. Cita SOLO los artículos marcados `aplica`
+        (por la relevancia o por el usuario); si ninguno aplica, se apoya en los
+        hechos."""
         secciones: list[str] = []
-        for problema, articulos in zip(problemas, articulos_por_problema):
-            if articulos:
+        for problema in problemas:
+            aplicables = [a for a in (problema.articulos or []) if a.get("aplica")]
+            if aplicables:
                 arts = "\n".join(
-                    f"    [Art. {a['payload'].get('numeral') or a['payload'].get('article')}] "
-                    f"{a['payload'].get('text', '')}"
-                    for a in articulos
+                    f"    [Art. {a.get('numeral') or a.get('article')}] {a.get('texto', '')}"
+                    for a in aplicables
                 )
             else:
-                arts = "    (no se recuperaron artículos con relevancia suficiente)"
-            secciones.append(f"- Hallazgo: {problema.detalle}\n  Artículos recuperados:\n{arts}")
+                arts = "    (sin artículos aplicables)"
+            secciones.append(f"- Hallazgo: {problema.detalle}\n  Artículos aplicables:\n{arts}")
         hallazgos_texto = "\n\n".join(secciones)
 
         system = (

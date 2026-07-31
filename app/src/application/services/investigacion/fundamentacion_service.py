@@ -1,21 +1,21 @@
 """Servicio de aplicación para la FUNDAMENTACIÓN NORMATIVA.
 
-Flujo (nuevo diseño): a partir del informe ya analizado (con sus objetivos y los
-medios probatorios resumidos), produce UN párrafo de fundamentación normativa:
+Dos modos, sobre el mismo endpoint:
 
-  1. Reúne los problemas de los medios DETERMINANTES (los de los objetivos
-     determinantes) y, agrupados por objetivo + con el motivo, el LLM selecciona
-     los 1-3 problemas determinantes (marca `seleccionado` en ellos).
-  2. Recupera los artículos SUNASS SOLO de los problemas seleccionados.
-  3. Redacta un único párrafo de fundamentación y lo guarda en
-     `informe.fundamentacion_normativa` (se renderiza antes de la conclusión).
+  - AUTOMÁTICO (request.seleccion is None): el LLM selecciona los 1-3 problemas
+    determinantes de los medios determinantes; por cada uno se recuperan sus
+    artículos (RAG) y otro paso (`marcar_aplica`) marca cuáles regulan el
+    problema; se redacta el párrafo con los artículos que aplican.
+
+  - MANUAL (request.seleccion presente): NO se usa el selector por LLM. Se usan
+    exactamente los problemas que el usuario marcó como determinantes en el
+    front. Para cada uno: si trae artículos curados, se usan tal cual; si no
+    (problema recién marcado), se recuperan por RAG + `marcar_aplica`. El párrafo
+    usa solo los artículos con `aplica=true`.
 
 Al front se le envía la lista COMPLETA de problemas de los medios determinantes
-(con el flag `seleccionado`) para pintarlos como tarjetas, resaltando los
-seleccionados; los artículos van solo en los seleccionados.
-
-Lo usan el endpoint streaming (progreso en vivo) y el sync (automatización),
-ambos en investigacion_stream.py / investigacion.py.
+(con `seleccionado`) para las tarjetas; los artículos van solo en los
+seleccionados. El párrafo se guarda en `informe.fundamentacion_normativa`.
 """
 
 import time
@@ -68,20 +68,80 @@ def _medio_por_problema(informe) -> dict[int, str]:
     return m
 
 
+def _limpiar_seleccion(informe) -> None:
+    """Resetea `seleccionado`/`articulos` de los problemas de medios determinantes
+    antes de re-seleccionar (permite re-fundamentar sin arrastrar una corrida
+    anterior)."""
+    medios_det = FundamentacionNormativaAgent._medios_determinantes(informe)
+    for bloque in informe.bloques:
+        if bloque.medio_id in medios_det:
+            for p in bloque.problemas:
+                p.seleccionado = False
+                p.articulos = []
+
+
+def _aplicar_seleccion_manual(informe, seleccion) -> list[tuple]:
+    """Aplica la selección manual del front (por `medio_id`+`detalle`): marca
+    `seleccionado` y fija los artículos curados provistos. Devuelve una lista de
+    tuplas (problema, needs_rag), donde needs_rag=True si el item no trajo
+    artículos (problema recién marcado, hay que recuperarlos)."""
+    _limpiar_seleccion(informe)
+    idx: dict[tuple[str, str], object] = {}
+    for bloque in informe.bloques:
+        for p in bloque.problemas:
+            idx[(bloque.medio_id, p.detalle)] = p
+
+    pares: list[tuple] = []
+    for item in seleccion:
+        problema = idx.get((item.medio_id, item.detalle))
+        if problema is None:
+            logger.warning(
+                "[FUNDAMENTACION] selección manual sin match: medio=%s detalle=%s",
+                item.medio_id, item.detalle,
+            )
+            continue
+        problema.seleccionado = True
+        if item.articulos is None:
+            pares.append((problema, True))
+        else:
+            problema.articulos = [a.model_dump() for a in item.articulos]
+            pares.append((problema, False))
+    return pares
+
+
+def _rag_y_marcar(fundamentador: FundamentacionNormativaAgent, problema, clasificacion: str, motivo: str) -> list[dict]:
+    """RAG de los artículos + relevancia (`marcar_aplica`) en un solo paso
+    bloqueante (para un único run_in_threadpool)."""
+    raw = fundamentador.buscar_articulos(problema, motivo)
+    return fundamentador.marcar_aplica(problema, raw, clasificacion, motivo)
+
+
+async def _resolver_seleccion(informe, request, fundamentador) -> list[tuple]:
+    """Devuelve [(problema, needs_rag)] según el modo:
+    - manual (request.seleccion presente): usa la selección del usuario.
+    - automático: el LLM elige y todos requieren RAG."""
+    if request.seleccion is not None:
+        return _aplicar_seleccion_manual(informe, request.seleccion)
+    _limpiar_seleccion(informe)
+    seleccionados = await run_in_threadpool(fundamentador.seleccionar_determinantes, informe)
+    return [(p, True) for p in seleccionados]
+
+
 def fundamentar_normativa_stream(
     request: InformeRequest, llm_router: LlmRouterService,
 ) -> StreamingResponse:
-    """Fundamentación normativa en streaming (NDJSON). Emite:
-      - ``candidatos``: lista completa de problemas de medios determinantes,
-        con flag `seleccionado` (tarjetas del front).
-      - ``articulos``: artículos recuperados por cada problema seleccionado.
-      - ``fundamentacion``: el párrafo final (y se guarda en el informe).
-    """
+    """Fundamentación normativa en streaming (NDJSON). Emite `candidatos`
+    (tarjetas con flag), `articulos` (por seleccionado, con `aplica`) y
+    `fundamentacion` (el párrafo final, que se guarda en el informe)."""
 
     async def generador():
         t_inicio = time.perf_counter()
+        modo = "manual" if request.seleccion is not None else "auto"
         logger.info("=" * 60)
-        logger.info("[API /investigacion/fundamentar-normativa/stream] codreclamo=%s", request.codreclamo)
+        logger.info(
+            "[API /investigacion/fundamentar-normativa/stream] codreclamo=%s | modo=%s",
+            request.codreclamo, modo,
+        )
 
         informe = informe_store.obtener(request.codreclamo)
         if informe is None:
@@ -105,9 +165,9 @@ def fundamentar_normativa_stream(
         fundamentador = _crear_agente(llm_router, request.modelo)
 
         try:
-            # --- Paso 1: selección de problemas determinantes (marca flags) ---
-            _limpiar_seleccion(informe)
-            seleccionados = await run_in_threadpool(fundamentador.seleccionar_determinantes, informe)
+            # --- Paso 1: selección (auto por LLM o manual del front) ----------
+            pares = await _resolver_seleccion(informe, request, fundamentador)
+            seleccionados = [p for p, _ in pares]
 
             # Lista completa de tarjetas (con seleccionado ya resuelto).
             yield json.dumps({
@@ -116,8 +176,6 @@ def fundamentar_normativa_stream(
             }, ensure_ascii=False) + "\n"
 
             if not seleccionados:
-                # Sin problemas determinantes: nada que fundamentar. Se limpia el
-                # párrafo y la conclusión resolverá (todo correcto → INFUNDADO).
                 informe.fundamentacion_normativa = None
                 tiempo = time.perf_counter() - t_inicio
                 yield json.dumps({
@@ -133,23 +191,24 @@ def fundamentar_normativa_stream(
                 logger.info("=" * 60)
                 return
 
-            # --- Paso 2: RAG SOLO de los seleccionados ------------------------
+            # --- Paso 2: artículos por seleccionado ---------------------------
+            # needs_rag=True → RAG + relevancia; False → ya vienen curados del front.
             medio_por_prob = _medio_por_problema(informe)
-            articulos_por_problema: list[list[dict]] = []
-            for p in seleccionados:
-                articulos = await run_in_threadpool(fundamentador.fundamentar_articulos, p, motivo)
-                articulos_por_problema.append(articulos)
+            for problema, needs_rag in pares:
+                if needs_rag:
+                    problema.articulos = await run_in_threadpool(
+                        _rag_y_marcar, fundamentador, problema, clasificacion, motivo,
+                    )
                 yield json.dumps({
                     "evento": "articulos",
-                    "medio_id": medio_por_prob.get(id(p)),
-                    "detalle": p.detalle,
-                    "articulos": p.articulos,
+                    "medio_id": medio_por_prob.get(id(problema)),
+                    "detalle": problema.detalle,
+                    "articulos": problema.articulos,
                 }, ensure_ascii=False) + "\n"
 
-            # --- Paso 3: redacción del párrafo --------------------------------
+            # --- Paso 3: redacción del párrafo (solo artículos que aplican) ---
             parrafo = await run_in_threadpool(
-                fundamentador.redactar_parrafo,
-                seleccionados, articulos_por_problema, motivo, clasificacion,
+                fundamentador.redactar_parrafo, seleccionados, motivo, clasificacion,
             )
             informe.fundamentacion_normativa = parrafo or None
 
@@ -162,8 +221,8 @@ def fundamentar_normativa_stream(
             }, ensure_ascii=False) + "\n"
 
             logger.info(
-                "[API /investigacion/fundamentar-normativa/stream] COMPLETADO | seleccionados=%d | tiempo=%.2fs",
-                len(seleccionados), tiempo,
+                "[API /investigacion/fundamentar-normativa/stream] COMPLETADO | modo=%s | seleccionados=%d | tiempo=%.2fs",
+                modo, len(seleccionados), tiempo,
             )
             logger.info("=" * 60)
         except Exception as e:  # noqa: BLE001
@@ -171,18 +230,6 @@ def fundamentar_normativa_stream(
             yield json.dumps({"evento": "error", "error": str(e)}, ensure_ascii=False) + "\n"
 
     return StreamingResponse(generador(), media_type="application/x-ndjson")
-
-
-def _limpiar_seleccion(informe) -> None:
-    """Resetea `seleccionado`/`articulos` de los problemas de medios determinantes
-    antes de re-seleccionar (permite re-fundamentar sin arrastrar una corrida
-    anterior)."""
-    medios_det = FundamentacionNormativaAgent._medios_determinantes(informe)
-    for bloque in informe.bloques:
-        if bloque.medio_id in medios_det:
-            for p in bloque.problemas:
-                p.seleccionado = False
-                p.articulos = []
 
 
 async def fundamentar_normativa_sync(
@@ -207,8 +254,8 @@ async def fundamentar_normativa_sync(
     motivo = informe.motivo or ""
     fundamentador = _crear_agente(llm_router, request.modelo)
 
-    _limpiar_seleccion(informe)
-    seleccionados = await run_in_threadpool(fundamentador.seleccionar_determinantes, informe)
+    pares = await _resolver_seleccion(informe, request, fundamentador)
+    seleccionados = [p for p, _ in pares]
     if not seleccionados:
         informe.fundamentacion_normativa = None
         tiempo = time.perf_counter() - t_inicio
@@ -216,12 +263,13 @@ async def fundamentar_normativa_sync(
         logger.info("=" * 60)
         return {"codreclamo": request.codreclamo, "fundamentacion": None, "tiempo": tiempo}
 
-    articulos_por_problema: list[list[dict]] = []
-    for p in seleccionados:
-        articulos = await run_in_threadpool(fundamentador.fundamentar_articulos, p, motivo)
-        articulos_por_problema.append(articulos)
+    for problema, needs_rag in pares:
+        if needs_rag:
+            problema.articulos = await run_in_threadpool(
+                _rag_y_marcar, fundamentador, problema, clasificacion, motivo,
+            )
     parrafo = await run_in_threadpool(
-        fundamentador.redactar_parrafo, seleccionados, articulos_por_problema, motivo, clasificacion,
+        fundamentador.redactar_parrafo, seleccionados, motivo, clasificacion,
     )
     informe.fundamentacion_normativa = parrafo or None
 
