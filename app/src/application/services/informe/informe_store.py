@@ -102,6 +102,27 @@ class InformeAtencionStore:
     def obtener(self, codreclamo: str) -> InformeAtencion | None:
         return self._data.get(codreclamo)
 
+    def listar_metadatos(self) -> list[dict]:
+        """Metadatos mínimos de cada informe vivo en memoria (codreclamo +
+        codcliente + sesion_id + veredicto). Sirve para que el frontend
+        reconstruya la cola de reclamos desde el SERVIDOR —fuente de verdad
+        compartida entre navegadores— y no solo desde su localStorage (que es
+        por-navegador). Con codreclamo + codcliente basta para pintar la tarjeta
+        de la cola; el detalle se pide al seleccionar."""
+        with self._lock:
+            return [
+                {
+                    "codreclamo": codreclamo,
+                    "codcliente": (
+                        informe.datos_reclamo.codcliente
+                        if informe.datos_reclamo else None
+                    ),
+                    "sesion_id": informe.sesion_id,
+                    "veredicto": informe.veredicto,
+                }
+                for codreclamo, informe in self._data.items()
+            ]
+
     def eliminar(self, codreclamo: str) -> bool:
         """Cierra la atención de un reclamo: quita su informe y token de la
         memoria del servidor. Se llama al terminar el flujo completo (tras

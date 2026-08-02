@@ -17,6 +17,7 @@ from app.src.infrastructure.api_rest.schemas.informe import (
 )
 from app.src.infrastructure.api_rest.schemas.reclamo import (
     ClasificarRapidoRequest, ClasificarRapidoResponse, FinalizarAtencionResponse,
+    ReclamoEnMemoria, ReclamosEnMemoriaResponse,
 )
 from app.src.infrastructure.adapters.emapa_http_adapter import EmapaHttpAdapter
 from app.src.infrastructure.adapters.http_client import EmapaSinDatosError
@@ -198,6 +199,20 @@ def clasificar_rapido_endpoint(request: ClasificarRapidoRequest) -> ClasificarRa
         metodo=resultado["metodo"],
         score=resultado["score"],
         candidatos=resultado["candidatos"],
+    )
+
+
+@router.get("/en-memoria", response_model=ReclamosEnMemoriaResponse)
+async def listar_reclamos_en_memoria() -> ReclamosEnMemoriaResponse:
+    """
+    Lista los reclamos con un informe vivo en memoria del servidor (codreclamo +
+    codcliente + sesion_id). Es la fuente de verdad COMPARTIDA para reconstruir
+    la cola del frontend: como la memoria del servidor es única, cualquier
+    navegador que abra la app ve los reclamos en curso, sin depender de su
+    localStorage (que es por-navegador). Lectura pura, sin token ni efectos.
+    """
+    return ReclamosEnMemoriaResponse(
+        reclamos=[ReclamoEnMemoria(**m) for m in informe_store.listar_metadatos()]
     )
 
 
