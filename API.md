@@ -103,8 +103,12 @@ tener presente.
 | Método | Ruta | Descripción |
 |---|---|---|
 | GET | `/reclamos/reclamo/{codsede}/{codsuc}/{codreclamo}/{codcliente}?sesion_id=` | Busca el reclamo en EMAPA, guarda el token y crea (o reutiliza) el informe en el store. **Punto de entrada del flujo.** `409` si otra sesión ya lo está atendiendo. |
+| POST | `/reclamos/iniciar-investigacion` | Crea el informe a partir del detalle del reclamo **ya obtenido por el frontend**, sin volver a consultar EMAPA. Alternativa a `GET /reclamos/reclamo/...` cuando la pantalla de detalle ya trajo los datos. `409` si otra sesión ya lo atiende. |
 | POST | `/reclamos/clasificar-rapido` | Clasificación por reglas (sin LLM), pensada para reclamos web. Si ya viene `des_cod_reclamo`, lo respeta. |
+| POST | `/reclamos/informe-atencion` | **Orquesta el flujo completo en una sola llamada** (automatización, sin usuario mirando): busca el reclamo, genera objetivos, analiza los 6 medios, fundamenta y concluye. Los medios sin datos se omiten. Tag `automatizacion`. |
+| GET | `/reclamos/en-memoria` | Lista los reclamos con informe vivo en memoria (`codreclamo`, `codcliente`, `sesion_id`). Fuente compartida para reconstruir la cola del frontend entre navegadores. Lectura pura. |
 | GET | `/reclamos/{codreclamo}/informe` | Lectura pura de todo el informe en memoria (metadata, resúmenes por medio, objetivos, conclusión, propuesta, resolución, texto renderizado). Para rehidratar el frontend tras un refresh. `404` si no hay nada en memoria. |
+| GET | `/reclamos/{codreclamo}/sustentacion` | Ensambla el Informe de Sustentación del Régimen de Facturación (tarjeta de lecturas + record de facturación + datos del reclamo) como estructura tabular que el frontend convierte en `.docx`. Lectura pura. `404` si no hay informe en curso. |
 | DELETE | `/reclamos/{codreclamo}` | Cierra la atención: libera el informe y el token de la memoria. |
 
 <details>
@@ -176,13 +180,14 @@ Medios probatorios analizables: `inspeccion-externa`, `inspeccion-interna`,
 
 | Método | Ruta | Tag | Descripción |
 |---|---|---|---|
+| POST | `/investigacion/objetivos` | — | Genera los objetivos de investigación a partir del motivo guardado. |
 | POST | `/investigacion/{medio}/stream` | `interactivo` | Analiza un medio con progreso en vivo (NDJSON). |
 | POST | `/investigacion/{medio}` | `automatizacion` | Analiza un medio, espera el resultado completo. |
-| PATCH | `/investigacion/{medio}/resumen` | — | Edita a mano el resumen de un medio ya analizado (sin LLM). No borra conclusión/propuesta/resolución ya generadas. |
-| POST | `/investigacion/objetivos` | — | Genera los objetivos de investigación a partir del motivo guardado. |
-| POST | `/investigacion/medios-disponibles` | — | Verifica en paralelo qué medios traen datos en EMAPA (sin LLM, para habilitar/deshabilitar pestañas en el front). |
-| GET | `/investigacion/informe/preview` | — | Texto del informe con lo analizado hasta ahora (sin LLM). |
-| POST | `/investigacion/conclusion/stream` | `interactivo` | Fundamenta y concluye el informe, con eventos en vivo por cada problema. |
+| PATCH | `/investigacion/{medio}/resumen` | — | Edita a mano el resumen de un medio ya analizado (sin LLM). No borra fundamentación/conclusión/propuesta/resolución ya generadas. |
+| POST | `/investigacion/fundamentar-normativa/stream` | `interactivo` | Selecciona 1-3 hallazgos determinantes y redacta el párrafo de fundamentación normativa, con eventos en vivo. |
+| POST | `/investigacion/fundamentar-normativa` | `automatizacion` | Igual, pero espera el resultado completo. |
+| PATCH | `/investigacion/fundamentar-normativa` | — | Edita a mano el párrafo de fundamentación normativa (sin re-seleccionar problemas ni LLM). |
+| POST | `/investigacion/conclusion/stream` | `interactivo` | Evalúa objetivos vs. hallazgos y fija el veredicto, con eventos en vivo por cada problema. |
 | POST | `/investigacion/conclusion` | `automatizacion` | Igual, pero espera el resultado completo. |
 | PATCH | `/investigacion/conclusion` | — | Edita a mano el párrafo de conclusión (sin LLM, sin tocar el veredicto). |
 
@@ -342,35 +347,37 @@ Request de `PATCH /resolucion`:
 ```
 1. GET    /reclamos/reclamo/{codsede}/{codsuc}/{codreclamo}/{codcliente}?sesion_id=
           └─ guarda el token EMAPA y crea (o reutiliza) el informe en el store
-2. POST   /investigacion/objetivos              ─┐
-   POST   /investigacion/medios-disponibles      ┘  en paralelo
+             (o POST /reclamos/iniciar-investigacion si el detalle ya se obtuvo)
+2. POST   /investigacion/objetivos                 (genera los objetivos)
    POST   /investigacion/<medio>[/stream]          (uno por cada medio a analizar)
    PATCH  /investigacion/<medio>/resumen           (opcional: corregir a mano)
-3. POST   /investigacion/conclusion[/stream]
-          └─ requiere al menos un medio analizado
+3. POST   /investigacion/fundamentar-normativa[/stream]
+          └─ fundamenta los hallazgos determinantes (requiere medios analizados)
+   PATCH  /investigacion/fundamentar-normativa     (opcional: corregir a mano)
+4. POST   /investigacion/conclusion[/stream]
+          └─ evalúa objetivos vs. hallazgos y fija el veredicto
    PATCH  /investigacion/conclusion                (opcional: corregir a mano)
-4. POST   /conciliacion/propuesta
-          └─ requiere que el informe tenga conclusión + veredicto (paso 3)
+5. POST   /conciliacion/propuesta
+          └─ requiere que el informe tenga conclusión + veredicto (paso 4)
    PATCH  /conciliacion/propuesta                  (opcional: corregir a mano)
-5. POST   /resolucion
-          └─ requiere conclusión + veredicto (paso 3); usa la propuesta del paso 4
+6. POST   /resolucion
+          └─ requiere conclusión + veredicto (paso 4); usa la propuesta del paso 5
    PATCH  /resolucion                              (opcional: corregir a mano)
-6. DELETE /reclamos/{codreclamo}
+7. DELETE /reclamos/{codreclamo}
           └─ cierra la atención (tras guardar/exportar la resolución)
 ```
 
-Los pasos 2 y 3 tienen **dos variantes** (ver [sección 6](#6-endpoints-con-streaming-ndjson)):
+Los pasos 2, 3 y 4 tienen **dos variantes** (ver [sección 6](#6-endpoints-con-streaming-ndjson)):
 
 - **`/stream`** (NDJSON) — para cuando hay un usuario mirando la pantalla: el
   frontend muestra progreso en vivo (preprocesamiento → resumen del LLM).
-- **sin `/stream`** — para flujos automatizados sin usuario presente (p.ej. al
-  registrarse un reclamo web, disparar objetivos + análisis de medios
-  automáticamente): se espera el resultado completo de una sola vez.
+- **sin `/stream`** — para flujos automatizados sin usuario presente: se espera
+  el resultado completo de una sola vez. Para automatizar **todo** el flujo en
+  una sola llamada existe además `POST /reclamos/informe-atencion` (sección 4.1).
 
-`GET /investigacion/informe/preview` puede llamarse en cualquier momento del
-paso 2 para obtener el texto del informe con lo que se ha analizado hasta
-ahora. `GET /reclamos/{codreclamo}/informe` (sección 3) devuelve lo mismo
-más estructurado, y sirve además para rehidratar el frontend tras un refresh.
+`GET /reclamos/{codreclamo}/informe` (sección 3) devuelve todo el estado
+estructurado guardado hasta el momento, y sirve para rehidratar el frontend
+tras un refresh.
 
 La **Gestión de Normativa** (sección 4.6) es independiente de este flujo — se
 usa para mantener la base de conocimiento que consume
@@ -391,15 +398,21 @@ parsing por `\n`), no con `response.json()`.
 {"evento": "resumen", "medio_id": "...", "resumen": "texto del LLM", "tiempo": 3.1}
 ```
 
-**`POST /investigacion/conclusion/stream`** emite, por cada problema
-fundamentado, 2 eventos, y al final 2 más:
+**`POST /investigacion/fundamentar-normativa/stream`** emite, a medida que se
+producen, la selección de hallazgos determinantes, sus artículos y el párrafo
+final de fundamentación:
 ```jsonl
-{"evento": "inicio", "total_problemas": 4}
-{"evento": "articulos", "indice": 0, "medio_id": "...", "articulos": [...]}
-{"evento": "fundamentacion", "indice": 0, "medio_id": "...", "accion": "...", "responsable": "...", "base_legal": "..."}
-... (se repite por cada problema)
+{"evento": "candidatos", "problemas": [...]}
+{"evento": "articulos", "medio_id": "...", "detalle": "...", "articulos": [...]}
+... (se repite por cada hallazgo seleccionado)
+{"evento": "fundamentacion", "codreclamo": "...", "fundamentacion": "párrafo...", "tiempo": 4.7}
+```
+
+**`POST /investigacion/conclusion/stream`** consume la fundamentación ya
+generada (no vuelve a fundamentar por problema) y emite 2 eventos:
+```jsonl
 {"evento": "conclusion", "veredicto": "FUNDADO", "conclusion": "..."}
-{"evento": "informe", "codreclamo": "...", "informe": "texto final", "problemas": [...], "tiempo": 12.4}
+{"evento": "informe", "codreclamo": "...", "informe": "texto final", "problemas": [...], "tiempo": 5.2}
 ```
 
 Ambos pueden emitir `{"evento": "error", "error": "..."}` en cualquier punto

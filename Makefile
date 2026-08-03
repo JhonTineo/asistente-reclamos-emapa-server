@@ -3,15 +3,14 @@ VENV_DIR ?= .venv
 VENV_PYTHON := $(VENV_DIR)/Scripts/python
 UVICORN := $(VENV_DIR)/Scripts/uvicorn
 
-.PHONY: help venv install spacy setup up down restart logs run index test-llm docker-up docker-build docker-down clean deploy
+.PHONY: help venv install setup up down restart logs run index docker-up docker-build docker-down clean deploy
 
 help:
 	@echo "Targets disponibles:"
-	@echo "  make setup        - Crear venv, instalar dependencias y modelo spaCy"
+	@echo "  make setup        - Crear venv e instalar dependencias (app/requirements.txt)"
 	@echo "  make up           - Levantar infraestructura local (qdrant + ollama)"
 	@echo "  make run          - Ejecutar API FastAPI en modo reload"
 	@echo "  make index        - Indexar normativa en Qdrant"
-	@echo "  make test-llm     - Ejecutar script test_llm.py"
 	@echo "  make docker-build - Levantar stack completo con build"
 	@echo "  make docker-down  - Bajar stack completo"
 	@echo "  make clean        - Limpiar caches y artefactos temporales"
@@ -21,12 +20,9 @@ venv:
 
 install: venv
 	$(VENV_PYTHON) -m pip install --upgrade pip
-	$(VENV_PYTHON) -m pip install -r requirements.txt
+	$(VENV_PYTHON) -m pip install -r app/requirements.txt
 
-spacy: install
-	$(VENV_PYTHON) -m spacy download es_core_news_sm
-
-setup: spacy
+setup: install
 
 up:
 	docker compose up qdrant ollama -d
@@ -40,14 +36,10 @@ logs:
 	docker compose logs -f qdrant ollama
 
 run:
-	$(UVICORN) app.main:app --host 0.0.0.0 --port 8000 --reload
+	$(UVICORN) app.src.main:app --host 0.0.0.0 --port 8000 --reload
 
 index:
-	$(VENV_PYTHON) -m app.scripts.chunk_and_index
-	$(VENV_PYTHON) -m app.scripts.build_reclamos_index
-
-test-llm:
-	$(VENV_PYTHON) test_llm.py
+	$(VENV_PYTHON) -m app.src.application.services.rag.chunk_and_index
 
 docker-up:
 	docker compose up -d

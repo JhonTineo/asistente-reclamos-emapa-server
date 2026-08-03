@@ -19,6 +19,9 @@ __pycache__/
 *$py.class
 *.so
 
+# Cache de pytest
+.pytest_cache/
+
 # Distribución / empaquetado
 *.egg-info/
 *.egg
