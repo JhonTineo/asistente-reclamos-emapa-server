@@ -30,6 +30,7 @@ class ReclamoEnMemoria(BaseModel):
     codreclamo: str
     codcliente: str | None = None
     sesion_id: str | None = None
+    creado_por: str | None = None
     veredicto: str | None = None
 
 

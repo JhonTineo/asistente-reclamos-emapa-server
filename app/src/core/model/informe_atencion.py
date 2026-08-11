@@ -64,6 +64,9 @@ class InformeAtencion:
     objetivos: list["ObjetivoInvestigacion"] = field(default_factory=list)  # paso 2
     # --- cuerpo (se llena por medio, paso 3-4) ---
     bloques: list[BloqueMedio] = field(default_factory=list)
+    # PDF temporal cargado para el medio técnico operacional. Solo existe
+    # mientras la atención del reclamo permanezca abierta.
+    documento_tecnico_operacional: dict | None = None
     ventana_meses: list[tuple[int, int]] = field(default_factory=list)
     # Párrafo de fundamentación normativa: se genera tras analizar los medios
     # (a partir de los hallazgos determinantes) y se renderiza como punto final,
@@ -79,6 +82,9 @@ class InformeAtencion:
     # pestaña recargando" de "otra ventana intentando atender el mismo
     # reclamo en paralelo".
     sesion_id: str | None = None
+    # Usuario de EMAPA que inició la atención. Se usa solo para organizar la
+    # cola en la interfaz; no constituye una regla de autorización.
+    creado_por: str | None = None
 
     @property
     def clasificacion(self) -> str | None:

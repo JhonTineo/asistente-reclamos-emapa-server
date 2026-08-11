@@ -32,3 +32,5 @@ services:
     env_file:
       - .env
     working_dir: /code
+    volumes:
+      - ./volumes/operacional_data:/code/volumes/operacional_data

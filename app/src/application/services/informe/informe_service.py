@@ -26,6 +26,7 @@ def crear_informe_desde_datos(
     codcliente: str,
     token: str,
     sesion_id: str | None,
+    creado_por: str | None = None,
 ) -> InformeAtencion:
     """Crea la entidad de dominio del informe de atención a partir del detalle
     CRUDO del reclamo (el mismo JSON que devuelve EMAPA en
@@ -67,6 +68,7 @@ def crear_informe_desde_datos(
         suministro=codcliente,
         datos_reclamo=datos_reclamo,
         sesion_id=sesion_id,
+        creado_por=creado_por,
     )
     informe_store.guardar_token(codreclamo, token)
     return informe
@@ -74,7 +76,7 @@ def crear_informe_desde_datos(
 
 async def buscar_y_crear_informe_o_lanzar(
     codsede: str, codsuc: str, codreclamo: str, codcliente: str,
-    token: str, sesion_id: str | None,
+    token: str, sesion_id: str | None, creado_por: str | None,
     api: PuertoEmapaAPI,
 ) -> InformeAtencion:
     """Búsqueda del reclamo + creación de metadatos del informe, propia del
@@ -97,7 +99,9 @@ async def buscar_y_crear_informe_o_lanzar(
         raise HTTPException(status_code=502, detail=str(e))
 
     try:
-        informe = crear_informe_desde_datos(datos, codreclamo, codcliente, token, sesion_id)
+        informe = crear_informe_desde_datos(
+            datos, codreclamo, codcliente, token, sesion_id, creado_por,
+        )
     except ReclamoEnAtencionError as e:
         raise HTTPException(status_code=409, detail=str(e))
     return informe

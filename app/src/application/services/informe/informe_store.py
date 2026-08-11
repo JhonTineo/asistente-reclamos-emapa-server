@@ -7,6 +7,8 @@ vida corta (una investigación en curso); no persiste a disco.
 
 import logging
 import threading
+import shutil
+from pathlib import Path
 from datetime import datetime
 
 from app.src.core.model.informe_atencion import InformeAtencion, BloqueMedio
@@ -47,6 +49,7 @@ class InformeAtencionStore:
         codreclamo: str,
         suministro: str,
         datos_reclamo: Reclamo | None = None,
+        creado_por: str | None = None,
     ) -> InformeAtencion:
         return InformeAtencion(
             numero=f"{codreclamo}-{datetime.now():%Y}-EMAPA-SM",
@@ -56,6 +59,7 @@ class InformeAtencionStore:
             suministro=suministro,
             destinatario=DESTINATARIO_DEFAULT,
             datos_reclamo=datos_reclamo,
+            creado_por=creado_por,
         )
 
     def crear_metadata(
@@ -64,6 +68,7 @@ class InformeAtencionStore:
         suministro: str,
         datos_reclamo: Reclamo | None = None,
         sesion_id: str | None = None,
+        creado_por: str | None = None,
     ) -> InformeAtencion:
         """Crea el informe con solo sus metadatos, o si ya existe uno en
         curso para este reclamo:
@@ -93,7 +98,9 @@ class InformeAtencionStore:
                 )
                 return existente
 
-            informe = self._nuevo_informe(codreclamo, suministro, datos_reclamo)
+            informe = self._nuevo_informe(
+                codreclamo, suministro, datos_reclamo, creado_por,
+            )
             informe.sesion_id = sesion_id
             self._data[codreclamo] = informe
             logger.info("[INFORME_STORE] Metadatos creados para reclamo %s", codreclamo)
@@ -118,6 +125,7 @@ class InformeAtencionStore:
                         if informe.datos_reclamo else None
                     ),
                     "sesion_id": informe.sesion_id,
+                    "creado_por": informe.creado_por,
                     "veredicto": informe.veredicto,
                 }
                 for codreclamo, informe in self._data.items()
@@ -129,10 +137,26 @@ class InformeAtencionStore:
         guardar la resolución), para no acumular informes de reclamos ya
         resueltos indefinidamente. Devuelve True si había algo que borrar."""
         with self._lock:
-            existia = self._data.pop(codreclamo, None) is not None
+            informe = self._data.pop(codreclamo, None)
+            existia = informe is not None
             self._tokens.pop(codreclamo, None)
+        documento = informe.documento_tecnico_operacional if informe else None
+        ruta = Path(documento["ruta"]) if documento and documento.get("ruta") else None
+        if ruta and ruta.parent.exists():
+            shutil.rmtree(ruta.parent)
         logger.info("[INFORME_STORE] Reclamo %s eliminado de memoria (existia=%s)", codreclamo, existia)
         return existia
+
+    def guardar_documento_tecnico_operacional(self, codreclamo: str, documento: dict) -> None:
+        with self._lock:
+            informe = self._data.get(codreclamo)
+            if informe is None:
+                raise KeyError(f"No hay un informe en curso para el reclamo {codreclamo}.")
+            informe.documento_tecnico_operacional = documento
+
+    def obtener_documento_tecnico_operacional(self, codreclamo: str) -> dict | None:
+        informe = self._data.get(codreclamo)
+        return informe.documento_tecnico_operacional if informe else None
 
     def guardar_token(self, codreclamo: str, token: str) -> None:
         """Asocia el token de EMAPA al reclamo (se fija al buscar el reclamo)."""

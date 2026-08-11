@@ -37,6 +37,8 @@ from app.src.infrastructure.api_rest.investigacion import (
     fundamentar_normativa,
 )
 from app.src.infrastructure.api_rest.deps import usar_token_emapa, requerir_token_emapa, usar_config_llm
+from app.src.infrastructure.api_rest.deps import usar_token_emapa, requerir_token_emapa, usar_config_llm, get_llm_router
+from app.src.application.services.llm.llm_router_service import LlmRouterService
 
 logger = logging.getLogger("api.clasificador")
 
@@ -56,6 +58,10 @@ async def buscar_reclamo(
             "pestaña en la cola). Si otra sesión ya está atendiendo este reclamo, "
             "la búsqueda se rechaza con 409 en vez de pisar su avance."
         ),
+    ),
+    creado_por: str | None = Query(
+        None,
+        description="Usuario que inició la atención, para organizar la cola.",
     ),
     token: str = Depends(requerir_token_emapa),
 ) -> BuscarReclamoResponse:
@@ -107,7 +113,9 @@ async def buscar_reclamo(
     # en el store (se guarda también el token para reutilizarlo en la
     # investigación). Mismo núcleo que usa POST /iniciar-investigacion.
     try:
-        informe = crear_informe_desde_datos(datos, codreclamo, codcliente, token, sesion_id)
+        informe = crear_informe_desde_datos(
+            datos, codreclamo, codcliente, token, sesion_id, creado_por,
+        )
     except ReclamoEnAtencionError as e:
         logger.warning("[API /reclamo] %s", e)
         logger.info("=" * 60)
@@ -153,7 +161,8 @@ async def iniciar_investigacion(
     )
     try:
         informe = crear_informe_desde_datos(
-            request.datos, request.codreclamo, request.codcliente, token, request.sesion_id,
+            request.datos, request.codreclamo, request.codcliente, token,
+            request.sesion_id, request.creado_por,
         )
     except ReclamoEnAtencionError as e:
         logger.warning("[API /iniciar-investigacion] %s", e)
@@ -326,9 +335,6 @@ _MEDIOS_ANALIZABLES: list[tuple[str, str]] = [
     ("inspeccion_interna", "Inspección Interna"),
 ]
 
-from app.src.infrastructure.api_rest.deps import usar_token_emapa, requerir_token_emapa, usar_config_llm, get_llm_router
-from app.src.application.services.llm.llm_router_service import LlmRouterService
-
 @router.post("/informe-atencion", response_model=InformeAutomaticoResponse, tags=["automatizacion"])
 async def generar_informe_atencion(
     request: InformeAutomaticoRequest,
@@ -360,7 +366,7 @@ async def generar_informe_atencion(
     # --- 1. Búsqueda + creación de metadatos --------------------------------
     informe = await buscar_y_crear_informe_o_lanzar(
         request.codsede, request.codsuc, request.codreclamo, request.codcliente,
-        token, request.sesion_id, EmapaHttpAdapter(),
+        token, request.sesion_id, request.creado_por, EmapaHttpAdapter(),
     )
     clasificacion = informe.clasificacion or ""
 

@@ -22,6 +22,10 @@ class InformeAutomaticoRequest(BaseModel):
             "está atendiendo este reclamo, se rechaza con 409."
         ),
     )
+    creado_por: str | None = Field(
+        default=None,
+        description="Usuario que inició la atención, para organizar la cola.",
+    )
 
 
 class InformeAutomaticoResponse(BaseModel):

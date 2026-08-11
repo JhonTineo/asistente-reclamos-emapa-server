@@ -2,6 +2,7 @@ import json
 import time
 import logging
 from dataclasses import asdict
+from pathlib import Path
 from app.src.application.ports.provider_port import MensajeLLM
 from app.src.application.services.llm.llm_router_service import LlmRouterService, MODELO_EXTERNO_DEFAULT
 from app.src.application.services.pre_proces.pre_inspeccion_externa_service import PreInspeccionExternaService
@@ -10,6 +11,7 @@ from app.src.application.services.pre_proces.pre_targeta_lecturas_service import
 from app.src.application.services.pre_proces.pre_corte_reapertura_service import PreCorteReaperturaService
 from app.src.application.services.pre_proces.pre_record_facturacion_service import PreRecordFacturacionService
 from app.src.application.services.pre_proces.pre_saldo_detalle_service import PreSaldoDetalleService
+from app.src.application.services.pre_proces.pre_tecnico_operacional import PreTecnicoOperacionalService
 from app.src.application.services.pre_proces.problemas_normalizer import extraer_problemas
 from app.src.application.ports.emapa_api_port import PuertoEmapaAPI
 from app.src.core.model.informe_atencion import BloqueMedio
@@ -134,6 +136,12 @@ INSTRUCCIONES_POR_MEDIO: dict[str, list[str]] = {
         "- Meses pendientes de pago (mesesNoPagados).",
         _CIERRE,
     ],
+    "tecnico_operacional": [
+        "Redacta UN SOLO párrafo ejecutivo sobre el análisis operacional del informe técnico.",
+        "Incluye únicamente ubicación, horario de abastecimiento, continuidad del servicio y válvula de aire cuando estén expresamente descritos.",
+        _REGLA_SOLO_DATOS,
+        _CIERRE,
+    ],
 }
 
 class AnalistaMedioAgent:
@@ -146,6 +154,7 @@ class AnalistaMedioAgent:
         self.pre_corte_service = PreCorteReaperturaService(emapa_api)
         self.pre_record_service = PreRecordFacturacionService(emapa_api)
         self.pre_saldo_service = PreSaldoDetalleService(emapa_api)
+        self.pre_tecnico_service = PreTecnicoOperacionalService()
 
     def analizar(
         self, medio_id: str, medio_nombre: str, codsuc: str, codcliente: str,
@@ -153,11 +162,12 @@ class AnalistaMedioAgent:
         fecha_ref: str | None = None,
         enfoque: str | None = None,
         codinspeccion: str | None = None,
+        ruta_pdf: Path | None = None,
     ) -> tuple[BloqueMedio, list[tuple[int, int]]]:
         t_inicio = time.perf_counter()
         logger.info("Iniciando análisis para medio: %s | codsuc=%s | codcliente=%s", medio_nombre, codsuc, codcliente)
         datos, problemas, ventana = self.preprocesar(
-            medio_id, medio_nombre, codsuc, codcliente, meses, fecha_ref, codinspeccion,
+            medio_id, medio_nombre, codsuc, codcliente, meses, fecha_ref, codinspeccion, ruta_pdf,
         )
         resumen = self.interpretar(medio_id, medio_nombre, datos, problemas, clasificacion, enfoque)
         logger.info("Análisis completado | medio=%s | tiempo=%.2fs", medio_nombre, time.perf_counter() - t_inicio)
@@ -174,6 +184,7 @@ class AnalistaMedioAgent:
         self, medio_id: str, medio_nombre: str, codsuc: str, codcliente: str,
         meses: int = 12, fecha_ref: str | None = None,
         codinspeccion: str | None = None,
+        ruta_pdf: Path | None = None,
     ) -> tuple[dict, list, list[tuple[int, int]]]:
         """Obtiene la entidad del medio y detecta problemas por reglas. Cada
         medio calcula su propia ventana calendario a partir de (meses, fecha_ref)
@@ -183,7 +194,7 @@ class AnalistaMedioAgent:
         t_inicio = time.perf_counter()
         logger.info("Preprocesando medio: %s | codsuc=%s | codcliente=%s", medio_nombre, codsuc, codcliente)
         entidad, ventana = self._dispatch_preprocesamiento(
-            medio_id, codsuc, codcliente, meses, fecha_ref, codinspeccion,
+            medio_id, codsuc, codcliente, meses, fecha_ref, codinspeccion, ruta_pdf,
         )
         datos = asdict(entidad)
         problemas = extraer_problemas(medio_id, entidad)
@@ -293,6 +304,7 @@ class AnalistaMedioAgent:
         self, medio_id: str, codsuc: str, codcliente: str,
         meses: int = 12, fecha_ref: str | None = None,
         codinspeccion: str | None = None,
+        ruta_pdf: Path | None = None,
     ) -> tuple[object, list[tuple[int, int]]]:
         """Devuelve (entidad_de_dominio, ventana) según el medio. Los medios de
         serie temporal (tarjeta/record/corte/saldo) calculan su propia ventana
@@ -319,6 +331,10 @@ class AnalistaMedioAgent:
         elif medio_id == "saldo_detalle":
             resultado = self.pre_saldo_service.preprocesar_saldo_detalle(codsuc, codcliente, meses, fecha_ref)
             return resultado["saldo"], []
+        elif medio_id == "tecnico_operacional":
+            if ruta_pdf is None:
+                raise ValueError("No se cargó un informe técnico operacional para este reclamo.")
+            return self.pre_tecnico_service.preprocesar(ruta_pdf, ruta_pdf.name), []
         else:
             raise ValueError(f"Medio no soportado para preprocesamiento: {medio_id}")
 
