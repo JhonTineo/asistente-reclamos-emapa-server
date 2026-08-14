@@ -107,24 +107,19 @@ Saneamiento y el Reglamento de Calidad SUNASS.
 
 IMPORTANTE: el veredicto YA fue determinado por el informe de atención y NO
 puedes cambiarlo: {veredicto}. Tu única tarea es redactar los considerandos que
-lo fundamentan, con el mismo estilo formal de una resolución administrativa
-(párrafos que empiezan con "QUE," o "QUE, SEGÚN..."), EN MAYÚSCULAS donde
-corresponda, tal como en el ejemplo de estructura.
+lo fundamentan, con el mismo estilo formal de una resolución administrativa.
 
 ESTRUCTURA A SEGUIR (no repitas literalmente el ejemplo, redacta con los datos
 reales de este caso):
-1. Un considerando "QUE EL RECURRENTE HA SEGUIDO UN PROCEDIMIENTO ADMINISTRATIVO
-   REGULAR PARA QUE SE RECONOZCA SU DERECHO DE RECLAMO POR [tema del reclamo,
-   basado en la clasificación/motivo]."
-2. Un considerando "QUE, SEGÚN INFORME N.º {informe.numero} DE FECHA
+1. Un considerando "QUE, SEGÚN INFORME N.º {informe.numero} DE FECHA
    {_fecha_es(informe.fecha)}, INFORMA EN ATENCIÓN AL RECLAMO PRESENTADO POR EL
    SUMINISTRO N.º {informe.suministro}, SE HA REALIZADO EL PROCEDIMIENTO
    ESTABLECIDO EN LA NORMATIVA, EL MISMO QUE NOS CONLLEVA AL SIGUIENTE
    RESULTADO:" seguido de un resumen técnico de los hallazgos de la
    investigación (usa SOLO la conclusión de la investigación que se te da
    abajo; no inventes cifras, lecturas ni hechos que no estén ahí).
-3. Si corresponde, menciona brevemente la conciliación: si el cliente aceptó
-   la propuesta de la empresa dilo así; si no la aceptó o no hay registro,
+3. Menciona brevemente la conciliación: si el cliente aceptó
+   la propuesta de la empresa dilo así; si no la aceptó, no asistio o no hay registro,
    indica que se resuelve conforme a lo determinado técnicamente en la
    investigación.
 4. Cierra el último considerando declarando expresamente que el reclamo SE
