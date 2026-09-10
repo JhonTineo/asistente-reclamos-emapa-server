@@ -32,6 +32,22 @@ class ResumenMedio(BaseModel):
     error: str | None = None
 
 
+class AnalisisMedioSchema(BaseModel):
+    """Estado completo de un medio aplicable dentro de una investigacion.
+
+    Los medios aun no ejecutados se devuelven como ``pendiente`` y conservan
+    los mismos campos que un medio ya analizado. De esta forma el frontend usa
+    una sola coleccion para las tareas y para el contenido del informe.
+    """
+    medio_id: str
+    medio_nombre: str
+    fase: str = "pendiente"
+    resumen: str = ""
+    datos: dict | None = None
+    problemas: list[ProblemaNormadoSchema] = Field(default_factory=list)
+    error: str | None = None
+
+
 class InvestigacionResponse(BaseModel):
     codreclamo: str
     codsuc: str
@@ -198,10 +214,16 @@ class InformeMetadata(BaseModel):
     datos_reclamo: ReclamoSchema | None = None
 
 
+class MedioProbatorioSchema(BaseModel):
+    id: str
+    nombre: str
+
+
 class BuscarReclamoResponse(BaseModel):
     codreclamo: str
     datos: dict | None = None
     informe: InformeMetadata | None = None
+    medios_probatorios: list[MedioProbatorioSchema] = Field(default_factory=list)
     error: str | None = None
     tiempo: float
 
@@ -211,7 +233,18 @@ class IniciarInvestigacionResponse(BaseModel):
     # crudo del reclamo): el frontend ya lo tiene (fue quien lo mandó), así que
     # reenviarlo sería redundante. Solo interesa el informe de atención creado.
     codreclamo: str
+    estado: str = "creado"
     informe: InformeMetadata | None = None
+    analisis_medios: list[AnalisisMedioSchema] = Field(default_factory=list)
+    objetivos: list[dict] = Field(default_factory=list)
+    ventana_meses: list[tuple[int, int]] = Field(default_factory=list)
+    fundamentacion: str | None = None
+    veredicto: str | None = None
+    conclusion: str | None = None
+    problemas: list[dict] = Field(default_factory=list)
+    propuesta_conciliacion: str | None = None
+    resolucion: str | None = None
+    informe_texto: str = ""
     error: str | None = None
     tiempo: float
 
@@ -414,6 +447,7 @@ class ActualizarResolucionTextoResponse(BaseModel):
 class InformeCompletoResponse(BaseModel):
     codreclamo: str
     informe: InformeMetadata
+    medios_probatorios: list[MedioProbatorioSchema] = Field(default_factory=list)
     objetivos: list[ObjetivoInvestigacionSchema] = Field(default_factory=list)
     resumenes: list[ResumenMedio] = Field(default_factory=list)
     ventana_meses: list[tuple[int, int]] = Field(default_factory=list)

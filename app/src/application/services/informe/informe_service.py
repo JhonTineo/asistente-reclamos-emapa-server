@@ -14,6 +14,7 @@ from app.src.application.ports.emapa_api_port import PuertoEmapaAPI
 from app.src.infrastructure.adapters.http_client import EmapaSinDatosError
 from app.src.application.services.informe.informe_store import informe_store, ReclamoEnAtencionError
 from app.src.application.services.investigacion.reclamo_service import campo_reclamo, codigo_inspeccion
+from app.src.application.services.informe.medios_probatorios import obtener_medios_probatorios
 from app.src.core.model.reclamo import Reclamo
 from app.src.core.model.informe_atencion import InformeAtencion
 
@@ -41,6 +42,7 @@ def crear_informe_desde_datos(
     sesión ya está atendiendo el mismo reclamo."""
     motivo = campo_reclamo(datos, "motivo")
     clasificacion = campo_reclamo(datos, "desCodReclamo")
+    codigo_tipo_reclamo = campo_reclamo(datos, "codreclamo")
     codinspeccion_interna = codigo_inspeccion(datos, "inspeccion_interna")
     codinspeccion_externa = codigo_inspeccion(datos, "inspeccion_externa")
     if not codinspeccion_interna:
@@ -70,6 +72,7 @@ def crear_informe_desde_datos(
         sesion_id=sesion_id,
         creado_por=creado_por,
     )
+    informe.medios_probatorios = obtener_medios_probatorios(codigo_tipo_reclamo)
     informe_store.guardar_token(codreclamo, token)
     return informe
 

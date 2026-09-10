@@ -7,7 +7,7 @@ from app.src.application.usecase.agents.clasificador_rapido import clasificar_ra
 from app.src.infrastructure.api_rest.schemas.investigacion import (
     BuscarReclamoResponse, InformeMetadata, ReclamoSchema,
     InformeCompletoResponse, ObjetivoInvestigacionSchema,
-    ResumenMedio, ProblemaNormadoSchema, ProblemaInforme,
+    ResumenMedio, AnalisisMedioSchema, ProblemaNormadoSchema, ProblemaInforme,
     SustentacionResponse,
     ObjetivosRequest, BuscarReclamoRequest, InformeRequest,
     IniciarInvestigacionRequest, IniciarInvestigacionResponse,
@@ -43,6 +43,66 @@ from app.src.application.services.llm.llm_router_service import LlmRouterService
 logger = logging.getLogger("api.clasificador")
 
 router = APIRouter(prefix="/reclamos", tags=["reclamos"], dependencies=[Depends(usar_token_emapa), Depends(usar_config_llm)])
+
+
+def _estado_informe(informe) -> dict:
+    """Construye el estado serializable que necesita el asistente del frontend."""
+    bloques_por_medio = {bloque.medio_id: bloque for bloque in informe.bloques}
+    analisis_medios = []
+    for medio in informe.medios_probatorios:
+        bloque = bloques_por_medio.get(medio["id"])
+        analisis_medios.append(
+            AnalisisMedioSchema(
+                medio_id=medio["id"],
+                medio_nombre=medio["nombre"],
+                fase="ok" if bloque else "pendiente",
+                resumen=bloque.resumen if bloque else "",
+                datos=bloque.entidad if bloque else None,
+                problemas=(
+                    [asdict(problema) for problema in bloque.problemas]
+                    if bloque else []
+                ),
+            )
+        )
+    problemas = [
+        {
+            "medio_id": bloque.medio_id,
+            **{
+                campo: getattr(problema, campo)
+                for campo in ("tipo", "detalle", "seleccionado", "articulos", "accion", "responsable", "base_legal")
+            },
+        }
+        for bloque in informe.bloques
+        for problema in bloque.problemas
+    ]
+    propuesta = (
+        informe.propuesta_conciliacion.propuesta_empresa
+        if informe.propuesta_conciliacion else None
+    )
+    return {
+        "analisis_medios": analisis_medios,
+        "objetivos": [asdict(objetivo) for objetivo in informe.objetivos],
+        "ventana_meses": informe.ventana_meses,
+        "fundamentacion": informe.fundamentacion_normativa,
+        "veredicto": informe.veredicto,
+        "conclusion": informe.conclusion,
+        "problemas": problemas,
+        "propuesta_conciliacion": propuesta,
+        "resolucion": informe.resolucion,
+        "informe_texto": construir_texto_informe(informe),
+    }
+
+
+def _metadata_informe(informe) -> InformeMetadata:
+    return InformeMetadata(
+        numero=informe.numero,
+        fecha=informe.fecha.isoformat(),
+        asunto=informe.asunto,
+        reclamo=informe.reclamo,
+        suministro=informe.suministro,
+        destinatario=informe.destinatario,
+        datos_reclamo=ReclamoSchema(**vars(informe.datos_reclamo)) if informe.datos_reclamo else None,
+    )
 
 
 @router.get("/reclamo/{codsede}/{codsuc}/{codreclamo}/{codcliente}", response_model=BuscarReclamoResponse)
@@ -124,6 +184,7 @@ async def buscar_reclamo(
     return BuscarReclamoResponse(
         codreclamo=codreclamo,
         datos=datos,
+        medios_probatorios=informe.medios_probatorios,
         informe=InformeMetadata(
             numero=informe.numero,
             fecha=informe.fecha.isoformat(),
@@ -159,6 +220,7 @@ async def iniciar_investigacion(
         "[API /iniciar-investigacion] codreclamo=%s | codcliente=%s",
         request.codreclamo, request.codcliente,
     )
+    ya_existia = informe_store.obtener(request.codreclamo) is not None
     try:
         informe = crear_informe_desde_datos(
             request.datos, request.codreclamo, request.codcliente, token,
@@ -174,15 +236,9 @@ async def iniciar_investigacion(
     logger.info("=" * 60)
     return IniciarInvestigacionResponse(
         codreclamo=request.codreclamo,
-        informe=InformeMetadata(
-            numero=informe.numero,
-            fecha=informe.fecha.isoformat(),
-            asunto=informe.asunto,
-            reclamo=informe.reclamo,
-            suministro=informe.suministro,
-            destinatario=informe.destinatario,
-            datos_reclamo=ReclamoSchema(**vars(informe.datos_reclamo)) if informe.datos_reclamo else None,
-        ),
+        estado="existente" if ya_existia else "creado",
+        informe=_metadata_informe(informe),
+        **_estado_informe(informe),
         tiempo=tiempo,
     )
 
@@ -267,6 +323,7 @@ async def obtener_informe_completo(codreclamo: str) -> InformeCompletoResponse:
 
     return InformeCompletoResponse(
         codreclamo=codreclamo,
+        medios_probatorios=informe.medios_probatorios,
         informe=InformeMetadata(
             numero=informe.numero,
             fecha=informe.fecha.isoformat(),

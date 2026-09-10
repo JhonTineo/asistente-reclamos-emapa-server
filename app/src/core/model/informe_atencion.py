@@ -61,6 +61,7 @@ class InformeAtencion:
     suministro: str
     destinatario: str | None = None
     datos_reclamo: Reclamo | None = None
+    medios_probatorios: list[dict[str, str]] = field(default_factory=list)
     objetivos: list["ObjetivoInvestigacion"] = field(default_factory=list)  # paso 2
     # --- cuerpo (se llena por medio, paso 3-4) ---
     bloques: list[BloqueMedio] = field(default_factory=list)

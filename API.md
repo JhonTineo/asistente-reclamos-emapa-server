@@ -103,7 +103,7 @@ tener presente.
 | Método | Ruta | Descripción |
 |---|---|---|
 | GET | `/reclamos/reclamo/{codsede}/{codsuc}/{codreclamo}/{codcliente}?sesion_id=` | Busca el reclamo en EMAPA, guarda el token y crea (o reutiliza) el informe en el store. **Punto de entrada del flujo.** `409` si otra sesión ya lo está atendiendo. |
-| POST | `/reclamos/iniciar-investigacion` | Crea el informe a partir del detalle del reclamo **ya obtenido por el frontend**, sin volver a consultar EMAPA. Alternativa a `GET /reclamos/reclamo/...` cuando la pantalla de detalle ya trajo los datos. `409` si otra sesión ya lo atiende. |
+| POST | `/reclamos/iniciar-investigacion` | Crea o recupera el informe a partir del detalle del reclamo **ya obtenido por el frontend**, sin volver a consultar EMAPA. Devuelve `analisis_medios` con todos los medios aplicables: `pendiente` si aún no tienen bloque y `ok` si ya fueron analizados. `409` si otra sesión ya lo atiende. |
 | POST | `/reclamos/clasificar-rapido` | Clasificación por reglas (sin LLM), pensada para reclamos web. Si ya viene `des_cod_reclamo`, lo respeta. |
 | POST | `/reclamos/informe-atencion` | **Orquesta el flujo completo en una sola llamada** (automatización, sin usuario mirando): busca el reclamo, genera objetivos, analiza los 6 medios, fundamenta y concluye. Los medios sin datos se omiten. Tag `automatizacion`. |
 | GET | `/reclamos/en-memoria` | Lista los reclamos con informe vivo en memoria (`codreclamo`, `codcliente`, `sesion_id`). Fuente compartida para reconstruir la cola del frontend entre navegadores. Lectura pura. |
