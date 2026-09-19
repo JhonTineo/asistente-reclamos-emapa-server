@@ -149,6 +149,7 @@ async def _analizar_un_medio_en_threadpool(
     medio_nombre: str,
     api: PuertoEmapaAPI,
     llm_router: LlmRouterService,
+    resumenes_existentes: dict[str, str] | None = None,
 ) -> ResumenMedio:
     """Como ``analizar_medio_y_registrar``, pero corre la parte bloqueante
     (``analista.analizar``: HTTP a EMAPA + LLM) en un threadpool. Es lo que
@@ -172,18 +173,39 @@ async def _analizar_un_medio_en_threadpool(
         )
 
     analista = AnalistaMedioAgent(emapa_api=api, llm_router=llm_router, model=request.modelo)
-    bloque, ventana = await run_in_threadpool(
-        analista.analizar,
-        medio_id=medio_id,
-        medio_nombre=medio_nombre,
-        codsuc=request.codsuc,
-        codcliente=request.codcliente,
-        clasificacion=request.clasificacion,
-        meses=request.meses,
-        fecha_ref=fecha_ref,
-        enfoque=enfoque,
-        codinspeccion=codinspeccion,
-    )
+    if resumenes_existentes is None:
+        bloque, ventana = await run_in_threadpool(
+            analista.analizar,
+            medio_id=medio_id,
+            medio_nombre=medio_nombre,
+            codsuc=request.codsuc,
+            codcliente=request.codcliente,
+            clasificacion=request.clasificacion,
+            meses=request.meses,
+            fecha_ref=fecha_ref,
+            enfoque=enfoque,
+            codinspeccion=codinspeccion,
+        )
+    else:
+        # Rehidratación: se consultan nuevamente los datos y se recalculan los
+        # problemas por reglas, pero no se genera otro resumen con el LLM.
+        datos, problemas, ventana = await run_in_threadpool(
+            analista.preprocesar,
+            medio_id,
+            medio_nombre,
+            request.codsuc,
+            request.codcliente,
+            request.meses,
+            fecha_ref,
+            codinspeccion,
+        )
+        bloque = BloqueMedio(
+            medio_id=medio_id,
+            medio_nombre=medio_nombre,
+            entidad=datos,
+            resumen=resumenes_existentes.get(medio_id, ""),
+            problemas=problemas,
+        )
 
     # Se ejecuta de vuelta en el event-loop (tras el await anterior), sin
     # ceder el control a otra corrutina en el medio: seguro contra carreras
@@ -218,6 +240,7 @@ async def analizar_medios_en_paralelo(
     medios: list[tuple[str, str]],
     api: PuertoEmapaAPI,
     llm_router: LlmRouterService,
+    resumenes_existentes: dict[str, str] | None = None,
 ) -> tuple[list[str], list[MedioDisponible]]:
     """Analiza varios medios probatorios EN PARALELO (un threadpool por medio,
     orquestados con asyncio.gather) y registra cada bloque en el informe a
@@ -227,7 +250,9 @@ async def analizar_medios_en_paralelo(
     ``analizar_medio_y_registrar`` / ``stream_analisis_medio`` (uno a la vez).
 
     Un medio sin datos/inspección o que falla por cualquier motivo se omite
-    sin abortar el análisis de los demás.
+    sin abortar el análisis de los demás. Si ``resumenes_existentes`` es un
+    diccionario (incluso vacío), solo recalcula datos/problemas y conserva esos
+    resúmenes; ``None`` mantiene el flujo normal que también invoca al LLM.
 
     Devuelve (medios_analizados, medios_omitidos).
     """
@@ -235,7 +260,10 @@ async def analizar_medios_en_paralelo(
 
     resultados = await asyncio.gather(
         *(
-            _analizar_un_medio_en_threadpool(request, medio_id, medio_nombre, api, llm_router)
+            _analizar_un_medio_en_threadpool(
+                request, medio_id, medio_nombre, api, llm_router,
+                resumenes_existentes,
+            )
             for medio_id, medio_nombre in medios
         ),
         return_exceptions=True,

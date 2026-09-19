@@ -33,6 +33,12 @@ def _render_bloque(indice: int, bloque: BloqueMedio) -> str:
 
 
 def construir_texto_informe(informe: InformeAtencion) -> str:
+    # Los informes ya existentes en SYSCO pueden haber sido redactados a mano o
+    # por una ejecución anterior de la IA. Se conserva el documento original en
+    # vez de intentar reconstruirlo con bloques que no existen en esta sesión.
+    if informe.informe_texto_original:
+        return informe.informe_texto_original
+
     fecha = _fecha_es(informe.fecha)
 
     cabecera = [

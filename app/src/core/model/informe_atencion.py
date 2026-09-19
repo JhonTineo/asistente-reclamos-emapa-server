@@ -75,6 +75,11 @@ class InformeAtencion:
     fundamentacion_normativa: str | None = None
     veredicto: str | None = None       # "FUNDADO" | "INFUNDADO" (puerta lógica)
     conclusion: str | None = None      # texto de la conclusión (paso final)
+    # Texto completo recuperado de SYSCO. Cuando existe, es la fuente original
+    # que debe devolverse al frontend; los tres campos anteriores son su vista
+    # estructurada para que conciliación y resolución puedan reutilizar el mismo
+    # flujo que un informe generado por este servicio.
+    informe_texto_original: str | None = None
     # --- pasos posteriores a la conclusión (paso 4-5) ---
     propuesta_conciliacion: Conciliacion | None = None
     resolucion: str | None = None

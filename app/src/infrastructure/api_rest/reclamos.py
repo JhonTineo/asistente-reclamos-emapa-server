@@ -3,6 +3,7 @@ import time
 from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from starlette.concurrency import run_in_threadpool
 from app.src.application.usecase.agents.clasificador_rapido import clasificar_rapido
 from app.src.infrastructure.api_rest.schemas.investigacion import (
     BuscarReclamoResponse, InformeMetadata, ReclamoSchema,
@@ -26,8 +27,10 @@ from app.src.application.services.informe.render import construir_texto_informe
 from app.src.application.services.informe.sustentacion import construir_sustentacion
 from app.src.application.services.informe.informe_service import (
     buscar_y_crear_informe_o_lanzar, crear_informe_desde_datos,
+    rehidratar_informe_desde_sysco,
 )
 from app.src.application.services.investigacion.investigacion_service import analizar_medios_en_paralelo
+from app.src.application.services.investigacion.reclamo_service import campo_reclamo
 # Orquestador (POST /informe-atencion): reusa los pasos de investigación ya
 # implementados ahí (objetivos, conclusión) en vez de duplicarlos. No hay
 # import circular: investigacion.py no importa de acá.
@@ -36,13 +39,22 @@ from app.src.infrastructure.api_rest.investigacion import (
     re_generar_conclusion,
     fundamentar_normativa,
 )
-from app.src.infrastructure.api_rest.deps import usar_token_emapa, requerir_token_emapa, usar_config_llm
 from app.src.infrastructure.api_rest.deps import usar_token_emapa, requerir_token_emapa, usar_config_llm, get_llm_router
 from app.src.application.services.llm.llm_router_service import LlmRouterService
 
 logger = logging.getLogger("api.clasificador")
 
 router = APIRouter(prefix="/reclamos", tags=["reclamos"], dependencies=[Depends(usar_token_emapa), Depends(usar_config_llm)])
+
+#Mapa de los medios para el flujo completo de informe de atencion
+_MEDIOS_ANALIZABLES: list[tuple[str, str]] = [
+    ("tarjeta_lectura", "Tarjeta de Lecturas"),
+    ("record_facturacion", "Record de Facturación"),
+    ("corte_reapertura", "Cortes y Reaperturas"),
+    ("saldo_detalle", "Saldo Detalle"),
+    ("inspeccion_externa", "Inspección Externa"),
+    ("inspeccion_interna", "Inspección Interna"),
+]
 
 
 def _estado_informe(informe) -> dict:
@@ -105,6 +117,33 @@ def _metadata_informe(informe) -> InformeMetadata:
     )
 
 
+@router.post("/clasificar-rapido", response_model=ClasificarRapidoResponse)
+def clasificar_rapido_endpoint(request: ClasificarRapidoRequest) -> ClasificarRapidoResponse:
+    """
+    Clasificación rápida por reglas (sin LLM ni embeddings), pensada para
+    reclamos web. Si el reclamo ya trae tipo asignado (des_cod_reclamo), se
+    respeta y no se reclasifica.
+    """
+    if request.des_cod_reclamo and request.des_cod_reclamo.strip():
+        return ClasificarRapidoResponse(
+            tipo=request.des_cod_reclamo.strip(),
+            confianza="definida",
+            metodo="sistema",
+        )
+
+    resultado = clasificar_rapido(request.motivo, request.desc_tipo_reclamo)
+    return ClasificarRapidoResponse(
+        tipo=resultado["tipo"],
+        confianza=resultado["confianza"],
+        metodo=resultado["metodo"],
+        score=resultado["score"],
+        candidatos=resultado["candidatos"],
+    )
+
+
+
+
+# -------------------INICIALIZADOR YUMI REACT VERSEL----------------------------------------
 @router.get("/reclamo/{codsede}/{codsuc}/{codreclamo}/{codcliente}", response_model=BuscarReclamoResponse)
 async def buscar_reclamo(
     codsede: str,
@@ -197,29 +236,19 @@ async def buscar_reclamo(
         tiempo=tiempo,
     )
 
-
+#--------------------INICIALIZADOR YUMI SYSCO---------------------------------------
 @router.post("/iniciar-investigacion", response_model=IniciarInvestigacionResponse)
 async def iniciar_investigacion(
     request: IniciarInvestigacionRequest,
     token: str = Depends(requerir_token_emapa),
+    llm_router: LlmRouterService = Depends(get_llm_router),
 ) -> IniciarInvestigacionResponse:
-    """
-    Arranca la investigación creando el informe de atención a partir del detalle
-    del reclamo YA obtenido por el frontend (pantalla de detalle), SIN volver a
-    consultar EMAPA.
-
-    Hace exactamente lo mismo que GET /reclamo/{codsede}/{codsuc}/{codreclamo}/
-    {codcliente} de la creación de la entidad de dominio en adelante (extrae los
-    campos, arma el `Reclamo`, crea los metadatos y guarda el token), pero
-    recibiendo el detalle en el cuerpo. Evita una segunda búsqueda del mismo
-    reclamo, ya que la pantalla de detalle lo trajo con la misma consulta EMAPA.
-    """
+    
     t_inicio = time.perf_counter()
     logger.info("=" * 60)
-    logger.info(
-        "[API /iniciar-investigacion] codreclamo=%s | codcliente=%s",
-        request.codreclamo, request.codcliente,
-    )
+    logger.info("[API /iniciar-investigacion] codreclamo=%s | codcliente=%s", request.codreclamo, request.codcliente,)
+
+
     ya_existia = informe_store.obtener(request.codreclamo) is not None
     try:
         informe = crear_informe_desde_datos(
@@ -231,40 +260,160 @@ async def iniciar_investigacion(
         logger.info("=" * 60)
         raise HTTPException(status_code=409, detail=str(e))
 
+    # Si el informe ya existe en memoria se recupera directamente
+    if ya_existia:
+        tiempo = time.perf_counter() - t_inicio
+        logger.info("[API /iniciar-investigacion] EXISTENTE | bloques=%d | tiempo=%.2fs",len(informe.bloques), tiempo,)
+        logger.info("=" * 60)
+
+        return IniciarInvestigacionResponse(
+            codreclamo=request.codreclamo,
+            estado="existente",
+            informe=_metadata_informe(informe),
+            **_estado_informe(informe),
+            tiempo=tiempo,
+        )
+
+    # Si el informe no esta en memoria validamos si ya existe para recuperarlo
+    try:
+        resumenes_existentes = await run_in_threadpool(
+            rehidratar_informe_desde_sysco,
+            informe,
+            request.datos,
+            llm_router,
+        )
+
+        if resumenes_existentes is not None:
+            medios = [
+                (medio["id"], medio["nombre"])
+                for medio in informe.medios_probatorios
+            ]
+            await analizar_medios_en_paralelo(
+                BuscarReclamoRequest(
+                    codsuc=campo_reclamo(request.datos, "codsuc"),
+                    codreclamo=request.codreclamo,
+                    codcliente=request.codcliente,
+                    clasificacion=informe.clasificacion or "",
+                ),
+                medios,
+                EmapaHttpAdapter(),
+                llm_router,
+                resumenes_existentes=resumenes_existentes,
+            )
+    except Exception:
+        # Si la inicialización falla (inspecciones ausentes, texto imposible de
+        # validar o proveedor LLM caído), no se deja un informe fantasma en la
+        # cola. Un informe que ya existía sí se conserva intacto.
+        if not ya_existia:
+            informe_store.eliminar(request.codreclamo)
+        raise
+
     tiempo = time.perf_counter() - t_inicio
     logger.info("[API /iniciar-investigacion] OK | tiempo=%.2fs", tiempo)
     logger.info("=" * 60)
+
     return IniciarInvestigacionResponse(
         codreclamo=request.codreclamo,
-        estado="existente" if ya_existia else "creado",
+        estado="creado",
         informe=_metadata_informe(informe),
         **_estado_informe(informe),
         tiempo=tiempo,
     )
 
-
-@router.post("/clasificar-rapido", response_model=ClasificarRapidoResponse)
-def clasificar_rapido_endpoint(request: ClasificarRapidoRequest) -> ClasificarRapidoResponse:
+#--------------------ENPOINT DE UNA SOLA RESPUESTA---------------------------------
+@router.post("/informe-atencion", response_model=InformeAutomaticoResponse, tags=["automatizacion"])
+async def generar_informe_atencion(
+    request: InformeAutomaticoRequest,
+    token: str = Depends(requerir_token_emapa),
+    llm_router: LlmRouterService = Depends(get_llm_router),
+) -> InformeAutomaticoResponse:
     """
-    Clasificación rápida por reglas (sin LLM ni embeddings), pensada para
-    reclamos web. Si el reclamo ya trae tipo asignado (des_cod_reclamo), se
-    respeta y no se reclasifica.
-    """
-    if request.des_cod_reclamo and request.des_cod_reclamo.strip():
-        return ClasificarRapidoResponse(
-            tipo=request.des_cod_reclamo.strip(),
-            confianza="definida",
-            metodo="sistema",
-        )
+    Orquesta el flujo COMPLETO del informe de atención en una sola llamada,
+    para automatización (nadie mirando la pantalla). Recibe los mismos
+    identificadores que GET /reclamo/{codsede}/{codsuc}/{codreclamo}/{codcliente}
+    y hace todo el proceso puertas adentro:
 
-    resultado = clasificar_rapido(request.motivo, request.desc_tipo_reclamo)
-    return ClasificarRapidoResponse(
-        tipo=resultado["tipo"],
-        confianza=resultado["confianza"],
-        metodo=resultado["metodo"],
-        score=resultado["score"],
-        candidatos=resultado["candidatos"],
+    1. Busca el reclamo en EMAPA y crea los metadatos del informe.
+    2. Genera los objetivos de investigación (a partir del motivo).
+    3. Analiza los 6 medios probatorios directamente, sin verificar
+       disponibilidad antes: si un medio no tiene datos o falla (p.ej. sin
+       inspección vinculada), se omite y se sigue con los demás.
+    4. Concluye el informe (fundamentación normativa + veredicto).
+
+    Devuelve los resúmenes y la conclusión ya combinados en un solo texto.
+    """
+    t_inicio = time.perf_counter()
+    logger.info("=" * 60)
+    logger.info(
+        "[API /reclamos/informe-atencion] codsede=%s | codsuc=%s | codcliente=%s | codreclamo=%s",
+        request.codsede, request.codsuc, request.codcliente, request.codreclamo,
     )
+
+    # --- 1. Búsqueda + creación de metadatos --------------------------------
+    informe = await buscar_y_crear_informe_o_lanzar(
+        request.codsede, request.codsuc, request.codreclamo, request.codcliente,
+        token, request.sesion_id, request.creado_por, EmapaHttpAdapter(),
+    )
+    clasificacion = informe.clasificacion or ""
+
+    # --- 2. Objetivos de investigación --------------------------------------
+    await generar_objetivos(ObjetivosRequest(codreclamo=request.codreclamo, modelo=request.modelo), llm_router)
+
+    # --- 3. Análisis de los medios probatorios (EN PARALELO) ---------------
+    req_medio = BuscarReclamoRequest(
+        codsuc=request.codsuc,
+        codreclamo=request.codreclamo,
+        codcliente=request.codcliente,
+        clasificacion=clasificacion,
+        meses=request.meses,
+        modelo=request.modelo,
+    )
+    medios_analizados, medios_omitidos = await analizar_medios_en_paralelo(
+        req_medio, _MEDIOS_ANALIZABLES, EmapaHttpAdapter(), llm_router
+    )
+
+    # --- 4. Fundamentación normativa: selecciona los hallazgos determinantes y
+    # redacta el párrafo que la conclusión consumirá (debe correr ANTES de la
+    # conclusión; esta ya no vuelve a fundamentar por su cuenta).
+    await fundamentar_normativa(
+        InformeRequest(
+            codreclamo=request.codreclamo,
+            clasificacion=clasificacion,
+            modelo=request.modelo,
+        ),
+        llm_router
+    )
+
+    # --- 5. Conclusión (veredicto + redacción sobre el párrafo) -------------
+    conclusion_resp = await re_generar_conclusion(
+        InformeRequest(
+            codreclamo=request.codreclamo,
+            clasificacion=clasificacion,
+            modelo=request.modelo,
+        ),
+        llm_router
+    )
+
+    informe = informe_store.obtener(request.codreclamo)
+    tiempo = time.perf_counter() - t_inicio
+    logger.info(
+        "[API /reclamos/informe-atencion] COMPLETADO | analizados=%d | omitidos=%d | veredicto=%s | tiempo=%.2fs",
+        len(medios_analizados), len(medios_omitidos),
+        informe.veredicto if informe else None, tiempo,
+    )
+    logger.info("=" * 60)
+
+    return InformeAutomaticoResponse(
+        codreclamo=request.codreclamo,
+        informe_texto=conclusion_resp.informe,
+        veredicto=informe.veredicto if informe else None,
+        medios_analizados=medios_analizados,
+        medios_omitidos=medios_omitidos,
+        tiempo=tiempo,
+    )
+
+
+
 
 
 @router.get("/en-memoria", response_model=ReclamosEnMemoriaResponse)
@@ -368,6 +517,8 @@ async def obtener_sustentacion(codreclamo: str) -> SustentacionResponse:
     return SustentacionResponse(codreclamo=codreclamo, **asdict(data))
 
 
+
+
 @router.delete("/{codreclamo}", response_model=FinalizarAtencionResponse)
 async def finalizar_atencion(codreclamo: str) -> FinalizarAtencionResponse:
     """
@@ -379,108 +530,4 @@ async def finalizar_atencion(codreclamo: str) -> FinalizarAtencionResponse:
     eliminado = informe_store.eliminar(codreclamo)
     logger.info("[API DELETE /reclamos/%s] eliminado=%s", codreclamo, eliminado)
     return FinalizarAtencionResponse(codreclamo=codreclamo, eliminado=eliminado)
-
-
-
-#Mapa de los medios para el flujo completo de informe de atencion
-_MEDIOS_ANALIZABLES: list[tuple[str, str]] = [
-    ("tarjeta_lectura", "Tarjeta de Lecturas"),
-    ("record_facturacion", "Record de Facturación"),
-    ("corte_reapertura", "Cortes y Reaperturas"),
-    ("saldo_detalle", "Saldo Detalle"),
-    ("inspeccion_externa", "Inspección Externa"),
-    ("inspeccion_interna", "Inspección Interna"),
-]
-
-@router.post("/informe-atencion", response_model=InformeAutomaticoResponse, tags=["automatizacion"])
-async def generar_informe_atencion(
-    request: InformeAutomaticoRequest,
-    token: str = Depends(requerir_token_emapa),
-    llm_router: LlmRouterService = Depends(get_llm_router),
-) -> InformeAutomaticoResponse:
-    """
-    Orquesta el flujo COMPLETO del informe de atención en una sola llamada,
-    para automatización (nadie mirando la pantalla). Recibe los mismos
-    identificadores que GET /reclamo/{codsede}/{codsuc}/{codreclamo}/{codcliente}
-    y hace todo el proceso puertas adentro:
-
-    1. Busca el reclamo en EMAPA y crea los metadatos del informe.
-    2. Genera los objetivos de investigación (a partir del motivo).
-    3. Analiza los 6 medios probatorios directamente, sin verificar
-       disponibilidad antes: si un medio no tiene datos o falla (p.ej. sin
-       inspección vinculada), se omite y se sigue con los demás.
-    4. Concluye el informe (fundamentación normativa + veredicto).
-
-    Devuelve los resúmenes y la conclusión ya combinados en un solo texto.
-    """
-    t_inicio = time.perf_counter()
-    logger.info("=" * 60)
-    logger.info(
-        "[API /reclamos/informe-atencion] codsede=%s | codsuc=%s | codcliente=%s | codreclamo=%s",
-        request.codsede, request.codsuc, request.codcliente, request.codreclamo,
-    )
-
-    # --- 1. Búsqueda + creación de metadatos --------------------------------
-    informe = await buscar_y_crear_informe_o_lanzar(
-        request.codsede, request.codsuc, request.codreclamo, request.codcliente,
-        token, request.sesion_id, request.creado_por, EmapaHttpAdapter(),
-    )
-    clasificacion = informe.clasificacion or ""
-
-    # --- 2. Objetivos de investigación --------------------------------------
-    await generar_objetivos(ObjetivosRequest(codreclamo=request.codreclamo, modelo=request.modelo), llm_router)
-
-    # --- 3. Análisis de los medios probatorios (EN PARALELO) ---------------
-    req_medio = BuscarReclamoRequest(
-        codsuc=request.codsuc,
-        codreclamo=request.codreclamo,
-        codcliente=request.codcliente,
-        clasificacion=clasificacion,
-        meses=request.meses,
-        modelo=request.modelo,
-    )
-    medios_analizados, medios_omitidos = await analizar_medios_en_paralelo(
-        req_medio, _MEDIOS_ANALIZABLES, EmapaHttpAdapter(), llm_router
-    )
-
-    # --- 4. Fundamentación normativa: selecciona los hallazgos determinantes y
-    # redacta el párrafo que la conclusión consumirá (debe correr ANTES de la
-    # conclusión; esta ya no vuelve a fundamentar por su cuenta).
-    await fundamentar_normativa(
-        InformeRequest(
-            codreclamo=request.codreclamo,
-            clasificacion=clasificacion,
-            modelo=request.modelo,
-        ),
-        llm_router
-    )
-
-    # --- 5. Conclusión (veredicto + redacción sobre el párrafo) -------------
-    conclusion_resp = await re_generar_conclusion(
-        InformeRequest(
-            codreclamo=request.codreclamo,
-            clasificacion=clasificacion,
-            modelo=request.modelo,
-        ),
-        llm_router
-    )
-
-    informe = informe_store.obtener(request.codreclamo)
-    tiempo = time.perf_counter() - t_inicio
-    logger.info(
-        "[API /reclamos/informe-atencion] COMPLETADO | analizados=%d | omitidos=%d | veredicto=%s | tiempo=%.2fs",
-        len(medios_analizados), len(medios_omitidos),
-        informe.veredicto if informe else None, tiempo,
-    )
-    logger.info("=" * 60)
-
-    return InformeAutomaticoResponse(
-        codreclamo=request.codreclamo,
-        informe_texto=conclusion_resp.informe,
-        veredicto=informe.veredicto if informe else None,
-        medios_analizados=medios_analizados,
-        medios_omitidos=medios_omitidos,
-        tiempo=tiempo,
-    )
-
 
