@@ -160,6 +160,10 @@ def fundamentar_normativa_stream(
             }, ensure_ascii=False) + "\n"
             return
 
+        informe_store.invalidar_decision(
+            request.codreclamo, "regeneración de fundamentación normativa",
+        )
+
         clasificacion = request.clasificacion or informe.clasificacion or ""
         motivo = informe.motivo or ""
         fundamentador = _crear_agente(llm_router, request.modelo)
@@ -249,6 +253,10 @@ async def fundamentar_normativa_sync(
             status_code=400,
             detail="El informe no tiene objetivos. Ejecute /investigacion/objetivos primero.",
         )
+
+    informe_store.invalidar_decision(
+        request.codreclamo, "regeneración de fundamentación normativa",
+    )
 
     clasificacion = request.clasificacion or informe.clasificacion or ""
     motivo = informe.motivo or ""

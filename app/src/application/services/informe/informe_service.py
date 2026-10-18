@@ -295,6 +295,10 @@ def rehidratar_informe_desde_sysco(
     informe.fundamentacion_normativa = extraido["fundamentacion"]
     informe.conclusion = extraido["conclusion"]
     informe.veredicto = extraido["veredicto"]
+    informe.estado_evaluacion = "completada"
+    informe.motivos_evaluacion = []
+    informe.mensaje_evaluacion = "Decisión histórica recuperada de SYSCO."
+    informe.origen_decision = "historica_sysco"
 
     if propuesta and propuesta.upper() not in _VALORES_PENDIENTES:
         if informe.propuesta_conciliacion is None:

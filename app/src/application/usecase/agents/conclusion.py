@@ -4,8 +4,10 @@ Evalúa cada OBJETIVO de investigación (derivado del motivo del reclamo) contra
 los HALLAZGOS de los medios probatorios y decide el veredicto con una REGLA
 EXPLÍCITA (puerta lógica), no con criterio libre del LLM:
 
-    FUNDADO  ⇔  algún objetivo DETERMINANTE resultó "procede_correccion"
-    INFUNDADO en caso contrario
+    FUNDADO   ⇔ algún objetivo DETERMINANTE resultó "procede_correccion"
+    INFUNDADO ⇔ todos los objetivos DETERMINANTES resultaron "sin_correccion"
+
+Si falta evidencia o la evaluación es inválida, el veredicto permanece nulo.
 
 "procede_correccion" cubre tanto un error de la empresa (medidor/medición) como
 una refacturación que procede sin culpa de la empresa (p.ej. fuga no visible ya
@@ -18,17 +20,29 @@ hallazgos; la decisión final la toma el código, de forma determinista y trazab
 import re
 import json
 import logging
+from dataclasses import asdict
+from datetime import datetime
 
 from app.src.application.ports.provider_port import MensajeLLM
 from app.src.application.services.llm.llm_router_service import LlmRouterService, MODELO_EXTERNO_DEFAULT
 from app.src.core.model.criterios_especialista import (
     CriterioEvaluacion, obtener_criterios, render_criterios,
 )
-from app.src.core.model.informe_atencion import InformeAtencion, ObjetivoInvestigacion
+from app.src.core.model.informe_atencion import (
+    InformeAtencion, MotivoEvaluacion, ObjetivoInvestigacion,
+)
 
 logger = logging.getLogger("agent.conclusion")
 
 RESULTADOS_VALIDOS = {"procede_correccion", "sin_correccion", "no_evaluable"}
+
+
+class RespuestaEvaluacionInvalida(ValueError):
+    def __init__(self, codigo: str, descripcion: str, objetivos: list[int] | None = None):
+        super().__init__(descripcion)
+        self.codigo = codigo
+        self.descripcion = descripcion
+        self.objetivos = objetivos or []
 
 
 def _formatear_meses_reclamados(informe: InformeAtencion) -> str:
@@ -55,46 +69,119 @@ class ConclusionAgent:
         """Evalúa objetivos vs hallazgos, fija el resultado de cada objetivo y
         calcula veredicto + conclusión sobre el informe (in-place).
         Devuelve el veredicto ("FUNDADO"/"INFUNDADO") o None si no hay objetivos."""
+        self._iniciar_nueva_evaluacion(informe)
         if not informe.objetivos:
-            logger.warning("[CONCLUSION] Informe sin objetivos; no se decide con regla")
-            informe.veredicto = None
-            informe.conclusion = (
-                "No se definieron objetivos de investigación, por lo que el "
-                "veredicto no se determina automáticamente."
+            return self._dejar_sin_decision(
+                informe, "requiere_revision", "SIN_OBJETIVOS", [],
+                "No se definieron objetivos de investigación.",
+                "Definir los objetivos antes de evaluar el reclamo.",
             )
-            return informe.veredicto
 
-        hallazgos_por_medio = self._hallazgos_por_medio(informe) # podriamos 
-        evaluaciones = self._evaluar_objetivos(informe, hallazgos_por_medio)
-
-        # Vuelca la evaluación (por id de objetivo) sobre cada objetivo.
-        for obj in informe.objetivos:
-            ev = evaluaciones.get(obj.id, {})
-            resultado = ev.get("resultado")
-            obj.resultado = resultado if resultado in RESULTADOS_VALIDOS else "no_evaluable"
-            obj.evidencia = ev.get("evidencia")
-
-        # --- Puerta lógica (determinista) --------------------------------
-        # FUNDADO ⇔ Si algún objetivo DETERMINANTE resultó "procede_correccion", es
-        # decir, corresponde corregir la facturación a favor del usuario. Esto
-        # abarca tanto un error de la empresa (medidor/medición) como una
-        # refacturación procedente sin culpa de la empresa 
-        # (p.ej. fuga no visible ya reparada → refacturar por promedio histórico).
         determinantes = [o for o in informe.objetivos if o.determinante]
+        if not determinantes:
+            return self._dejar_sin_decision(
+                informe, "requiere_revision", "SIN_OBJETIVOS_DETERMINANTES",
+                [o.id for o in informe.objetivos],
+                "Hay objetivos, pero ninguno está marcado como determinante.",
+                "Revisar y marcar los objetivos determinantes.",
+            )
+
+        try:
+            evaluaciones = self._evaluar_objetivos(
+                informe, self._hallazgos_por_medio(informe),
+            )
+        except RespuestaEvaluacionInvalida as exc:
+            return self._dejar_sin_decision(
+                informe, "error_evaluacion", exc.codigo, exc.objetivos,
+                exc.descripcion, "Reintentar la evaluación o revisar el proveedor.",
+            )
+        except Exception as exc:
+            logger.exception("[CONCLUSION] Falló el proveedor de evaluación")
+            return self._dejar_sin_decision(
+                informe, "error_evaluacion", "ERROR_PROVEEDOR",
+                [o.id for o in determinantes],
+                f"Falló la comunicación con el proveedor de evaluación: {exc}",
+                "Reintentar cuando el proveedor esté disponible.",
+            )
+
+        for obj in determinantes:
+            obj.resultado = evaluaciones[obj.id]["resultado"]
+            obj.evidencia = evaluaciones[obj.id]["evidencia"]
+
+        no_evaluables = [o for o in determinantes if o.resultado == "no_evaluable"]
+        if no_evaluables:
+            informe.estado_evaluacion = "requiere_evidencia"
+            informe.mensaje_evaluacion = (
+                "No se emitió veredicto porque hay objetivos determinantes sin "
+                "evidencia suficiente. Las evaluaciones válidas se conservaron."
+            )
+            informe.motivos_evaluacion = [
+                MotivoEvaluacion(
+                    codigo="EVIDENCIA_INSUFICIENTE",
+                    objetivos_afectados=[o.id],
+                    descripcion=f"No fue posible evaluar: {o.descripcion}",
+                    evidencia_pendiente=o.evidencia or "Evidencia determinante no disponible.",
+                    accion_necesaria="Obtener o revisar la evidencia del objetivo.",
+                )
+                for o in no_evaluables
+            ]
+            return None
+
         con_correccion = [o for o in determinantes if o.resultado == "procede_correccion"]
         veredicto = "FUNDADO" if con_correccion else "INFUNDADO"
-
         informe.veredicto = veredicto
-        # El veredicto lo fija la puerta lógica (arriba); el LLM SOLO redacta el
-        # párrafo que lo fundamenta (no puede cambiarlo). Si el LLM falla, se usa
-        # la plantilla determinista como respaldo.
-        informe.conclusion = self._redactar_conclusion(informe, veredicto, determinantes, con_correccion)
-
-        logger.info(
-            "[CONCLUSION] veredicto=%s | determinantes=%d | con_correccion=%d",
-            veredicto, len(determinantes), len(con_correccion),
+        informe.estado_evaluacion = "completada"
+        informe.motivos_evaluacion = []
+        informe.mensaje_evaluacion = "Evaluación completada con todos los objetivos determinantes."
+        informe.origen_decision = "automatica"
+        informe.conclusion = self._redactar_conclusion(
+            informe, veredicto, determinantes, con_correccion,
         )
         return veredicto
+
+    @staticmethod
+    def _iniciar_nueva_evaluacion(informe: InformeAtencion) -> None:
+        if informe.veredicto or informe.conclusion or informe.propuesta_conciliacion or informe.resolucion:
+            informe.historial_decisiones.append({
+                "fecha": datetime.now().isoformat(),
+                "veredicto": informe.veredicto,
+                "conclusion": informe.conclusion,
+                "estado_evaluacion": informe.estado_evaluacion,
+                "origen_decision": informe.origen_decision,
+                "propuesta_conciliacion": (
+                    asdict(informe.propuesta_conciliacion)
+                    if informe.propuesta_conciliacion else None
+                ),
+                "resolucion": informe.resolucion,
+            })
+        informe.veredicto = None
+        informe.conclusion = None
+        informe.propuesta_conciliacion = None
+        informe.resolucion = None
+        informe.estado_evaluacion = "pendiente"
+        informe.motivos_evaluacion = []
+        informe.mensaje_evaluacion = None
+        informe.origen_decision = None
+        for objetivo in informe.objetivos:
+            objetivo.resultado = None
+            objetivo.evidencia = None
+
+    @staticmethod
+    def _dejar_sin_decision(
+        informe: InformeAtencion, estado: str, codigo: str,
+        objetivos: list[int], descripcion: str, accion: str,
+    ) -> None:
+        informe.estado_evaluacion = estado
+        informe.veredicto = None
+        informe.conclusion = None
+        informe.mensaje_evaluacion = descripcion
+        informe.motivos_evaluacion = [MotivoEvaluacion(
+            codigo=codigo,
+            objetivos_afectados=objetivos,
+            descripcion=descripcion,
+            accion_necesaria=accion,
+        )]
+        return None
 
     # ------------------------------------------------------------------ #
     # Evaluación de objetivos con LLM
@@ -124,7 +211,7 @@ class ConclusionAgent:
         if not determinantes:
             logger.info(
                 "[CONCLUSION] Sin objetivos determinantes; no se evalúa "
-                "(la puerta dará INFUNDADO por defecto)"
+                "(requiere revisión)"
             )
             return {}
 
@@ -182,34 +269,77 @@ class ConclusionAgent:
             ],
             modelo_id=self.model_id
         )
-        return self._parse_evaluaciones(response_text or "")
+        return self._parse_evaluaciones(response_text or "", {o.id for o in determinantes})
 
     @staticmethod
-    def _parse_evaluaciones(texto: str) -> dict[int, dict]:
-        """Extrae la lista JSON de la respuesta del LLM y la convierte en un dict"""
+    def _parse_evaluaciones(texto: str, ids_esperados: set[int]) -> dict[int, dict]:
+        """Valida forma, cobertura, ids, resultados y evidencia obligatoria."""
+        if not texto.strip():
+            raise RespuestaEvaluacionInvalida(
+                "RESPUESTA_VACIA", "El proveedor devolvió una respuesta vacía.",
+                sorted(ids_esperados),
+            )
         match = re.search(r"\[.*\]", texto, re.DOTALL)
         if not match:
-            logger.warning("[CONCLUSION] El LLM no devolvió lista JSON: %s", texto[:200])
-            return {}
+            raise RespuestaEvaluacionInvalida(
+                "JSON_INVALIDO", "La respuesta no contiene una lista JSON válida.",
+                sorted(ids_esperados),
+            )
         try:
             crudos = json.loads(match.group())
         except json.JSONDecodeError as e:
-            logger.warning("[CONCLUSION] JSON inválido del LLM: %s | %s", e, texto[:200])
-            return {}
+            raise RespuestaEvaluacionInvalida(
+                "JSON_INVALIDO", f"La respuesta JSON es inválida: {e}",
+                sorted(ids_esperados),
+            ) from e
+        if not isinstance(crudos, list):
+            raise RespuestaEvaluacionInvalida(
+                "FORMATO_INVALIDO", "La evaluación debe ser una lista JSON.",
+                sorted(ids_esperados),
+            )
 
         evaluaciones: dict[int, dict] = {}
         for item in crudos:
             if not isinstance(item, dict) or "id" not in item:
-                continue
+                raise RespuestaEvaluacionInvalida(
+                    "ITEM_INVALIDO", "Hay una evaluación sin objeto o identificador.",
+                    sorted(ids_esperados),
+                )
             try:
                 oid = int(item["id"])
             except (TypeError, ValueError):
-                continue
+                raise RespuestaEvaluacionInvalida(
+                    "IDENTIFICADOR_INVALIDO", "Hay un identificador de objetivo inválido.",
+                    sorted(ids_esperados),
+                )
+            if oid not in ids_esperados:
+                raise RespuestaEvaluacionInvalida(
+                    "IDENTIFICADOR_DESCONOCIDO", f"El objetivo {oid} no era esperado.", [oid],
+                )
+            if oid in evaluaciones:
+                raise RespuestaEvaluacionInvalida(
+                    "IDENTIFICADOR_DUPLICADO", f"El objetivo {oid} aparece duplicado.", [oid],
+                )
             evidencia = (str(item.get("evidencia") or "")).strip()
+            resultado = item.get("resultado")
+            if resultado not in RESULTADOS_VALIDOS:
+                raise RespuestaEvaluacionInvalida(
+                    "RESULTADO_INVALIDO", f"Resultado inválido para el objetivo {oid}.", [oid],
+                )
+            if resultado in {"procede_correccion", "sin_correccion"} and not evidencia:
+                raise RespuestaEvaluacionInvalida(
+                    "EVIDENCIA_OBLIGATORIA",
+                    f"El objetivo {oid} afirma un resultado sin sustento.", [oid],
+                )
             evaluaciones[oid] = {
-                "resultado": item.get("resultado"),
+                "resultado": resultado,
                 "evidencia": evidencia or None,
             }
+        faltantes = sorted(ids_esperados - set(evaluaciones))
+        if faltantes:
+            raise RespuestaEvaluacionInvalida(
+                "OBJETIVOS_OMITIDOS", "La respuesta omitió objetivos determinantes.", faltantes,
+            )
         return evaluaciones
 
     # ------------------------------------------------------------------ #

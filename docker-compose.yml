@@ -22,7 +22,7 @@ services:
   agent:
     build:
       context: ./app
-    container_name: sunass-agent
+    container_name: yumi-agent
     restart: unless-stopped
     depends_on:
       - qdrant

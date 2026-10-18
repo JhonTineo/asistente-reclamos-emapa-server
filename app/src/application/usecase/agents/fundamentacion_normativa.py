@@ -30,9 +30,9 @@ CONSULTA_POR_TIPO = {
         "consumo atípico y facturación elevada por diferencia de lecturas "
         "del medidor"
     ),
-    "fugaReparada": (
-        "fuga no visible reparada por el usuario y facturación de los meses "
-        "afectados según el promedio histórico de consumos"
+    "descensoConsumo": (
+        "descenso de consumo posterior a un consumo elevado, evaluación de la "
+        "serie de lecturas y facturación sin atribuir una causa no acreditada"
     ),
     "fugaNoVisible": (
         "fuga no visible detectada en la inspección; si el usuario la repara en "
@@ -45,6 +45,18 @@ CONSULTA_POR_TIPO = {
     "fugas": (
         "fuga de agua hallada en la inspección del predio y su efecto en la "
         "facturación por diferencia de lecturas o por promedio histórico"
+    ),
+    "fugaNoDetectada": (
+        "inspección sin detección de fugas; alcance probatorio de la observación"
+    ),
+    "fugaSospechada": (
+        "sospecha no confirmada de fuga y necesidad de verificación mediante inspección"
+    ),
+    "fugaReferida": (
+        "fuga referida por el usuario o un tercero, no confirmada por inspección"
+    ),
+    "contradiccionFuga": (
+        "contradicción entre el campo estructurado y las observaciones de una inspección"
     ),
     "errorLecturas": (
         "error en la lectura del medidor, consumo negativo y lectura que no "
@@ -155,8 +167,9 @@ class FundamentacionNormativaAgent:
             + f"\nArtículos del reglamento (recuperados):\n{articulos_texto}\n\n"
             "Primero decide la RELEVANCIA de los artículos frente al HALLAZGO; si "
             "ninguno lo regula, responde aplica=false y accion=\"no_determinable\". "
-            "Si el hallazgo indica una fuga no visible ya reparada, la facturación "
-            "que corresponde es por promedio histórico.\n\n"
+            "No infieras una fuga, su visibilidad o una reparación a partir de un "
+            "descenso de consumo. Una reparación solo puede afirmarse si otra "
+            "fuente la acredita expresamente.\n\n"
             "Devuelve SOLO el JSON."
         )
 

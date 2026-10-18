@@ -215,6 +215,7 @@ async def _analizar_un_medio_en_threadpool(
         bloque=bloque,
         suministro=request.codcliente,
         clasificacion=request.clasificacion,
+        preservar_decision=resumenes_existentes is not None,
     )
     if ventana:
         informe.ventana_meses = ventana

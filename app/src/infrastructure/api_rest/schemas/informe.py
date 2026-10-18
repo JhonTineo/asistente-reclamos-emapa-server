@@ -4,7 +4,9 @@ llamada (POST /reclamos/informe-atencion)."""
 
 from pydantic import BaseModel, Field
 
-from app.src.infrastructure.api_rest.schemas.investigacion import MedioDisponible
+from app.src.infrastructure.api_rest.schemas.investigacion import (
+    MedioDisponible, MotivoEvaluacionSchema,
+)
 
 
 class InformeAutomaticoRequest(BaseModel):
@@ -34,6 +36,9 @@ class InformeAutomaticoResponse(BaseModel):
     # GET /reclamos/{codreclamo}/informe), listo para una caja de texto.
     informe_texto: str
     veredicto: str | None = None
+    estado_evaluacion: str = "pendiente"
+    motivos_evaluacion: list[MotivoEvaluacionSchema] = Field(default_factory=list)
+    mensaje_evaluacion: str | None = None
     medios_analizados: list[str] = Field(default_factory=list)
     medios_omitidos: list[MedioDisponible] = Field(default_factory=list)
     tiempo: float

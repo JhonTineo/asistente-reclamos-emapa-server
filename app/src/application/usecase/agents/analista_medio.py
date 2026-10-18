@@ -89,8 +89,8 @@ INSTRUCCIONES_POR_MEDIO: dict[str, list[str]] = {
         "",
         "Menciona, si están presentes:",
         "- Consumos atípicos o excesivos y en qué meses (errorConsumo).",
-        "- Si un consumo elevado retornó al promedio en un mes posterior "
-        "o en algun mes se encontro (fugaReparada).",
+        "- Descensos de consumo posteriores a consumos elevados, con sus cifras "
+        "y periodos (descensoConsumo). No atribuyas su causa a una fuga o reparación.",
         "- Errores de lectura o de registro del medidor (errorLecturas, errorServicio).",
         "NO menciones metadatos ni totales de registros.",
         _CIERRE,

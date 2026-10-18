@@ -74,8 +74,11 @@ async def generar_objetivos(
     )
     if motivo:
         agente = ObjetivosAgent(llm_router=llm_router, model=request.modelo)
-        informe.objetivos = await run_in_threadpool(agente.generar, motivo, informe.clasificacion or "")
+        objetivos = await run_in_threadpool(agente.generar, motivo, informe.clasificacion or "")
+        informe_store.invalidar_decision(request.codreclamo, "regeneración de objetivos")
+        informe.objetivos = objetivos
     else:
+        informe_store.invalidar_decision(request.codreclamo, "objetivos eliminados por falta de motivo")
         informe.objetivos = []
         logger.warning(
             "[API /investigacion/objetivos] Reclamo %s SIN motivo guardado; no se infieren objetivos. "
@@ -164,6 +167,11 @@ async def fundamentar_normativa(request: InformeRequest, llm_router: LlmRouterSe
         objetivos=[ObjetivoInvestigacionSchema(**vars(o)) for o in informe.objetivos] if informe.objetivos else [],
         problemas=problemas,
         fundamentacion=resultado.get("fundamentacion"),
+        estado_evaluacion=informe.estado_evaluacion,
+        motivos_evaluacion=[vars(m) for m in informe.motivos_evaluacion],
+        mensaje_evaluacion=informe.mensaje_evaluacion,
+        veredicto=informe.veredicto,
+        conclusion=informe.conclusion,
         tiempo=resultado.get("tiempo", 0.0),
     )
 
@@ -182,12 +190,6 @@ async def re_generar_conclusion(request: InformeRequest, llm_router: LlmRouterSe
         raise HTTPException(
             status_code=404, detail=f"No hay informe en curso para {request.codreclamo}",
         )
-    if not informe.objetivos:
-        raise HTTPException(
-            status_code=400,
-            detail="El informe no tiene objetivos. Ejecute /investigacion/objetivos primero.",
-        )
-
     # La fundamentación normativa YA se realizó en su propio paso
     # (/investigacion/fundamentar-normativa) y quedó guardada en el informe; la
     # conclusión la consume, sin volver a fundamentar por problema.
@@ -220,6 +222,11 @@ async def re_generar_conclusion(request: InformeRequest, llm_router: LlmRouterSe
         codreclamo=request.codreclamo,
         informe=texto,
         problemas=problemas_resp,
+        estado_evaluacion=informe.estado_evaluacion,
+        motivos_evaluacion=[vars(m) for m in informe.motivos_evaluacion],
+        mensaje_evaluacion=informe.mensaje_evaluacion,
+        veredicto=informe.veredicto,
+        conclusion=informe.conclusion,
         tiempo=tiempo,
     )
 

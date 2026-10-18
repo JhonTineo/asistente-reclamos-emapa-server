@@ -8,6 +8,7 @@ vida corta (una investigación en curso); no persiste a disco.
 import logging
 import threading
 import shutil
+from dataclasses import asdict
 from pathlib import Path
 from datetime import datetime
 
@@ -109,6 +110,46 @@ class InformeAtencionStore:
     def obtener(self, codreclamo: str) -> InformeAtencion | None:
         return self._data.get(codreclamo)
 
+    @staticmethod
+    def _invalidar_decision_locked(informe: InformeAtencion, motivo: str) -> None:
+        tenia_resultado = bool(
+            informe.veredicto or informe.conclusion
+            or informe.propuesta_conciliacion or informe.resolucion
+        )
+        if tenia_resultado:
+            informe.historial_decisiones.append({
+                "fecha": datetime.now().isoformat(),
+                "veredicto": informe.veredicto,
+                "conclusion": informe.conclusion,
+                "estado_evaluacion": informe.estado_evaluacion,
+                "origen_decision": informe.origen_decision,
+                "propuesta_conciliacion": (
+                    asdict(informe.propuesta_conciliacion)
+                    if informe.propuesta_conciliacion else None
+                ),
+                "resolucion": informe.resolucion,
+                "invalidada_por": motivo,
+            })
+        informe.veredicto = None
+        informe.conclusion = None
+        informe.propuesta_conciliacion = None
+        informe.resolucion = None
+        informe.estado_evaluacion = "pendiente"
+        informe.motivos_evaluacion = []
+        informe.mensaje_evaluacion = (
+            "La evidencia cambió; se requiere una nueva evaluación."
+            if tenia_resultado else None
+        )
+        informe.origen_decision = None
+
+    def invalidar_decision(self, codreclamo: str, motivo: str) -> bool:
+        with self._lock:
+            informe = self._data.get(codreclamo)
+            if informe is None:
+                return False
+            self._invalidar_decision_locked(informe, motivo)
+            return True
+
     def listar_metadatos(self) -> list[dict]:
         """Metadatos mínimos de cada informe vivo en memoria (codreclamo +
         codcliente + sesion_id + veredicto). Sirve para que el frontend
@@ -170,9 +211,8 @@ class InformeAtencionStore:
 
     def actualizar_resumen(self, codreclamo: str, medio_id: str, resumen: str) -> bool:
         """Edita a mano el resumen (texto narrativo) de un medio ya analizado,
-        sin tocar los `problemas` estructurados de ese bloque. NO borra la
-        conclusión/propuesta/resolución ya generadas (el usuario decide si las
-        edita él mismo o las vuelve a generar con este resumen actualizado).
+        sin tocar los `problemas` estructurados de ese bloque. Invalida la
+        decisión automática vigente y archiva sus documentos derivados.
         Devuelve False si no hay informe o no hay bloque para ese medio."""
         with self._lock:
             informe = self._data.get(codreclamo)
@@ -181,6 +221,7 @@ class InformeAtencionStore:
             bloque = next((b for b in informe.bloques if b.medio_id == medio_id), None)
             if bloque is None:
                 return False
+            self._invalidar_decision_locked(informe, f"edición del resumen {medio_id}")
             bloque.resumen = resumen
             logger.info(
                 "[INFORME_STORE] Resumen editado a mano: reclamo=%s medio=%s",
@@ -206,6 +247,7 @@ class InformeAtencionStore:
             informe = self._data.get(codreclamo)
             if informe is None:
                 return False
+            self._invalidar_decision_locked(informe, "edición de la fundamentación")
             informe.fundamentacion_normativa = texto
             logger.info("[INFORME_STORE] Fundamentación editada a mano: reclamo=%s", codreclamo)
             return True
@@ -270,6 +312,7 @@ class InformeAtencionStore:
         bloque: BloqueMedio,
         suministro: str | None = None,
         clasificacion: str | None = None,
+        preservar_decision: bool = False,
     ) -> InformeAtencion:
         """Agrega el bloque de un medio. Si el informe no existía (p.ej. no se
         pasó por la búsqueda del reclamo), lo crea al vuelo."""
@@ -283,6 +326,9 @@ class InformeAtencionStore:
                 datos_reclamo = Reclamo(clasificacion_reclamo=clasificacion) if clasificacion else None
                 informe = self._nuevo_informe(codreclamo, suministro or codreclamo, datos_reclamo)
                 self._data[codreclamo] = informe
+
+            if not preservar_decision:
+                self._invalidar_decision_locked(informe, f"nuevo análisis de {bloque.medio_id}")
 
             # `clasificacion` es de solo lectura (se deriva de datos_reclamo);
             # si aún no se conocía, se completa aquí sobre la misma entidad.

@@ -431,11 +431,55 @@ error viene en el payload, no en el status code).
 - **`ReclamoSchema`** — datos del reclamante/propietario/motivo, tal como
   vienen de EMAPA.
 - **`ProblemaNormadoSchema`** — un hallazgo detectado en un medio: `tipo`,
-  `detalle`, `articulos` (recuperados por RAG), y tras la conclusión también
+  `detalle`, `fuente`, `texto_original`, `articulos` (recuperados por RAG), y
+  tras la conclusión también
   `accion`, `responsable`, `base_legal`.
 - **`ResumenMedio`** — el aporte de un medio al informe: `medio_id`,
   `medio_nombre`, `resumen` (editable a mano), `datos` (crudos de EMAPA),
   `problemas` (lista de `ProblemaNormadoSchema`).
+
+En los datos de `tarjeta_lectura`, `descensoConsumo` reemplaza al antiguo
+`fugaReparada`: representa únicamente un descenso cuantitativo posterior a un
+consumo elevado y no acredita fuga ni reparación.
+
+### Estado de evaluación y veredicto
+
+Las respuestas del informe exponen `estado_evaluacion`, `motivos_evaluacion`
+y `mensaje_evaluacion`, separados de `veredicto` y `conclusion`:
+
+- `completada`: todos los objetivos determinantes fueron evaluados con sustento;
+  `veredicto` contiene `FUNDADO` o `INFUNDADO`.
+- `requiere_evidencia`: al menos un determinante es `no_evaluable`;
+  `veredicto` y `conclusion` son `null`.
+- `requiere_revision`: faltan objetivos o ninguno es determinante;
+  `veredicto` y `conclusion` son `null`.
+- `error_evaluacion`: la respuesta del proveedor es inválida, incompleta o
+  falló la comunicación; `veredicto` y `conclusion` son `null`.
+- `pendiente`: la evidencia u objetivos cambiaron y aún no se reevaluó.
+
+Ejemplo completado:
+
+```json
+{"estado_evaluacion":"completada","motivos_evaluacion":[],"veredicto":"INFUNDADO","conclusion":"En consecuencia, ..."}
+```
+
+Ejemplo con evidencia pendiente:
+
+```json
+{"estado_evaluacion":"requiere_evidencia","veredicto":null,"conclusion":null,"motivos_evaluacion":[{"codigo":"EVIDENCIA_INSUFICIENTE","objetivos_afectados":[2],"descripcion":"No fue posible evaluar el objetivo.","evidencia_pendiente":"Falta inspección.","accion_necesaria":"Obtener o revisar la evidencia del objetivo."}]}
+```
+
+Ejemplo de fallo técnico:
+
+```json
+{"estado_evaluacion":"error_evaluacion","veredicto":null,"conclusion":null,"motivos_evaluacion":[{"codigo":"ERROR_PROVEEDOR","objetivos_afectados":[1],"descripcion":"Falló la comunicación con el proveedor de evaluación.","accion_necesaria":"Reintentar cuando el proveedor esté disponible."}]}
+```
+
+Una reevaluación archiva la decisión vigente en `historial_decisiones` e
+invalida sus documentos derivados. La conciliación y la resolución automáticas
+responden `409` mientras no exista una evaluación `completada`. Los informes
+históricos recuperados de SYSCO se marcan como `completada` con
+`origen_decision="historica_sysco"` y no requieren evaluaciones inexistentes.
 
 Los tipos exactos (opcionalidad, defaults) están en Swagger — esta sección es
 solo el mapa mental de cómo se relacionan.

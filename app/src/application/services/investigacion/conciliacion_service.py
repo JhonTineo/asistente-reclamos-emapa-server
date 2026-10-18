@@ -41,12 +41,13 @@ async def generar_propuesta_conciliacion(request: ConciliacionRequest, llm_route
                 "Genere el informe de atención antes de la propuesta de conciliación."
             ),
         )
-    if not informe.conclusion or not informe.veredicto:
+    if (informe.estado_evaluacion != "completada"
+            or not informe.conclusion or not informe.veredicto):
         raise HTTPException(
             status_code=409,
             detail=(
-                "El informe aún no tiene conclusión con veredicto. Genere el "
-                "informe (paso de conclusión) antes de la propuesta."
+                "No existe una decisión vigente y completa. Revise el estado "
+                "de evaluación antes de generar la propuesta."
             ),
         )
 

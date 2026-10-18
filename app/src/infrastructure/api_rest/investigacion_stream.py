@@ -258,6 +258,9 @@ async def generar_conclusion_stream(request: InformeRequest, llm_router: LlmRout
                 "evento": "conclusion",
                 "veredicto": veredicto,
                 "conclusion": informe.conclusion,
+                "estado_evaluacion": informe.estado_evaluacion,
+                "motivos_evaluacion": [vars(m) for m in informe.motivos_evaluacion],
+                "mensaje_evaluacion": informe.mensaje_evaluacion,
             }, ensure_ascii=False) + "\n"
 
             # --- Cierre: texto final del informe ------------------------------

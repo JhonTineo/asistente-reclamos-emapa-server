@@ -104,6 +104,8 @@ En consecuencia, el consumo corresponde a lecturas reales, por lo tanto se decla
         )
         self.assertEqual(0, router.llamadas)
         self.assertEqual("INFUNDADO", informe.veredicto)
+        self.assertEqual("completada", informe.estado_evaluacion)
+        self.assertEqual("historica_sysco", informe.origen_decision)
         self.assertEqual(
             "De acuerdo con el artículo 88, la facturación es correcta.",
             informe.fundamentacion_normativa,

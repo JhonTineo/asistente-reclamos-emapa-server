@@ -33,7 +33,7 @@ GRUPOS_TARJETA = (
     "errorLecturas",
     "errorReinstalacion",
     "errorServicio",
-    "fugaReparada",
+    "descensoConsumo",
 )
 
 # Grupos de hallazgos del saldo-detalle (campos de la entidad).
@@ -95,38 +95,72 @@ def problemas_de_corte(corte: CorteReapertura) -> list[ProblemaNormado]:
     return problemas
 
 
-# Las inspecciones registran la fuga hallada dentro del predio en un campo de
-# OBSERVACIÓN de texto libre (p.ej. obsinsinteriores), no en un campo estructurado.
-# Como la fuga es el hallazgo que decide muchos reclamos de consumo (Art. 88.3:
-# visible → diferencia de lecturas; no visible reparada → promedio), se extrae de
-# ahí a un ProblemaNormado con regla, clasificándola en visible / no visible.
-def _fugas_desde_observaciones(textos: list[str | None]) -> list[ProblemaNormado]:
-    """Busca menciones de 'FUGA' en campos de observación libre y arma un
-    ProblemaNormado por cada mención (dedup por detalle). El `tipo` distingue
-    fugaNoVisible / fugaVisible / fugas (genérica) para dirigir el RAG; el
-    `detalle` es la oración que contiene la fuga (desde 'FUGA' hasta el punto)."""
+# Las observaciones libres pueden registrar hallazgos, negaciones, sospechas o
+# declaraciones de terceros. Se preserva esa modalidad en cada mención.
+_NEGACION_FUGA = re.compile(
+    r"\b(?:no\s+(?:se\s+)?(?:detect\w*|encontr\w*|observ\w*|hay|existe\w*|present\w*)|"
+    r"se\s+descart\w*|sin\s+(?:evidencia\s+de\s+)?fugas?)\b", re.IGNORECASE,
+)
+_SOSPECHA_FUGA = re.compile(
+    r"\b(?:(?:se\s+)?(?:sospech\w*|posible|probable|podr[ií]a|aparente|presunta|hipot[eé]tica)|"
+    r"si\s+(?:se\s+)?(?:detect\w*|hubier\w*|exist\w*))\b",
+    re.IGNORECASE,
+)
+_ATRIBUCION_TERCERO = re.compile(
+    r"\b(?:(?:usuario|cliente|titular|responsable|vecino|tercero)\s+"
+    r"(?:refier\w*|indic\w*|manifest\w*|señal\w*|report\w*|afirm\w*)|"
+    r"(?:seg[uú]n|de\s+acuerdo\s+con)\s+(?:el\s+|la\s+)?"
+    r"(?:usuario|cliente|titular|responsable|vecino|tercero))\b",
+    re.IGNORECASE,
+)
+
+
+def _fugas_desde_observaciones(
+    textos: list[str | None] | list[tuple[str, str | None]],
+) -> list[ProblemaNormado]:
+    """Conserva y clasifica cada cláusula que menciona una fuga.
+
+    Las negaciones verbales no incluyen ``no visible``. Una mención incierta o
+    atribuida a un tercero nunca se convierte en fuga confirmada.
+    """
     problemas: list[ProblemaNormado] = []
-    vistos: set[str] = set()
-    for texto in textos:
+    vistos: set[tuple[str, str, str]] = set()
+    for entrada in textos:
+        fuente, texto = entrada if isinstance(entrada, tuple) else ("observacion", entrada)
         if not texto or "FUGA" not in texto.upper():
             continue
-        # Cláusula: desde la primera aparición de FUGA hasta el siguiente punto.
-        idx = texto.upper().find("FUGA")
-        fin = texto.find(".", idx)
-        fragmento = (texto[idx:] if fin == -1 else texto[idx:fin]).strip()
-        fragmento = re.sub(r"\s+", " ", fragmento)
-        detalle = fragmento.capitalize()
-        if not detalle or detalle in vistos:
-            continue
-        vistos.add(detalle)
-        frag_upper = fragmento.upper()
-        if "NO VISIBLE" in frag_upper:
-            tipo = "fugaNoVisible"
-        elif "VISIBLE" in frag_upper:
-            tipo = "fugaVisible"
-        else:
-            tipo = "fugas"
-        problemas.append(ProblemaNormado(tipo=tipo, detalle=detalle))
+        original = str(texto).strip()
+        clausulas = re.split(
+            r"(?<=[.!?;])\s+|\s+(?=(?:pero|sin embargo|aunque|y)\b[^.!?;]*\bfugas?\b)",
+            original,
+            flags=re.IGNORECASE,
+        )
+        for clausula in clausulas:
+            if "FUGA" not in clausula.upper():
+                continue
+            detalle = re.sub(r"\s+", " ", clausula).strip(" ;")
+            if _NEGACION_FUGA.search(detalle):
+                tipo = "fugaNoDetectada"
+            elif _SOSPECHA_FUGA.search(detalle) or "?" in detalle:
+                tipo = "fugaSospechada"
+            elif _ATRIBUCION_TERCERO.search(detalle):
+                tipo = "fugaReferida"
+            elif re.search(r"\bNO\s+VISIBLE\b", detalle, re.IGNORECASE):
+                tipo = "fugaNoVisible"
+            elif re.search(r"\bVISIBLE\b", detalle, re.IGNORECASE):
+                tipo = "fugaVisible"
+            else:
+                tipo = "fugas"
+            clave = (tipo, detalle.casefold(), fuente)
+            if clave in vistos:
+                continue
+            vistos.add(clave)
+            problemas.append(ProblemaNormado(
+                tipo=tipo,
+                detalle=detalle,
+                fuente=fuente,
+                texto_original=original,
+            ))
     return problemas
 
 
@@ -151,13 +185,29 @@ def problemas_de_inspeccion_externa(inspeccion: InspeccionExterna) -> list[Probl
         tipofugas_normal = {ind["tipofugas"]["000"], ind["tipofugas"]["001"]}
         if inspeccion.tipofugas and inspeccion.tipofugas not in tipofugas_normal:
             detalle = f"{detalle} {inspeccion.tipofugas}"
-        problemas.append(ProblemaNormado(tipo="fugas", detalle=detalle))
+        problemas.append(ProblemaNormado(tipo="fugas", detalle=detalle, fuente="fugas"))
         fuga_estructurada = True
 
-    # Fuga mencionada en las observaciones (solo si no vino ya por el campo
-    # estructurado, para no duplicar el mismo hallazgo).
-    if not fuga_estructurada:
-        problemas.extend(_fugas_desde_observaciones([inspeccion.observacionmed, inspeccion.observacionsum]))
+    # Las observaciones siempre se conservan. Un campo estructurado no las
+    # reemplaza: si difieren, el conflicto queda visible para el análisis.
+    problemas_obs = _fugas_desde_observaciones([
+        ("observacionmed", inspeccion.observacionmed),
+        ("observacionsum", inspeccion.observacionsum),
+    ])
+    problemas.extend(problemas_obs)
+    tipos_obs = {p.tipo for p in problemas_obs}
+    estructurado_sin_fuga = inspeccion.fugas == ind["fugas"]["0"]
+    obs_afirma = bool(tipos_obs & {"fugas", "fugaVisible", "fugaNoVisible"})
+    obs_niega = "fugaNoDetectada" in tipos_obs
+    if (fuga_estructurada and obs_niega) or (estructurado_sin_fuga and obs_afirma):
+        problemas.append(ProblemaNormado(
+            tipo="contradiccionFuga",
+            detalle=(
+                "Existe contradicción entre el campo estructurado de fugas y "
+                "las observaciones; requiere revisión conjunta de ambas fuentes."
+            ),
+            fuente="fugas/observaciones",
+        ))
 
     if inspeccion.funcionamed and inspeccion.funcionamed != ind["funcionamed"]["1"]:
         problemas.append(ProblemaNormado(tipo="equipo", detalle=inspeccion.funcionamed))
@@ -188,7 +238,9 @@ def problemas_de_inspeccion_interna(inspeccion: InspeccionInterna) -> list[Probl
 
     # Fuga hallada dentro del predio: vive en las observaciones libres.
     problemas.extend(_fugas_desde_observaciones([
-        inspeccion.obsinsinteriores, inspeccion.observaciones, inspeccion.obsperrepins,
+        ("obsinsinteriores", inspeccion.obsinsinteriores),
+        ("observaciones", inspeccion.observaciones),
+        ("obsperrepins", inspeccion.obsperrepins),
     ]))
 
     return problemas

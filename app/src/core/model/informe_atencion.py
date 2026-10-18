@@ -1,8 +1,24 @@
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Literal
 
 from app.src.core.model.reclamo import Reclamo
 from app.src.core.model.conciliacion import Conciliacion
+
+
+EstadoEvaluacion = Literal[
+    "pendiente", "completada", "requiere_evidencia", "requiere_revision",
+    "error_evaluacion",
+]
+
+
+@dataclass
+class MotivoEvaluacion:
+    codigo: str
+    objetivos_afectados: list[int] = field(default_factory=list)
+    descripcion: str = ""
+    evidencia_pendiente: str | None = None
+    accion_necesaria: str | None = None
 
 
 @dataclass
@@ -11,6 +27,8 @@ class ProblemaNormado:
     normativa (se completa en la fase de fundamentación)."""
     tipo: str                          # "errorConsumo", "observacion", ...
     detalle: str                       # texto concreto CON cifras (para el LLM)
+    fuente: str | None = None
+    texto_original: str | None = None
 
     # --- se llena en la fase de fundamentación normativa ---
     # `seleccionado`: el problema fue elegido como determinante (1-3) y por tanto
@@ -73,6 +91,11 @@ class InformeAtencion:
     # (a partir de los hallazgos determinantes) y se renderiza como punto final,
     # antes de la conclusión, tal como el punto normativo de los informes reales.
     fundamentacion_normativa: str | None = None
+    estado_evaluacion: EstadoEvaluacion = "pendiente"
+    motivos_evaluacion: list[MotivoEvaluacion] = field(default_factory=list)
+    mensaje_evaluacion: str | None = None
+    origen_decision: str | None = None  # "automatica" | "historica_sysco"
+    historial_decisiones: list[dict] = field(default_factory=list)
     veredicto: str | None = None       # "FUNDADO" | "INFUNDADO" (puerta lógica)
     conclusion: str | None = None      # texto de la conclusión (paso final)
     # Texto completo recuperado de SYSCO. Cuando existe, es la fuente original

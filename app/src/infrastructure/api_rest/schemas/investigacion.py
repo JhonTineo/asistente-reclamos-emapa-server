@@ -14,6 +14,8 @@ class InvestigacionRequest(BaseModel):
 class ProblemaNormadoSchema(BaseModel):
     tipo: str
     detalle: str
+    fuente: str | None = None
+    texto_original: str | None = None
     seleccionado: bool = False
     articulos: list[dict] = Field(default_factory=list)
     accion: str | None = None
@@ -98,6 +100,14 @@ class ProblemaInforme(BaseModel):
     base_legal: str | None = None
 
 
+class MotivoEvaluacionSchema(BaseModel):
+    codigo: str
+    objetivos_afectados: list[int] = Field(default_factory=list)
+    descripcion: str
+    evidencia_pendiente: str | None = None
+    accion_necesaria: str | None = None
+
+
 class InformeResponse(BaseModel):
     codreclamo: str
     # Opcionales porque /investigacion/fundamentar-normativa no arma el texto
@@ -112,6 +122,11 @@ class InformeResponse(BaseModel):
     # Párrafo de fundamentación normativa (nuevo flujo /fundamentar-normativa):
     # se genera de los hallazgos determinantes y se renderiza antes de la conclusión.
     fundamentacion: str | None = None
+    estado_evaluacion: str = "pendiente"
+    motivos_evaluacion: list[MotivoEvaluacionSchema] = Field(default_factory=list)
+    mensaje_evaluacion: str | None = None
+    veredicto: str | None = None
+    conclusion: str | None = None
     tiempo: float
 
 
@@ -239,6 +254,9 @@ class IniciarInvestigacionResponse(BaseModel):
     objetivos: list[dict] = Field(default_factory=list)
     ventana_meses: list[tuple[int, int]] = Field(default_factory=list)
     fundamentacion: str | None = None
+    estado_evaluacion: str = "pendiente"
+    motivos_evaluacion: list[MotivoEvaluacionSchema] = Field(default_factory=list)
+    mensaje_evaluacion: str | None = None
     veredicto: str | None = None
     conclusion: str | None = None
     problemas: list[dict] = Field(default_factory=list)
@@ -255,6 +273,8 @@ class ObjetivoInvestigacionSchema(BaseModel):
     descripcion: str
     medio: str | None = None
     determinante: bool = False
+    resultado: str | None = None
+    evidencia: str | None = None
 
 
 # InformeResponse se define más arriba y referencia ObjetivoInvestigacionSchema
@@ -452,6 +472,11 @@ class InformeCompletoResponse(BaseModel):
     resumenes: list[ResumenMedio] = Field(default_factory=list)
     ventana_meses: list[tuple[int, int]] = Field(default_factory=list)
     fundamentacion: str | None = None
+    estado_evaluacion: str = "pendiente"
+    motivos_evaluacion: list[MotivoEvaluacionSchema] = Field(default_factory=list)
+    mensaje_evaluacion: str | None = None
+    origen_decision: str | None = None
+    historial_decisiones: list[dict] = Field(default_factory=list)
     veredicto: str | None = None
     conclusion: str | None = None
     problemas: list[ProblemaInforme] = Field(default_factory=list)

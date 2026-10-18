@@ -32,11 +32,10 @@ ESTADOS_LECTURA_NO_PROBLEMA = {"000", "002", "005", "010"}
 #   011 CONSUMO DOBLE AL PROMEDIO
 ESTADOS_LECTURA_CONSUMO = {"001", "008", "011"}
 
-# Detección de "fuga no visible reparada": un mes con consumo elevado
+# Detección cuantitativa de un consumo elevado
 # (> FACTOR_ELEVADO x promedio histórico, o marcado como consumo atípico) seguido
 # de un mes posterior cuyo consumo RETORNA al promedio (<= FACTOR_NORMAL x
-# promedio). Esa caída evidencia que la fuga fue reparada y sustenta refacturar
-# los meses reclamados por el promedio histórico (Art. 88.3 SUNASS).
+# promedio). El patrón no acredita la causa, una fuga ni una reparación.
 FACTOR_ELEVADO = 1.8
 FACTOR_NORMAL = 1.3
 
@@ -237,14 +236,15 @@ class PreTargetaLecturasService:
             "errorLecturas": _fmt(lectura_grp),
             "errorReinstalacion": _fmt(reinst_grp),
             "errorServicio": _fmt(servicio_grp),
-            "fugaReparada": self._detectar_fuga_reparada(df),
+            "descensoConsumo": self._detectar_descenso_consumo(df),
             "obslectura": _fmt(obs_grp),
         }
 
-    def _detectar_fuga_reparada(self, df: pd.DataFrame) -> list[str]:
-        """Detecta el patrón de fuga no visible reparada: uno o más meses con
-        consumo elevado seguidos de un mes posterior cuyo consumo retorna al
-        promedio histórico. Devuelve a lo sumo un hallazgo con las cifras.
+    def _detectar_descenso_consumo(self, df: pd.DataFrame) -> list[str]:
+        """Detecta un consumo elevado seguido de otro dentro del umbral normal.
+
+        Devuelve un hallazgo cuantitativo con periodos, consumos y promedios;
+        no atribuye el cambio a una fuga, su visibilidad o una reparación.
 
         Se apoya en `consumo` y `lecturapromedio` de cada mes (más el código de
         consumo atípico del origen). Requiere la serie en orden cronológico."""
@@ -281,10 +281,11 @@ class PreTargetaLecturasService:
             return f"{int(r['mes']):02d}/{int(r['anio'])}"
 
         msg = (
-            f"Consumo elevado de {float(pico['consumo']):.0f} m³ en {_fecha(pico)} "
-            f"que retorna a {float(post['consumo']):.0f} m³ en {_fecha(post)} "
-            f"(promedio histórico {float(post['lecturapromedio']):.0f} m³), lo que "
-            f"evidencia una fuga no visible ya reparada."
+            f"Descenso de consumo posterior a un consumo elevado: "
+            f"{float(pico['consumo']):.0f} m³ en {_fecha(pico)} "
+            f"(promedio {float(pico['lecturapromedio']):.0f} m³) y "
+            f"{float(post['consumo']):.0f} m³ en {_fecha(post)} "
+            f"(promedio {float(post['lecturapromedio']):.0f} m³)."
         )
-        logger.info("[PRE_TARGETA_LECTURAS] Fuga reparada detectada: %s", msg)
+        logger.info("[PRE_TARGETA_LECTURAS] Descenso de consumo detectado: %s", msg)
         return [msg]
