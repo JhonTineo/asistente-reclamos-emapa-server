@@ -314,6 +314,17 @@ Request de `PATCH /resolucion`:
 
 ---
 
+### 4.5.1 `evidencias` — prefix `/reclamos`
+
+Pruebas que respaldan el veredicto, para el panel «Evidencias» del frontend y los Word de anexo y hoja para el usuario.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/reclamos/{codreclamo}/evidencias` | Lectura pura de lo ya analizado en memoria (como `/sustentacion`): serie mensual (tarjeta de lecturas + record de facturación) con el mes reclamado marcado, indicadores (promedio de los 6 meses previos, veces el promedio, rango), resultados de las inspecciones, línea de tiempo y verificaciones determinantes. No llama a EMAPA ni al LLM. 404 sin informe en curso. |
+| GET | `/reclamos/{codreclamo}/evidencias/fotos?codsuc=001[&codcliente=…][&refrescar=true]` | Fotos desde SYSCO (`api-externa/ftp/generico/download/read`): foto del medidor de la lectura del mes reclamado, fotos de la inspección y formulario del reclamo. Sin firmas ni copias repetidas, reducidas a 1600 px (JPEG). Pide solo el día de la lectura reclamada y desde la recepción del reclamo hasta hoy (≈20 s la primera vez); queda 30 min en memoria. **Exige token** (`Authorization`), igual que la búsqueda del reclamo. |
+
+---
+
 ### 4.6 Normativa — 3 routers bajo `/normativa`
 
 #### `normativa-documentos` — `/normativa/documentos` (ingesta de un reglamento completo)
