@@ -1,0 +1,86 @@
+/* Yumi · presentación — tokens del sistema de diseño (deck-abyss, deck-deep, deck-foam, deck-aqua) */
+:root {
+  --abyss: #052b45;
+  --night: #07344f;
+  --deep: #0b4f78;
+  --foam: #e8f6fb;
+  --aqua: #5ee0f0;
+  --sky: #0284c7;
+  --teal: #00b0c8;
+  --leaf: #3fd17a;
+  --amber: #f5b835;
+  --coral: #ff6b6b;
+  --ink: #052b45;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--abyss); }
+body { font-family: system-ui, sans-serif; color: var(--foam); }
+
+/* ---------- fondo con paralaje ---------- */
+#bg { position: absolute; inset: 0; background:
+  radial-gradient(1400px 900px at 70% 20%, rgba(0,176,200,.20), transparent 60%),
+  radial-gradient(1200px 800px at 10% 90%, rgba(2,132,199,.28), transparent 60%),
+  linear-gradient(180deg, #052b45 0%, #04223a 100%); }
+#bg-waves, #bg-dots { position: absolute; inset: -400px; will-change: transform; }
+#bg-waves { opacity: .5; }
+#bg-dots { opacity: .55; }
+
+/* ---------- mundo y cámara ---------- */
+#viewport { position: absolute; inset: 0; overflow: hidden; }
+#world { position: absolute; left: 0; top: 0; width: 1px; height: 1px; transform-origin: 0 0; will-change: transform; }
+#river { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+#token { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; z-index: 5; }
+#token .glow { position: absolute; left: -90px; top: -90px; width: 180px; height: 180px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(94,224,240,.55) 0%, rgba(94,224,240,0) 68%); }
+#token svg { position: absolute; left: -44px; top: -52px; filter: drop-shadow(0 0 16px rgba(94,224,240,.9)); }
+
+/* ---------- escenas ---------- */
+.scene-frame { position: absolute; width: 1920px; height: 1080px; overflow: hidden;
+  opacity: 0; visibility: hidden; pointer-events: none; background: transparent; }
+.scene-frame.is-active { visibility: visible; pointer-events: auto; }
+.scene-frame.wide { overflow: visible; }
+.hidden-frag { opacity: 0; }
+
+.abs { position: absolute; }
+.center { display: flex; align-items: center; justify-content: center; }
+.col { display: flex; flex-direction: column; }
+.eyebrow { font-size: 36px; letter-spacing: .14em; text-transform: uppercase; color: var(--aqua); font-weight: 700; }
+.title { font-size: 88px; line-height: 1.02; font-weight: 800; letter-spacing: -.02em; color: var(--foam); }
+.title.big { font-size: 112px; }
+.sub { font-size: 46px; line-height: 1.22; font-weight: 500; color: var(--foam); opacity: .88; }
+.lab { font-size: 40px; line-height: 1.15; font-weight: 700; color: var(--foam); }
+.lab.sm { font-size: 36px; font-weight: 600; }
+.note { font-size: 30px; line-height: 1.25; font-weight: 500; color: var(--foam); opacity: .7; }
+.stat { font-weight: 800; letter-spacing: -.03em; line-height: .9; color: var(--aqua); }
+.aqua { color: var(--aqua); } .leaf { color: var(--leaf); } .amber { color: var(--amber); } .coral { color: var(--coral); }
+
+.panel { background: rgba(11,79,120,.55); border: 2px solid rgba(94,224,240,.28); border-radius: 36px; }
+.panel.solid { background: var(--deep); }
+.disc { border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: rgba(94,224,240,.12); border: 3px solid rgba(94,224,240,.55); }
+.disc.on { background: rgba(94,224,240,.3); border-color: var(--aqua); box-shadow: 0 0 0 14px rgba(94,224,240,.12), 0 0 60px rgba(94,224,240,.55); }
+.pill { display: inline-flex; align-items: center; gap: 14px; padding: 14px 28px; border-radius: 999px; font-size: 36px; font-weight: 700; }
+.pill.aqua-bg { background: var(--aqua); color: var(--ink); }
+.pill.leaf-bg { background: var(--leaf); color: var(--ink); }
+.pill.red-bg { background: var(--coral); color: var(--ink); }
+.pill.amber-bg { background: var(--amber); color: var(--ink); }
+.pill.line { border: 3px solid rgba(232,246,251,.5); color: var(--foam); }
+
+/* ventana de producto (clara, como la app real) */
+.win { background: #ffffff; border-radius: 28px; overflow: hidden; color: #1b2a3a;
+  box-shadow: 0 40px 90px rgba(0,0,0,.45), 0 0 0 2px rgba(94,224,240,.25); }
+.win-bar { height: 64px; background: #e0f2fe; display: flex; align-items: center; gap: 12px; padding: 0 24px; }
+.win-bar i { width: 18px; height: 18px; border-radius: 50%; background: #bae6fd; display: block; }
+.win-bar span { margin-left: 18px; font-size: 26px; color: #0369a1; font-weight: 600; }
+
+.btn-live { display: inline-flex; align-items: center; gap: 22px; padding: 30px 56px; border-radius: 999px;
+  background: var(--aqua); color: var(--ink); font-size: 48px; font-weight: 800; cursor: pointer; border: 0;
+  box-shadow: 0 0 0 0 rgba(94,224,240,.6), 0 18px 50px rgba(0,0,0,.4); font-family: inherit;
+  }
+.btn-live:hover { transform: translateY(-4px) scale(1.03); box-shadow: 0 0 0 16px rgba(94,224,240,.22), 0 22px 60px rgba(0,0,0,.45); }
+
+.num { position: absolute; left: 80px; top: 64px; }
+.spin { animation: none; }
+
+#root { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden; }

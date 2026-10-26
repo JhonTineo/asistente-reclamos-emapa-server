@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yumi — Pitch</title>
+<script src="lib/hyperframes-player.global.js"></script>
+<script src="lib/hyperframes-slideshow.global.js"></script>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:100%;height:100%;overflow:hidden;background:#052b45}
+  hyperframes-slideshow{display:block;position:relative;width:100vw;height:100vh}
+  hyperframes-player{position:absolute;inset:0}
+</style>
+</head>
+<body>
+<hyperframes-slideshow tabindex="0">
+  <hyperframes-player interactive src="composition/index.html"></hyperframes-player>
+  <script type="application/hyperframes-slideshow+json">
+{
+  "slides": [
+    {
+      "sceneId": "portada",
+      "notes": "Buenas tardes. Les vamos a mostrar un reclamo que hoy toma entre cinco y once días, preparado en 66 segundos."
+    },
+    {
+      "sceneId": "dolor",
+      "notes": "Hoy el especialista abre seis pestañas del sistema comercial, junta las pruebas a mano, busca la norma y redacta tres documentos, por cada reclamo. En EMAPA San Martín son unos 305 reclamos al mes. Siguiente: pestañas. Siguiente: volumen.",
+      "fragments": [
+        6.3,
+        6.55,
+        6.8
+      ]
+    },
+    {
+      "sceneId": "riesgo",
+      "notes": "El reglamento da 30 días hábiles. Si no se emite la resolución a tiempo, el reclamo se declara fundado por silencio administrativo, sin haber terminado la investigación. No es un problema de fondo: es de tiempo.",
+      "fragments": [
+        12.3,
+        12.55
+      ]
+    },
+    {
+      "sceneId": "solucion",
+      "notes": "Yumi prepara el expediente completo: informe de atención, propuesta de conciliación y resolución, exportables a Word. Y la persona revisa y aprueba.",
+      "fragments": [
+        18.3,
+        18.55
+      ]
+    },
+    {
+      "sceneId": "recorrido",
+      "notes": "La cámara sigue a la gota. Se busca el reclamo; Yumi define qué hay que probar (4,2 s); analiza las pruebas y la norma (52,8 s); propone la conciliación (4,2 s); redacta la resolución (4,8 s). Sumado: 66 segundos. Cada Siguiente avanza una parada.",
+      "fragments": [
+        24.3,
+        24.55,
+        24.8,
+        25.05,
+        25.3,
+        25.55
+      ]
+    },
+    {
+      "sceneId": "medios",
+      "notes": "Lee las seis fuentes que hoy se revisan a mano: tarjeta de lecturas, récord de facturación, cortes y reaperturas, saldo detalle, e inspección interna y externa. Explica lo que encuentra en lenguaje claro. Siguiente: todas listas.",
+      "fragments": [
+        30.3,
+        30.55
+      ]
+    },
+    {
+      "sceneId": "normativa",
+      "notes": "Cada hallazgo se contrasta con el reglamento de SUNASS. El reglamento se corta en artículos y se guarda en una base vectorial. Con un hallazgo, Yumi recupera el artículo aplicable y lo cita. La resolución sale fundamentada, no de memoria.",
+      "fragments": [
+        36.3,
+        36.55
+      ]
+    },
+    {
+      "sceneId": "veredicto",
+      "notes": "El modelo evalúa cada objetivo. Pero el veredicto lo fija una regla fija: es fundado si y solo si un objetivo determinante procede. La IA no puede inventarlo. Y todo texto es editable: la persona revisa y aprueba.",
+      "fragments": [
+        42.3,
+        42.55,
+        42.8
+      ]
+    },
+    {
+      "sceneId": "corre",
+      "notes": "Puede correr completamente en su servidor, con modelos locales, y los datos del reclamo no salen de la empresa. O con un proveedor en la nube. Si preguntan por la arquitectura: botón Ver arquitectura.",
+      "fragments": [
+        48.3,
+        48.55
+      ],
+      "hotspots": [
+        {
+          "id": "h-arq",
+          "label": "Ver arquitectura",
+          "target": "seq-arquitectura",
+          "region": {
+            "x": 62,
+            "y": 3,
+            "w": 36,
+            "h": 9
+          }
+        }
+      ]
+    },
+    {
+      "sceneId": "demo",
+      "notes": "Se los mostramos funcionando, con la interfaz real y datos de ejemplo (nombres y números reemplazados). Cada Siguiente avanza un paso: elegir el reclamo, datos, objetivos, análisis de pruebas (la cámara sigue la tarea activa), detalle de una prueba, informe, conclusión, conciliación, resolución, normativa y modelo. Al final, el botón En vivo abre la aplicación: escribe tú el usuario y la contraseña, no los muestres en pantalla compartida y deja la sesión abierta antes de la reunión.",
+      "fragments": [
+        54.3,
+        54.55,
+        54.8,
+        55.05,
+        55.3,
+        55.55,
+        55.8,
+        56.05,
+        56.3,
+        56.55,
+        56.8,
+        57.05
+      ]
+    },
+    {
+      "sceneId": "resultados",
+      "notes": "En 20 expedientes de prueba: 66 segundos frente a 5 a 11 días. Con 3 a 5 minutos de revisión humana, la reducción sigue sobre el 95 %. Para el volumen de EMAPA, el ahorro equivale a unas 13 personas a tiempo completo. Si piden el detalle: botón De dónde salen las cifras.",
+      "fragments": [
+        60.3,
+        60.55
+      ],
+      "hotspots": [
+        {
+          "id": "h-cifras",
+          "label": "¿De dónde salen las cifras?",
+          "target": "seq-cifras",
+          "region": {
+            "x": 62,
+            "y": 3,
+            "w": 36,
+            "h": 9
+          }
+        }
+      ]
+    },
+    {
+      "sceneId": "respaldo",
+      "notes": "Ganó la macrorregión Oriente del Datathon SUNASS 2026, llegó a la final nacional en Lima y está en operación dentro del sistema comercial de EMAPA San Martín. Cada Siguiente enciende un hito.",
+      "fragments": [
+        66.3,
+        66.55,
+        66.8
+      ]
+    },
+    {
+      "sceneId": "piloto",
+      "notes": "Proponemos empezar en paralelo, sin tocar su proceso, durante dos meses. Después, escribir directamente en su sistema comercial y, por último, automatizar los reclamos simples.",
+      "fragments": [
+        72.3,
+        72.55,
+        72.8
+      ]
+    },
+    {
+      "sceneId": "cierre",
+      "notes": "Les proponemos algo concreto: tomamos 20 expedientes de su EPS y comparamos con lo que ustedes resolvieron. Gracias. El botón abre Yumi en vivo."
+    }
+  ],
+  "slideSequences": [
+    {
+      "id": "seq-cifras",
+      "label": "De dónde salen las cifras",
+      "slides": [
+        {
+          "sceneId": "cifras",
+          "notes": "Tabla de apoyo. Manual: 1 a 3 días en SYSCO, 1 a 2 en análisis, 0,5 a 1 en norma, 1 a 2 en informe, 0,5 a 1 en conciliación y 1 a 2 en resolución. Yumi: 4,2 + 52,8 + 4,2 + 4,8 = 66,0 segundos en 20 expedientes de prueba."
+        }
+      ]
+    },
+    {
+      "id": "seq-arquitectura",
+      "label": "Arquitectura",
+      "slides": [
+        {
+          "sceneId": "arquitectura",
+          "notes": "Panel web en React, servicio en FastAPI, agentes, normativa en base vectorial, modelo local o en la nube y conexión al sistema comercial."
+        }
+      ]
+    }
+  ]
+}
+  </script>
+</hyperframes-slideshow>
+<script>
+  // L abre Yumi en vivo (la aplicación real) en otra pestaña
+  document.addEventListener("keydown", function (e) {
+    if ((e.key === "l" || e.key === "L") && !e.ctrlKey && !e.metaKey && !e.altKey)
+      window.open("https://asistente-reclamos-emapa.vercel.app/reclamo", "_blank", "noopener");
+  });
+</script>
+</body>
+</html>
