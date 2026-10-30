@@ -364,6 +364,9 @@ def crear_informe_desde_datos(
         estado_reclamo=campo_reclamo(datos, "descEstadoRec") or None,
         codinspeccion_interna=codinspeccion_interna,
         codinspeccion_externa=codinspeccion_externa,
+        fecha_notificacion_inspeccion=campo_reclamo(datos, "fechainspintext") or None,
+        fecha_reunion=campo_reclamo(datos, "fechareunion") or None,
+        fecha_max_resolucion=campo_reclamo(datos, "fechamaxresol") or None,
     )
 
     informe = informe_store.crear_metadata(

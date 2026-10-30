@@ -26,3 +26,8 @@ class Reclamo:
     # el reclamo no tiene una inspección de ese tipo vinculada todavía.
     codinspeccion_interna: str | None = None
     codinspeccion_externa: str | None = None
+    # Fechas del trámite (solo informativas: alimentan la línea de tiempo del
+    # panel de evidencias). None si EMAPA no las trae.
+    fecha_notificacion_inspeccion: str | None = None   # fechainspintext
+    fecha_reunion: str | None = None                   # fechareunion (conciliación)
+    fecha_max_resolucion: str | None = None            # fechamaxresol

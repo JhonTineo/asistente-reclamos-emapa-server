@@ -38,3 +38,11 @@ class PuertoEmapaAPI(ABC):
     @abstractmethod
     def obtener_inspeccion_interna(self, codsuc: str, codinspeccion: str) -> dict[str, Any]:
         pass
+
+    def obtener_imagenes_cliente(self, codsuc: str, codcliente: str,
+                                 fecha_inicial: str, fecha_final: str) -> dict[str, Any]:
+        """Imágenes/archivos del cliente registrados en SYSCO entre dos fechas
+        (YYYY-MM-DD): fotos de lectura, de inspección, formularios del reclamo.
+        Cada ítem trae el contenido en base64 (`img64`). No es abstracto para
+        no obligar a otras implementaciones del puerto a soportarlo."""
+        raise NotImplementedError
