@@ -319,7 +319,8 @@ class FundamentacionNormativaAgent:
         acoplar el agente al servicio de investigación (evita import circular)."""
         if not informe or not getattr(informe, "objetivos", None):
             return set()
-        return {o.medio for o in informe.objetivos if o.determinante and o.medio}
+        return {medio for o in informe.objetivos if o.determinante
+                for medio in o.medios_relacionados}
 
     @staticmethod
     def pool_determinante(informe) -> list[ProblemaNormado]:
@@ -366,7 +367,8 @@ class FundamentacionNormativaAgent:
             if not o.determinante:
                 continue
             lineas = [f"Objetivo: {o.descripcion}"]
-            idxs = idxs_por_medio.get(o.medio, [])
+            idxs = [i for medio in o.medios_relacionados
+                    for i in idxs_por_medio.get(medio, [])]
             if idxs:
                 lineas += [f"  [{i}] {pool[i].detalle}" for i in idxs]
             else:

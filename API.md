@@ -455,13 +455,23 @@ consumo elevado y no acredita fuga ni reparación.
 
 ### Estado de evaluación y veredicto
 
+El análisis del récord de facturación incluye los registros mensuales de la
+ventana consultada. Cuando hay preguntas asignadas a un medio, se genera su
+resumen con el LLM aunque no se hayan detectado problemas. Los objetivos de
+inspección usan la interna y la externa como contexto complementario en el
+análisis, la fundamentación y la evaluación; esto no sustituye una inspección
+interna que no pudo realizarse. El campo público `medio` conserva el medio principal.
+
 Las respuestas del informe exponen `estado_evaluacion`, `motivos_evaluacion`
 y `mensaje_evaluacion`, separados de `veredicto` y `conclusion`:
 
-- `completada`: todos los objetivos determinantes fueron evaluados con sustento;
-  `veredicto` contiene `FUNDADO` o `INFUNDADO`.
-- `requiere_evidencia`: al menos un determinante es `no_evaluable`;
-  `veredicto` y `conclusion` son `null`.
+- `completada`: se generaron veredicto y conclusión, incluso con objetivos
+  `no_evaluable`. Si algún determinante es `procede_correccion`, el veredicto es
+  `FUNDADO`; en caso contrario, `INFUNDADO`, incluso si todos son `no_evaluable`.
+  Esto no convierte los objetivos no evaluables en verificaciones satisfactorias.
+- `requiere_evidencia`: estado histórico; ya no se genera por objetivos
+  `no_evaluable`. Estos conservan su `resultado` y `evidencia` para futuras notas,
+  sin producir avisos en `motivos_evaluacion` ni bloquear la conclusión.
 - `requiere_revision`: faltan objetivos o ninguno es determinante;
   `veredicto` y `conclusion` son `null`.
 - `error_evaluacion`: la respuesta del proveedor es inválida, incompleta o
@@ -474,10 +484,10 @@ Ejemplo completado:
 {"estado_evaluacion":"completada","motivos_evaluacion":[],"veredicto":"INFUNDADO","conclusion":"En consecuencia, ..."}
 ```
 
-Ejemplo con evidencia pendiente:
+Ejemplo completado con un objetivo no evaluable:
 
 ```json
-{"estado_evaluacion":"requiere_evidencia","veredicto":null,"conclusion":null,"motivos_evaluacion":[{"codigo":"EVIDENCIA_INSUFICIENTE","objetivos_afectados":[2],"descripcion":"No fue posible evaluar el objetivo.","evidencia_pendiente":"Falta inspección.","accion_necesaria":"Obtener o revisar la evidencia del objetivo."}]}
+{"estado_evaluacion":"completada","veredicto":"INFUNDADO","conclusion":"En consecuencia, con la información disponible no se acreditó una causa de corrección en los objetivos determinantes, por lo tanto se declara INFUNDADO.","motivos_evaluacion":[],"objetivos":[{"id":2,"descripcion":"¿La inspección acredita una fuga?","medio":"inspeccion_interna","determinante":true,"resultado":"no_evaluable","evidencia":"Falta inspección interna"}]}
 ```
 
 Ejemplo de fallo técnico:

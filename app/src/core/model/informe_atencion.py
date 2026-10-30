@@ -53,6 +53,13 @@ class ObjetivoInvestigacion:
     resultado: str | None = None
     evidencia: str | None = None
 
+    @property
+    def medios_relacionados(self) -> tuple[str, ...]:
+        """Las inspecciones aportan contexto complementario sin sustituirse."""
+        if self.medio in {"inspeccion_interna", "inspeccion_externa"}:
+            return ("inspeccion_interna", "inspeccion_externa")
+        return (self.medio,) if self.medio else ()
+
 
 @dataclass
 class BloqueMedio:

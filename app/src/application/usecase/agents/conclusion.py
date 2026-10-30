@@ -5,9 +5,10 @@ los HALLAZGOS de los medios probatorios y decide el veredicto con una REGLA
 EXPLÍCITA (puerta lógica), no con criterio libre del LLM:
 
     FUNDADO   ⇔ algún objetivo DETERMINANTE resultó "procede_correccion"
-    INFUNDADO ⇔ todos los objetivos DETERMINANTES resultaron "sin_correccion"
+    INFUNDADO ⇔ ningún objetivo DETERMINANTE resultó "procede_correccion"
 
-Si falta evidencia o la evaluación es inválida, el veredicto permanece nulo.
+Los objetivos no_evaluable se conservan sin bloquear el veredicto. Una
+evaluación inválida o un fallo del proveedor siguen siendo errores técnicos.
 
 "procede_correccion" cubre tanto un error de la empresa (medidor/medición) como
 una refacturación que procede sin culpa de la empresa (p.ej. fuga no visible ya
@@ -108,31 +109,14 @@ class ConclusionAgent:
             obj.resultado = evaluaciones[obj.id]["resultado"]
             obj.evidencia = evaluaciones[obj.id]["evidencia"]
 
-        no_evaluables = [o for o in determinantes if o.resultado == "no_evaluable"]
-        if no_evaluables:
-            informe.estado_evaluacion = "requiere_evidencia"
-            informe.mensaje_evaluacion = (
-                "No se emitió veredicto porque hay objetivos determinantes sin "
-                "evidencia suficiente. Las evaluaciones válidas se conservaron."
-            )
-            informe.motivos_evaluacion = [
-                MotivoEvaluacion(
-                    codigo="EVIDENCIA_INSUFICIENTE",
-                    objetivos_afectados=[o.id],
-                    descripcion=f"No fue posible evaluar: {o.descripcion}",
-                    evidencia_pendiente=o.evidencia or "Evidencia determinante no disponible.",
-                    accion_necesaria="Obtener o revisar la evidencia del objetivo.",
-                )
-                for o in no_evaluables
-            ]
-            return None
-
+        # no_evaluable conserva su resultado/evidencia para futuras notas,
+        # pero no veta una decisión ni se convierte en sin_correccion.
         con_correccion = [o for o in determinantes if o.resultado == "procede_correccion"]
         veredicto = "FUNDADO" if con_correccion else "INFUNDADO"
         informe.veredicto = veredicto
         informe.estado_evaluacion = "completada"
         informe.motivos_evaluacion = []
-        informe.mensaje_evaluacion = "Evaluación completada con todos los objetivos determinantes."
+        informe.mensaje_evaluacion = "Veredicto y conclusión generados con la evaluación disponible."
         informe.origen_decision = "automatica"
         informe.conclusion = self._redactar_conclusion(
             informe, veredicto, determinantes, con_correccion,
@@ -218,18 +202,21 @@ class ConclusionAgent:
         todos_los_hallazgos = (
             "\n".join(hallazgos_por_medio.values()) or "(sin hallazgos registrados)"
         )
-        # Cada objetivo se lista junto a SOLO los hallazgos de su medio (si lo
-        # tiene asignado); si no tiene medio asignado, recibe todos los
-        # hallazgos como contexto general. .
+        # Las inspecciones interna/externa comparten contexto complementario.
+        # Sin medio asignado se reciben todos los hallazgos.
         bloques_objetivo = []
         for o in determinantes:
-            etiqueta = f"{o.id}. {o.descripcion}" + (f" [medio: {o.medio}]" if o.medio else "")
+            etiqueta = f"{o.id}. {o.descripcion}" + (
+                f" [medios: {', '.join(o.medios_relacionados)}]" if o.medio else ""
+            )
             hallazgos_obj = (
-                hallazgos_por_medio.get(o.medio, "(el medio aún no fue analizado)")
+                "\n".join(hallazgos_por_medio.get(
+                    medio, f"[{medio}] (el medio aún no fue analizado)",
+                ) for medio in o.medios_relacionados)
                 if o.medio else todos_los_hallazgos
             )
             bloques_objetivo.append(
-                f"{etiqueta}\nHallazgos del medio asignado a este objetivo:\n{hallazgos_obj}"
+                f"{etiqueta}\nHallazgos de los medios relacionados con este objetivo:\n{hallazgos_obj}"
             )
         objetivos_texto = "\n\n".join(bloques_objetivo)
 
@@ -237,14 +224,16 @@ class ConclusionAgent:
             "Eres un analista de reclamos de EMAPA. Evalúas cada objetivo de la "
             "investigación contra LOS HALLAZGOS QUE SE LISTAN DEBAJO DE ESE MISMO "
             "OBJETIVO (no contra los de otros objetivos).\n"
-            "La pregunta de fondo es: según los hallazgos de su medio, ¿CORRESPONDE "
+            "La pregunta de fondo es: según los hallazgos de sus medios, ¿CORRESPONDE "
             "CORREGIR la facturación a favor del usuario respecto de ese objetivo?\n"
             "Clasifica cada objetivo en uno de estos resultados, según estos "
             "criterios de especialista:\n"
             f"{render_criterios(self.criterios)}\n"
             "Básate ÚNICAMENTE en los hallazgos listados debajo de cada objetivo. "
-            "NUNCA uses como evidencia un hallazgo de un medio distinto al asignado "
-            "al objetivo. No inventes.\n"
+            "NUNCA uses hallazgos que no estén listados para el objetivo. "
+            "Las inspecciones interna y externa son complementarias: una inspección "
+            "externa no acredita que se revisó el interior del predio. Distingue una "
+            "visita sin acceso de una inspección interna realizada. No inventes.\n"
             "Responde SOLO con un JSON: una lista de objetos con las claves "
             "\"id\" (número del objetivo), \"resultado\" y \"evidencia\".\n"
             "\"evidencia\" debe ser una frase MUY BREVE (máximo 12 palabras) citando el "
@@ -372,15 +361,22 @@ class ConclusionAgent:
 
         meses_reclamados = _formatear_meses_reclamados(informe)
 
-        # La fórmula del informe real depende del veredicto: FUNDADO narra el hecho
-        # decisivo y la refacturación que procede; INFUNDADO afirma que la
-        # facturación fue correcta por diferencia de lecturas.
+        # La fórmula distingue los hechos acreditados de una evaluación parcial.
+        # Un INFUNDADO con no_evaluable no certifica que la facturación sea correcta.
         if veredicto == "FUNDADO":
             formula = (
                 "«En consecuencia, toda vez que [hecho decisivo verificado con su "
                 "cifra, p.ej. la fuga no visible fue reparada], corresponde [lo que "
                 "manda la norma, p.ej. refacturar los meses reclamados por el "
                 "promedio histórico], por lo tanto se declara FUNDADO»"
+            )
+        elif any(o.resultado == "no_evaluable" for o in determinantes):
+            formula = (
+                "«En consecuencia, con la información disponible [hechos evaluados "
+                "y alcance de la evaluación], no se acreditó un motivo de corrección "
+                "en los objetivos determinantes, por lo tanto se declara INFUNDADO». "
+                "No afirmes que toda la facturación es correcta ni que fue por "
+                "diferencia de lecturas si no hay evidencia que lo confirme"
             )
         else:
             formula = (
@@ -422,6 +418,11 @@ class ConclusionAgent:
             f"esta estructura del informe real: {formula}.\n"
             "- Usa lenguaje llano y directo; NO uses expresiones vagas como «dentro "
             "de los parámetros establecidos». Nombra el hecho concreto.\n"
+            "- Los objetivos no_evaluable no bloquean el veredicto, pero tampoco "
+            "acreditan hechos ni la corrección de un cobro. No los presentes como "
+            "verificaciones satisfactorias. Si todos son no_evaluable, explica "
+            "que la decisión se basa en que no se acreditó una causa de corrección "
+            "con la información disponible.\n"
             + regla_norma +
             "Responde SOLO con el párrafo de conclusión, sin encabezados."
         )
@@ -474,6 +475,13 @@ class ConclusionAgent:
                 "En consecuencia, el reclamo se declara FUNDADO, por cuanto la "
                 f"investigación determinó que corresponde corregir la facturación a "
                 f"favor del usuario: {motivos}."
+            )
+        if any(o.resultado == "no_evaluable" for o in determinantes):
+            return (
+                "En consecuencia, con la información disponible no se acreditó "
+                "una causa de corrección en los objetivos determinantes, por lo "
+                "tanto se declara INFUNDADO. La evaluación incompleta de algunos "
+                "objetivos no acredita que la facturación sea correcta."
             )
         if determinantes:
             detalle = "; ".join(o.descripcion for o in determinantes)

@@ -25,8 +25,11 @@ class RouterFalso:
         self.respuesta = respuesta
         self.error = error
         self.redacciones = 0
+        self.mensajes_evaluacion = []
+        self.mensajes_redaccion = []
 
     def generar_json(self, **_kwargs):
+        self.mensajes_evaluacion = _kwargs["mensajes"]
         if self.error:
             raise self.error
         if isinstance(self.respuesta, str):
@@ -35,6 +38,7 @@ class RouterFalso:
 
     def generar_texto(self, **_kwargs):
         self.redacciones += 1
+        self.mensajes_redaccion = _kwargs["mensajes"]
         return "En consecuencia, texto definitivo de prueba."
 
 
@@ -75,9 +79,13 @@ class ConclusionSuficienciaTests(unittest.TestCase):
         self.assertEqual("INFUNDADO", veredicto)
         self.assertEqual("completada", informe.estado_evaluacion)
 
-    def test_no_evaluable_puro_o_mixto_no_emite_veredicto(self):
+    def test_no_evaluable_puro_o_mixto_siempre_emite_veredicto(self):
         combinaciones = [
             [{"id": 1, "resultado": "no_evaluable", "evidencia": "falta inspección"}],
+            [
+                {"id": 1, "resultado": "no_evaluable", "evidencia": ""},
+                {"id": 2, "resultado": "no_evaluable", "evidencia": "falta inspección"},
+            ],
             [
                 {"id": 1, "resultado": "sin_correccion", "evidencia": "lectura correcta"},
                 {"id": 2, "resultado": "no_evaluable", "evidencia": "falta inspección"},
@@ -91,15 +99,35 @@ class ConclusionSuficienciaTests(unittest.TestCase):
             with self.subTest(respuesta=respuesta):
                 ids = [objetivo(item["id"]) for item in respuesta]
                 informe, router, veredicto = self.evaluar(respuesta, *ids)
-                self.assertIsNone(veredicto)
-                self.assertIsNone(informe.veredicto)
-                self.assertIsNone(informe.conclusion)
-                self.assertEqual("requiere_evidencia", informe.estado_evaluacion)
-                self.assertEqual(0, router.redacciones)
-                self.assertEqual(
-                    "procede_correccion" if len(respuesta) > 1 and respuesta[0]["resultado"] == "procede_correccion" else respuesta[0]["resultado"],
-                    informe.objetivos[0].resultado,
-                )
+                esperado = "FUNDADO" if any(
+                    r["resultado"] == "procede_correccion" for r in respuesta
+                ) else "INFUNDADO"
+                self.assertEqual(esperado, veredicto)
+                self.assertEqual(esperado, informe.veredicto)
+                self.assertTrue(informe.conclusion)
+                self.assertEqual("completada", informe.estado_evaluacion)
+                self.assertEqual([], informe.motivos_evaluacion)
+                self.assertEqual(1, router.redacciones)
+                for obj, entrada in zip(informe.objetivos, respuesta):
+                    self.assertEqual(entrada["resultado"], obj.resultado)
+                    self.assertEqual(entrada["evidencia"] or None, obj.evidencia)
+                if esperado == "INFUNDADO":
+                    self.assertIn("No afirmes que toda la facturación es correcta",
+                                  router.mensajes_redaccion[0].contenido)
+
+    def test_no_evaluable_con_redaccion_fallida_tiene_conclusion_de_respaldo(self):
+        class RouterSinRedaccion(RouterFalso):
+            def generar_texto(self, **kwargs):
+                raise RuntimeError("redacción no disponible")
+
+        router = RouterSinRedaccion([
+            {"id": 1, "resultado": "no_evaluable", "evidencia": "sin acceso"},
+        ])
+        informe = informe_con_objetivos(objetivo(1))
+        self.assertEqual("INFUNDADO", ConclusionAgent(router).concluir_y_asignar(informe))
+        self.assertEqual("completada", informe.estado_evaluacion)
+        self.assertIn("no se acreditó", informe.conclusion)
+        self.assertNotIn("no corresponde corregir", informe.conclusion)
 
     def test_sin_determinantes_requiere_revision(self):
         informe, router, veredicto = self.evaluar([], objetivo(1, False))

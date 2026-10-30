@@ -26,13 +26,20 @@ CAMPOS_SOLO_DOCUMENTO = frozenset({
     "fecha_instalacion_conexion", "fecha_verificacion", "tipo_verificacion",
 })
 
-# Regla de cierre común a todos los resúmenes: concisión, sin editorializar
-# («lo que...»), sin repetir, y solo prosa narrativa.
+# Redacción común: hechos relevantes, lenguaje natural y sin duplicaciones.
 _CIERRE = (
-    "Sé conciso (2-4 oraciones); NO repitas un mismo dato ni agregues cláusulas "
-    "interpretativas que empiecen con «lo que...» (p.ej. «lo que "
-    "sugiere/impidió/podría...»): describe solo lo observado. Responde ÚNICAMENTE "
-    "con el párrafo, sin encabezados, listas ni conclusiones."
+    "Escribe para una persona que necesita entender el reclamo: usa frases "
+    "directas y vocabulario cotidiano, con tono formal. Redacta un solo párrafo "
+    "breve, normalmente de 2 a 4 oraciones; no añadas relleno para llegar a ese número. "
+    "Organiza por hechos relevantes, no por campos: reúne datos equivalentes "
+    "en una sola afirmación y no repitas la misma información con otras palabras. "
+    "No menciones nombres de campos ni expresiones como 'según la observación', "
+    "'el campo indica', 'siendo el tipo' o 'se anotó'. Conserva fechas, cifras, "
+    "anomalías y limitaciones relevantes; no ocultes diferencias entre los datos. "
+    "Expresa las fechas completas como '14 de octubre de 2026' y los periodos "
+    "mensuales como 'septiembre de 2026', sin inventar componentes ausentes. "
+    "Describe lo documentado sin atribuir causas ni decidir el veredicto. "
+    "Responde ÚNICAMENTE con el párrafo, sin encabezados ni listas."
 )
 _REGLA_SOLO_DATOS = (
     "REGLA ESTRICTA: usa ÚNICAMENTE los valores presentes en 'Datos obtenidos'. "
@@ -50,16 +57,18 @@ INSTRUCCIONES_POR_MEDIO: dict[str, list[str]] = {
         "",
         _REGLA_SOLO_DATOS,
         "",
-        "Estructura sugerida, solo con los campos disponibles:",
-        "- Empieza con la fecha (fechainspeccion) "
-        "'Con fecha [fechainspeccion], se realizó la inspección externa "
-        "al predio del señor [nomresponsable]'.",
-        "- Estado de funcionamiento del medidor (funcionamed) y si se pudo tomar "
-        "lectura.",
-        "- Fugas: si se detectaron (fugas) y de qué tipo (tipofugas).",
-        "- Estado de la caja (estadocaja) y de la conexión (estconexion).",
-        "- Condiciones atípicas (atipico) y observaciones (observacionmed, "
-        "observacionsum) si las hay.",
+        "Prioriza la fecha, el funcionamiento y la posibilidad de leer el medidor, "
+        "las fugas y el estado de la conexión. No es necesario repetir el nombre "
+        "del responsable ni identificar al propietario a partir de ese dato.",
+        "Si fugas indica ausencia y tipofugas dice 'No Hay', escribe una sola vez "
+        "'No se detectaron fugas'. No transcribas ambas expresiones.",
+        "Agrupa el buen estado del medidor, su caja y la conexión en una oración; "
+        "integra su funcionamiento sin repetir que el medidor está en buen estado. "
+        "Conserva cualquier anomalía concreta, como luna opaca o medidor nublado, "
+        "aunque otro dato indique que funciona correctamente.",
+        "Omite un cierre genérico como 'No se detectaron condiciones atípicas' "
+        "si solo repite los hallazgos normales ya descritos. Si hay una condición "
+        "atípica concreta, sí debes mencionarla.",
         _CIERRE,
     ],
     "inspeccion_interna": [
@@ -68,17 +77,23 @@ INSTRUCCIONES_POR_MEDIO: dict[str, list[str]] = {
         "",
         _REGLA_SOLO_DATOS,
         "",
-        "Estructura sugerida, solo con los campos disponibles:",
-        "- Empieza con la fecha (fechainspeccion): 'En la inspección interna "
-        "realizada con fecha [fechainspeccion]…'.",
-        "- Detalla los puntos de agua sumando las cantidades de cada aparato en "
-        "'puntos_agua' (inodoro, lavado, ducha, urinario, bidet, grifo, cisterna, "
-        "tanque, piscina), SOLO los que tengan cantidad mayor a cero, con el "
-        "formato 'cuenta con X inodoros, Y duchas, Z grifos…'.",
-        "- Estado del abastecimiento (estadoabas) y categoría del predio (catetar) "
-        "si aporta.",
-        "- Fugas o consumos atípicos (atipico) y observaciones (obsinsinteriores, "
-        "observaciones, obsperrepins) si las hay.",
+        "Primero determina si se pudo inspeccionar el interior. Si nadie atendió "
+        "o no hubo acceso, comienza con 'El [fecha] no se pudo realizar la "
+        "inspección interna…'. Explica brevemente la causa y el tiempo de espera "
+        "si están documentados. Menciona que solo se hizo la inspección externa "
+        "si así consta. Nunca empieces diciendo que se realizó una inspección "
+        "interna para luego negarlo.",
+        "Cuando no hubo acceso, no presentes los campos genéricos de normalidad "
+        "como comprobaciones del interior ni afirmes que se descartaron fugas "
+        "o consumos atípicos. Conserva esa limitación de la visita.",
+        "Si la inspección interna sí se realizó, presenta la fecha y los hallazgos "
+        "sobre instalaciones, fugas y abastecimiento. Incluye cantidades de "
+        "puntos de agua solo si ayudan a responder el objetivo, sin enumerar "
+        "aparatos ausentes ni inventar su estado.",
+        "Omite colores de fachada o portón, número de caja de luz y otros datos "
+        "de localización que no expliquen el hallazgo o una limitación de acceso. "
+        "Menciona el uso comercial o la categoría una sola vez y solo si aporta "
+        "a la pregunta del objetivo.",
         _CIERRE,
     ],
     "tarjeta_lectura": [
@@ -206,13 +221,15 @@ class AnalistaMedioAgent:
 
     @staticmethod
     def _campos_a_omitir(medio_id: str) -> set[str]:
-        """Campos que NO van al prompt del LLM: siempre 'registros' (detalle
-        mensual, ruidoso); y los campos de cabecera del suministro
+        """Conserva el detalle mensual de facturación para responder por mes.
+        En los demás medios omite 'registros' y los campos de cabecera del suministro
         (CAMPOS_SOLO_DOCUMENTO) SOLO en la tarjeta, porque existen solo ahí y son
         para el informe de sustentación. OJO: record_facturacion tiene su propio
         campo 'categoria' (la categoría tarifaria, que el prompt SÍ necesita); si
         aplicáramos CAMPOS_SOLO_DOCUMENTO a todos los medios, ese 'categoria' se
         omitiría y el LLM lo inventaría."""
+        if medio_id == "record_facturacion":
+            return set()
         if medio_id == "tarjeta_lectura":
             return CAMPOS_SOLO_DOCUMENTO | {"registros"}
         return {"registros"}
@@ -223,6 +240,13 @@ class AnalistaMedioAgent:
         datos_para_prompt = {k: v for k, v in datos.items() if k not in omitir}
         datos_texto = json.dumps(datos_para_prompt, ensure_ascii=False, indent=2)
         prompt = self._construir_prompt(medio_id, medio_nombre, datos_texto)
+        if medio_id == "record_facturacion":
+            prompt += (
+                "\nUsa los registros mensuales para indicar el tipo de facturación "
+                "del mes o meses preguntados y sus antecedentes. La forma predominante "
+                "no reemplaza el dato de cada mes. No deduzcas que un mes falta "
+                "porque no aparece en mesesPromediados o rachaPromediados."
+            )
         human = f"Analiza los datos y genera un resumen relevante para un reclamo de: {clasificacion}"
         if enfoque:
             human += (
@@ -255,7 +279,7 @@ class AnalistaMedioAgent:
         halló ningún problema y tiene una frase base (no aplica a inspecciones),
         `enfoque` (opcional) son las preguntas del/los objetivo(s) de
         investigación asignados a este medio; dirigen el énfasis del resumen."""
-        if not problemas:
+        if not problemas and not enfoque:
             frase = self._frase_base_sin_problemas(medio_id, datos)
             if frase:
                 # No se llama al LLM: se deja constancia de los datos que se le

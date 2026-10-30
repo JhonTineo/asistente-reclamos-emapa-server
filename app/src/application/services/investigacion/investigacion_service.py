@@ -33,7 +33,7 @@ def enfoque_para_medio(informe, medio_id: str) -> str | None:
     if not informe or not informe.objetivos:
         return None
     preguntas = [o.descripcion for o in informe.objetivos
-                 if o.medio == medio_id and o.descripcion]
+                 if medio_id in o.medios_relacionados and o.descripcion]
     return " ".join(preguntas) or None
 
 
@@ -56,7 +56,8 @@ def medios_determinantes(informe) -> set[str]:
     determinantes) y añade ruido de artículos irrelevantes."""
     if not informe or not informe.objetivos:
         return set()
-    return {o.medio for o in informe.objetivos if o.determinante and o.medio}
+    return {medio for o in informe.objetivos if o.determinante
+            for medio in o.medios_relacionados}
 
 
 async def analizar_medio_y_registrar(
