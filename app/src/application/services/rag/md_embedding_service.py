@@ -17,7 +17,7 @@ def generar_embeddings(chunks: list[str]) -> list[list[float]]:
     embedder = EmbeddingService()
     vectores = []
     for chunk in chunks:
-        vector = embedder.encode(chunk)
+        vector = embedder.encode_document(chunk)
         vectores.append(vector)
     return vectores
 

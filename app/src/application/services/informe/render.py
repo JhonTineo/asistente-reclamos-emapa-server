@@ -33,6 +33,12 @@ def _render_bloque(indice: int, bloque: BloqueMedio) -> str:
 
 
 def construir_texto_informe(informe: InformeAtencion) -> str:
+    # Los informes ya existentes en SYSCO pueden haber sido redactados a mano o
+    # por una ejecución anterior de la IA. Se conserva el documento original en
+    # vez de intentar reconstruirlo con bloques que no existen en esta sesión.
+    if informe.informe_texto_original:
+        return informe.informe_texto_original
+
     fecha = _fecha_es(informe.fecha)
 
     cabecera = [
@@ -52,6 +58,12 @@ def construir_texto_informe(informe: InformeAtencion) -> str:
         _render_bloque(i, bloque)
         for i, bloque in enumerate(informe.bloques, start=1)
     ]
+
+    # La fundamentación normativa es el punto numerado que sigue a los resúmenes
+    # de los medios y precede a la conclusión (como el punto normativo del
+    # informe real que cita el artículo/numeral aplicable).
+    if informe.fundamentacion_normativa:
+        cuerpo.append(f"{len(informe.bloques) + 1}. {informe.fundamentacion_normativa}")
 
     partes = ["\n".join(cabecera), "\n\n".join(cuerpo)]
 

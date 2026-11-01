@@ -18,9 +18,10 @@ etiquetas propuestas (ver "Límites"): las cifras son indicativas, no definitiva
   y documentos sin prefijo; `NORMATIVA_TOP_K=3`, `NORMATIVA_UMBRAL_SCORE=0.58` (en el `.env` local y en
   `.env.example`). **Cada Ollama donde corra el backend necesita el modelo**
   (`ollama pull qwen3-embedding:0.6b`) y las dos colecciones reindexadas. Para volver a nomic: ver "Cómo revertir".
-- **Ollama con GPU:** `docker-compose.override.yml` reserva la NVIDIA del equipo para el contenedor
-  (RTX 3050, 100 % GPU según `ollama ps`). Indexar las dos normas pasó de ~2 min por corpus en CPU a
-  31 s (reclamos, incluida la carga del modelo) y 15 s (calidad). Solo local: Coolify no lee el override.
+- **Ollama con GPU (opcional, solo local):** `make up-gpu` suma `docker-compose.gpu.yml`, que reserva la
+  NVIDIA del equipo para el contenedor (RTX 3050, 100 % GPU según `ollama ps`). Indexar las dos normas pasó
+  de ~2 min por corpus en CPU a 31 s (reclamos, incluida la carga del modelo) y 15 s (calidad). Es un archivo
+  aparte porque quien no tenga GPU NVIDIA no podría levantar los contenedores con él.
 
 ## Fallos confirmados
 
@@ -179,8 +180,23 @@ Verificación del orden contra la API en vivo (`POST /normativa/busqueda/escalon
   `sunass_reglamento_v2`. Corregidos el import roto de `test_pdf_chunk_pipeline`, los comandos
   `app.scripts.*` inexistentes del Makefile (`make index`) y del README, y resueltos los marcadores de
   merge del README (la otra mitad estaba vacía).
-- Tests offline (34) en `test_reclamos_chunker.py`, `test_calidad_chunker.py`,
-  `test_normativa_escalonada.py` y `test_qdrant_adapter.py`.
+- **Integración con `origin/main`** (flujo nuevo de fundamentación: el LLM elige los 1–3 problemas
+  determinantes, `marcar_aplica` marca qué artículos regulan cada uno y se redacta un párrafo):
+  - `FundamentacionNormativaAgent.buscar_y_marcar` hace la búsqueda escalonada dentro de ese flujo: artículos
+    de reclamos + `marcar_aplica`; si ninguno aplica, también los de calidad. `fundamentacion_service` lo usa
+    y cada artículo lleva `coleccion` y `norma_corta`; los prompts de `marcar_aplica` y `redactar_parrafo`
+    ya no dicen "Reglamento de Calidad" a secas.
+  - Consultas de reclamos para los tipos nuevos de hallazgo (`fugaNoVisible`, `fugaVisible`, `descensoConsumo`…).
+  - `normalizar_numero_articulo("ANEXO 3")` devolvía `"3"`: editar o desactivar el Art. 3 de reclamos habría
+    arrastrado el Anexo 3. Ahora anexos, disposiciones y formatos conservan su etiqueta.
+  - La reconstrucción (`/normativa/reglamento/reconstruccion`) marcaba 14 falsas inconsistencias en calidad
+    (preámbulos y partes de un numeral largo) y 16 en reclamos (anexos leídos como artículos); ahora 0 en las dos.
+  - Altas y ediciones sueltas (`/normativa/articulos`, carga de Markdown, indexado genérico) calculan el vector
+    con el prefijo de documento (`EmbeddingService.encode_document`), igual que el indexado de las dos normas.
+  - `docker-compose.override.yml` ya no existe en `main` (se movió a `docker-compose.dev.yml` y `.prod.yml`):
+    `make up` usa el de desarrollo y `make up-gpu` suma `docker-compose.gpu.yml`.
+- Tests offline (49) en `test_reclamos_chunker.py`, `test_calidad_chunker.py`, `test_normativa_escalonada.py`
+  y `test_integracion_normativa.py`. `main` eliminó `test_qdrant_adapter.py` y la carpeta `app/test/informes`.
 - Evaluación: `app/test/rag/evaluar_busqueda.py` (`--modo lexico|embeddings|qdrant`) +
   `gold_busqueda.json`.
 

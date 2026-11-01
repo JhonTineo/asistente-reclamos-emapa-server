@@ -38,6 +38,12 @@ class EmbeddingService:
 
         return self.model.embed_query(self.query_prefix + text)
 
+    def encode_document(self, text: str):
+        """Vector de UN documento, con el prefijo de documento del modelo. Para
+        altas y ediciones sueltas; el indexado masivo usa `encode_documents`."""
+
+        return self.model.embed_query(self.document_prefix + text)
+
     def encode_documents(self, texts: list[str]):
         """Vectores de varios documentos en una sola llamada (indexado por
         lotes), con el prefijo de documento del modelo."""

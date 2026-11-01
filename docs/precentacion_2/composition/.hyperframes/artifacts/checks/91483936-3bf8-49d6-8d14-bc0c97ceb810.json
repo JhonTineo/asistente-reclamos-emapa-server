@@ -1,0 +1,106 @@
+{
+  "ok": true,
+  "strict": false,
+  "browserSkipped": false,
+  "lint": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": [],
+    "filesScanned": 1
+  },
+  "runtime": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": []
+  },
+  "layout": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": [],
+    "duration": 96,
+    "samples": [
+      5.333,
+      16,
+      26.667,
+      37.333,
+      48,
+      58.667,
+      69.333,
+      80,
+      90.667
+    ],
+    "transitionSamples": [],
+    "transitionSamplesDropped": 0,
+    "tolerance": 2,
+    "totalIssueCount": 0,
+    "truncated": false
+  },
+  "motion": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "infoCount": 0,
+    "findings": [],
+    "enabled": false,
+    "samples": 0
+  },
+  "contrast": {
+    "ok": true,
+    "errorCount": 0,
+    "warningCount": 1,
+    "infoCount": 0,
+    "findings": [
+      {
+        "code": "contrast_aa_failure",
+        "severity": "warning",
+        "message": "Contrast is 1.9:1; WCAG AA requires 3:1.",
+        "text": "y en operación",
+        "fg": "rgb(255,255,255)",
+        "bg": "rgb(245,170,146)",
+        "ratio": 1.9,
+        "requiredRatio": 3,
+        "suggestedColor": "rgb(102,102,102)",
+        "large": true,
+        "selector": "div > div:nth-of-type(2) > div > div:nth-of-type(12) > div:nth-of-type(2) > span",
+        "dataAttributes": {},
+        "sourceFile": "index.html",
+        "bbox": {
+          "x": 1056.453125,
+          "y": 128,
+          "width": 644.15625,
+          "height": 131
+        },
+        "time": 69.333,
+        "times": [
+          69.333
+        ]
+      }
+    ],
+    "enabled": true,
+    "samples": [
+      5.333,
+      26.667,
+      48,
+      69.333,
+      90.667
+    ],
+    "checked": 38,
+    "passed": 37
+  },
+  "hdr": {
+    "autoPromotion": null,
+    "inspection": "available"
+  },
+  "snapshots": {
+    "enabled": false,
+    "files": [],
+    "times": [],
+    "findingFiles": []
+  }
+}

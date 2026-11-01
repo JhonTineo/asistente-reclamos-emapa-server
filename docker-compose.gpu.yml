@@ -1,0 +1,12 @@
+# OPCIONAL, solo desarrollo local con GPU NVIDIA (NVIDIA Container Toolkit / Docker Desktop con WSL2).
+# Se suma a los otros: `make up-gpu`. Sin GPU no lo uses: Docker no encontraría el driver nvidia.
+# Con GPU, indexar las dos normas toma ~45 s en vez de varios minutos.
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

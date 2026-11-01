@@ -83,12 +83,17 @@ async def cargar_pdf(
                     "'calidad_tuo' y cualquier otra colección usa 'generica'. 'reclamos_tuo' = TUO del "
                     "Reglamento de Reclamos (RCD 015-2023-SUNASS-CD); 'calidad_tuo' = TUO del "
                     "Reglamento de Calidad (RCD 058-2023-SUNASS-CD); 'generica' = reglamento con "
-                    "artículos y numerales de otra norma. Con las dos primeras el nombre `norma` "
-                    "no se usa: la norma la fija el chunker.",
+                    "artículos de otra norma (un punto por artículo). Con las dos primeras el nombre "
+                    "`norma` no se usa: la norma la fija el chunker.",
     ),
+    recrear: bool = Form(False),
 ) -> VectorizarPdfResponse:
-    """Sube un documento en PDF, extrae el texto, lo trocea y lo indexa en la
-    colección indicada."""
+    """Sube un documento en PDF, extrae los artículos y los indexa en la colección
+    indicada: las dos normas de Yumi (reclamos y calidad) con su troceador propio
+    (un punto por numeral) y cualquier otra con el genérico (un punto por artículo).
+
+    `recrear=true` borra la colección antes de indexar: úsalo para reconstruir
+    la base desde cero y evitar duplicados de una indexación previa."""
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="El archivo debe ser un PDF.")
     if estructura not in ESTRUCTURAS:
@@ -96,7 +101,8 @@ async def cargar_pdf(
     if estructura == "auto":
         estructura = _ESTRUCTURA_POR_COLECCION.get(coleccion, "generica")
 
-    temp_path = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}_{file.filename}")
+    temp_dir = tempfile.gettempdir()
+    temp_path = os.path.join(temp_dir, f"{uuid.uuid4()}_{file.filename}")
     try:
         with open(temp_path, "wb") as f:
             content = await file.read()
@@ -108,9 +114,9 @@ async def cargar_pdf(
         )
 
         if estructura == "reclamos_tuo":
-            indexar_reclamos(temp_path, QdrantAdapter(), coleccion=coleccion)
+            indexar_reclamos(temp_path, QdrantAdapter(), coleccion=coleccion, recrear=recrear)
         elif estructura == "calidad_tuo":
-            indexar_calidad(temp_path, QdrantAdapter(), coleccion=coleccion)
+            indexar_calidad(temp_path, QdrantAdapter(), coleccion=coleccion, recrear=recrear)
         else:
             build_index(
                 pdf_path=temp_path,
@@ -118,6 +124,7 @@ async def cargar_pdf(
                 coleccion=coleccion,
                 norma=norma,
                 is_el_peruano=is_el_peruano,
+                recrear=recrear,
             )
 
         return VectorizarPdfResponse(

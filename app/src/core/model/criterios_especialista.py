@@ -40,18 +40,29 @@ CRITERIOS_DEFECTO: list[CriterioEvaluacion] = [
     ),
     CriterioEvaluacion(
         "procede_correccion",
-        "una FUGA NO VISIBLE YA REPARADA: el consumo elevado retornó al promedio en "
-        "un mes posterior, lo que obliga a refacturar los meses afectados por el "
-        "promedio histórico",
+        "FUGA NO VISIBLE ya reparada (Art. 88.3, rama 2): la inspección confirmó que "
+        "la fuga era NO VISIBLE (oculta, no detectable a simple vista) Y que el usuario "
+        "la reparó dentro del plazo de 15 días. Corresponde refacturar los meses "
+        "afectados por el promedio histórico. "
+        "IMPORTANTE: solo aplica si los hallazgos indican explícitamente 'no visible'",
     ),
     CriterioEvaluacion(
         "sin_correccion",
-        "el medidor y las lecturas son correctos y no se halló fuga",
+        "el medidor y las lecturas son correctos, no se halló fuga ni error de medición",
     ),
     CriterioEvaluacion(
         "sin_correccion",
-        "el problema es responsabilidad del cliente y persiste (fuga visible o no "
-        "reparada), por lo que se factura por diferencia de lecturas",
+        "FUGA VISIBLE (Art. 88.3, rama 1): la inspección halló una fuga VISIBLE "
+        "(detectable a simple vista, p. ej. 'fuga visible en inodoro', 'pérdida de agua "
+        "visible en tubería'). La empresa factura por diferencia de lecturas "
+        "INDEPENDIENTEMENTE de si ya fue reparada. La visibilidad de la fuga, no la "
+        "reparación, es lo que determina este caso",
+    ),
+    CriterioEvaluacion(
+        "sin_correccion",
+        "FUGA NO VISIBLE que NO fue reparada (Art. 88.3, rama 3): la inspección "
+        "reveló fuga no visible pero el usuario no la reparó dentro del plazo de 15 días "
+        "o la fuga persiste. La empresa factura por diferencia de lecturas",
     ),
     CriterioEvaluacion(
         "no_evaluable",

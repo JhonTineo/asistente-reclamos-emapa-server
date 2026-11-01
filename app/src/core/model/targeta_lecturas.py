@@ -22,7 +22,6 @@ class LecturaMensual:
 @dataclass
 class TargetaLecturas:
     # Escalares constantes del suministro.
-    codcliente: str | None = None
     nomtar: str | None = None
     destipoactividad: str | None = None
     tipopromedio: str | None = None
@@ -47,9 +46,8 @@ class TargetaLecturas:
     errorReinstalacion: list[str] = field(default_factory=list)
     # - estado del medidor · estado del servicio
     errorServicio: list[str] = field(default_factory=list)
-    # - fuga no visible ya reparada: consumo elevado que retorna al promedio
-    #   histórico en un mes posterior (sustenta refacturación por promedio, Art. 88.3)
-    fugaReparada: list[str] = field(default_factory=list)
+    # - descenso posterior a un consumo elevado; no acredita por sí solo su causa
+    descensoConsumo: list[str] = field(default_factory=list)
     # - observaciones de lectura
     obslectura: list[str] = field(default_factory=list)
 

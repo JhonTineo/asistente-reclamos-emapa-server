@@ -10,9 +10,11 @@ from app.src.infrastructure.api_rest.investigacion_stream import router as inves
 from app.src.infrastructure.api_rest.conciliacion import router as conciliacion_router
 from app.src.infrastructure.api_rest.resolucion import router as resolucion_router
 from app.src.infrastructure.api_rest.reclamos import router as reclamos_router
+from app.src.infrastructure.api_rest.evidencias import router as evidencias_router
 from app.src.infrastructure.api_rest.normativa_documentos import router as normativa_documentos_router
 from app.src.infrastructure.api_rest.normativa_articulos import router as normativa_articulos_router
 from app.src.infrastructure.api_rest.normativa_busqueda import router as normativa_busqueda_router
+from app.src.infrastructure.api_rest.normativa_reconstruccion import router as normativa_reconstruccion_router
 
 
 logging.basicConfig(
@@ -53,8 +55,10 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://localhost:4200",
         "http://127.0.0.1:4200",
+        "http://localhost:5000",
         "https://asistente-reclamos-emapa.vercel.app",
         "https://asistente-reclamos-emapa-ng.vercel.app",
+        "https://comercial.emapasanmartin.com:8443",
         ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -67,9 +71,11 @@ app.include_router(investigacion_stream_router)
 app.include_router(conciliacion_router)
 app.include_router(resolucion_router)
 app.include_router(reclamos_router)
+app.include_router(evidencias_router)
 app.include_router(normativa_documentos_router)
 app.include_router(normativa_articulos_router)
 app.include_router(normativa_busqueda_router)
+app.include_router(normativa_reconstruccion_router)
 
 logger = logging.getLogger("api.main")
 

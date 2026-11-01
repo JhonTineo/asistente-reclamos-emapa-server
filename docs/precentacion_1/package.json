@@ -1,0 +1,9 @@
+{
+  "name": "yumi-pitch",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "presentar": "npx hyperframes present ./composition",
+    "verificar": "npx hyperframes check ./composition"
+  }
+}

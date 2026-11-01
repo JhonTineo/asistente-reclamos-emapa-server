@@ -14,6 +14,9 @@ class InvestigacionRequest(BaseModel):
 class ProblemaNormadoSchema(BaseModel):
     tipo: str
     detalle: str
+    fuente: str | None = None
+    texto_original: str | None = None
+    seleccionado: bool = False
     articulos: list[dict] = Field(default_factory=list)
     accion: str | None = None
     responsable: str | None = None
@@ -31,6 +34,22 @@ class ResumenMedio(BaseModel):
     error: str | None = None
 
 
+class AnalisisMedioSchema(BaseModel):
+    """Estado completo de un medio aplicable dentro de una investigacion.
+
+    Los medios aun no ejecutados se devuelven como ``pendiente`` y conservan
+    los mismos campos que un medio ya analizado. De esta forma el frontend usa
+    una sola coleccion para las tareas y para el contenido del informe.
+    """
+    medio_id: str
+    medio_nombre: str
+    fase: str = "pendiente"
+    resumen: str = ""
+    datos: dict | None = None
+    problemas: list[ProblemaNormadoSchema] = Field(default_factory=list)
+    error: str | None = None
+
+
 class InvestigacionResponse(BaseModel):
     codreclamo: str
     codsuc: str
@@ -41,19 +60,52 @@ class InvestigacionResponse(BaseModel):
     tiempo_total: float
 
 
+class ArticuloSeleccion(BaseModel):
+    """Artículo curado por el usuario para un problema (o recuperado por RAG)."""
+    article: str | None = None
+    numeral: str | None = None
+    texto: str | None = None
+    score: float | None = None
+    aplica: bool = True
+    manual: bool = False
+
+
+class ProblemaSeleccion(BaseModel):
+    """Un problema marcado como determinante por el usuario. `articulos=None`
+    significa que el backend debe recuperarlos por RAG (problema recién marcado);
+    una lista (aunque vacía) significa que ya vienen curados y se usan tal cual."""
+    medio_id: str
+    detalle: str
+    articulos: list[ArticuloSeleccion] | None = None
+
+
 class InformeRequest(BaseModel):
     codreclamo: str = Field(description="Código del reclamo (clave del informe en el store)")
     clasificacion: str | None = Field(default=None, description="Clasificación del reclamo (contexto para la fundamentación)")
     modelo: str | None = None
+    # Selección MANUAL de problemas determinantes desde el front. Si viene, la
+    # fundamentación NO usa el selector por LLM: usa exactamente estos problemas
+    # (y sus artículos curados, si los trae). Si es None, es el pase automático.
+    seleccion: list[ProblemaSeleccion] | None = None
 
 
 class ProblemaInforme(BaseModel):
     medio_id: str
     tipo: str
     detalle: str
+    seleccionado: bool = False
+    articulos: list[dict] = Field(default_factory=list)
     accion: str | None = None
     responsable: str | None = None
     base_legal: str | None = None
+
+
+class MotivoEvaluacionSchema(BaseModel):
+    codigo: str
+    objetivos_afectados: list[int] = Field(default_factory=list)
+    descripcion: str
+    evidencia_pendiente: str | None = None
+    accion_necesaria: str | None = None
 
 
 class InformeResponse(BaseModel):
@@ -67,6 +119,14 @@ class InformeResponse(BaseModel):
     clasificacion: str | None = None
     objetivos: list["ObjetivoInvestigacionSchema"] = Field(default_factory=list)
     problemas: list[ProblemaInforme] = Field(default_factory=list)
+    # Párrafo de fundamentación normativa (nuevo flujo /fundamentar-normativa):
+    # se genera de los hallazgos determinantes y se renderiza antes de la conclusión.
+    fundamentacion: str | None = None
+    estado_evaluacion: str = "pendiente"
+    motivos_evaluacion: list[MotivoEvaluacionSchema] = Field(default_factory=list)
+    mensaje_evaluacion: str | None = None
+    veredicto: str | None = None
+    conclusion: str | None = None
     tiempo: float
 
 
@@ -122,6 +182,30 @@ class BuscarReclamoRequest(BaseModel):
     modelo: str | None = None
 
 
+class IniciarInvestigacionRequest(BaseModel):
+    codreclamo: str = Field(description="Código del reclamo (clave del informe en el store)")
+    codcliente: str = Field(description="Código de cliente / suministro")
+    datos: dict = Field(
+        description=(
+            "Detalle CRUDO del reclamo tal como lo devuelve EMAPA en "
+            "reclamo/obtener/detalle/... (incluida su clave 'data'), ya obtenido "
+            "por el frontend en la pantalla de detalle. Evita una segunda "
+            "consulta a EMAPA para el mismo reclamo."
+        )
+    )
+    sesion_id: str | None = Field(
+        default=None,
+        description=(
+            "Identificador de la pestaña/sesión del frontend. Si otra sesión ya "
+            "está atendiendo este reclamo, se rechaza con 409."
+        ),
+    )
+    creado_por: str | None = Field(
+        default=None,
+        description="Usuario que inició la atención, para organizar la cola.",
+    )
+
+
 class ReclamoSchema(BaseModel):
     codcliente: str | None = None
     reclamante: str | None = None
@@ -145,10 +229,40 @@ class InformeMetadata(BaseModel):
     datos_reclamo: ReclamoSchema | None = None
 
 
+class MedioProbatorioSchema(BaseModel):
+    id: str
+    nombre: str
+
+
 class BuscarReclamoResponse(BaseModel):
     codreclamo: str
     datos: dict | None = None
     informe: InformeMetadata | None = None
+    medios_probatorios: list[MedioProbatorioSchema] = Field(default_factory=list)
+    error: str | None = None
+    tiempo: float
+
+
+class IniciarInvestigacionResponse(BaseModel):
+    # A diferencia de BuscarReclamoResponse, NO devuelve `datos` (el detalle
+    # crudo del reclamo): el frontend ya lo tiene (fue quien lo mandó), así que
+    # reenviarlo sería redundante. Solo interesa el informe de atención creado.
+    codreclamo: str
+    estado: str = "creado"
+    informe: InformeMetadata | None = None
+    analisis_medios: list[AnalisisMedioSchema] = Field(default_factory=list)
+    objetivos: list[dict] = Field(default_factory=list)
+    ventana_meses: list[tuple[int, int]] = Field(default_factory=list)
+    fundamentacion: str | None = None
+    estado_evaluacion: str = "pendiente"
+    motivos_evaluacion: list[MotivoEvaluacionSchema] = Field(default_factory=list)
+    mensaje_evaluacion: str | None = None
+    veredicto: str | None = None
+    conclusion: str | None = None
+    problemas: list[dict] = Field(default_factory=list)
+    propuesta_conciliacion: str | None = None
+    resolucion: str | None = None
+    informe_texto: str = ""
     error: str | None = None
     tiempo: float
 
@@ -159,6 +273,8 @@ class ObjetivoInvestigacionSchema(BaseModel):
     descripcion: str
     medio: str | None = None
     determinante: bool = False
+    resultado: str | None = None
+    evidencia: str | None = None
 
 
 # InformeResponse se define más arriba y referencia ObjetivoInvestigacionSchema
@@ -210,6 +326,17 @@ class ActualizarConclusionRequest(BaseModel):
 class ActualizarConclusionResponse(BaseModel):
     codreclamo: str
     conclusion: str
+    informe_texto: str
+
+
+class ActualizarFundamentacionRequest(BaseModel):
+    codreclamo: str = Field(description="Código del reclamo (clave del informe en el store)")
+    fundamentacion: str = Field(description="Nuevo texto del párrafo de fundamentación normativa (edición manual)")
+
+
+class ActualizarFundamentacionResponse(BaseModel):
+    codreclamo: str
+    fundamentacion: str
     informe_texto: str
 
 
@@ -301,6 +428,15 @@ class ActualizarPropuestaResponse(BaseModel):
 
 # --- Edición manual de los demás datos de la conciliación (no la propuesta de
 # la empresa, que ya tiene su propio PATCH /conciliacion/propuesta arriba) ---
+class GuardarConciliacionRequest(BaseModel):
+    codreclamo: str = Field(description="Código del reclamo")
+    propuesta_empresa: str | None = Field(default=None, description="Propuesta de la EPS")
+    propuesta_reclamante: str | None = Field(default=None, description="Postura del cliente")
+    puntos_acuerdo: str | None = Field(default=None, description="Puntos de acuerdo")
+    puntos_desacuerdo: str | None = Field(default=None, description="Puntos de desacuerdo")
+    observaciones: str | None = Field(default=None, description="Observaciones adicionales")
+
+
 class ActualizarConciliacionRequest(BaseModel):
     codreclamo: str = Field(description="Código del reclamo (clave del informe en el store)")
     propuesta_reclamante: str | None = Field(default=None, description="Postura/propuesta del cliente frente a la conciliación")
@@ -331,9 +467,16 @@ class ActualizarResolucionTextoResponse(BaseModel):
 class InformeCompletoResponse(BaseModel):
     codreclamo: str
     informe: InformeMetadata
+    medios_probatorios: list[MedioProbatorioSchema] = Field(default_factory=list)
     objetivos: list[ObjetivoInvestigacionSchema] = Field(default_factory=list)
     resumenes: list[ResumenMedio] = Field(default_factory=list)
     ventana_meses: list[tuple[int, int]] = Field(default_factory=list)
+    fundamentacion: str | None = None
+    estado_evaluacion: str = "pendiente"
+    motivos_evaluacion: list[MotivoEvaluacionSchema] = Field(default_factory=list)
+    mensaje_evaluacion: str | None = None
+    origen_decision: str | None = None
+    historial_decisiones: list[dict] = Field(default_factory=list)
     veredicto: str | None = None
     conclusion: str | None = None
     problemas: list[ProblemaInforme] = Field(default_factory=list)

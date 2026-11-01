@@ -103,8 +103,12 @@ tener presente.
 | Método | Ruta | Descripción |
 |---|---|---|
 | GET | `/reclamos/reclamo/{codsede}/{codsuc}/{codreclamo}/{codcliente}?sesion_id=` | Busca el reclamo en EMAPA, guarda el token y crea (o reutiliza) el informe en el store. **Punto de entrada del flujo.** `409` si otra sesión ya lo está atendiendo. |
+| POST | `/reclamos/iniciar-investigacion` | Crea o recupera el informe a partir del detalle del reclamo **ya obtenido por SYSCO**, sin volver a consultar el detalle. Si `datos.data.datos_atencion.considerando` contiene un informe, rehidrata conclusión/veredicto, recupera `propuestaeps` y `datos_resolucion.resuelve`, y vuelve a consultar en paralelo los medios aplicables para reconstruir `datos` y `problemas`. En el formato propio conserva los resúmenes del documento; en texto manual los deja vacíos. Si el considerando está vacío o `PENDIENTE`, exige inspección interna y externa antes de permitir la investigación. |
 | POST | `/reclamos/clasificar-rapido` | Clasificación por reglas (sin LLM), pensada para reclamos web. Si ya viene `des_cod_reclamo`, lo respeta. |
+| POST | `/reclamos/informe-atencion` | **Orquesta el flujo completo en una sola llamada** (automatización, sin usuario mirando): busca el reclamo, genera objetivos, analiza los 6 medios, fundamenta y concluye. Los medios sin datos se omiten. Tag `automatizacion`. |
+| GET | `/reclamos/en-memoria` | Lista los reclamos con informe vivo en memoria (`codreclamo`, `codcliente`, `sesion_id`). Fuente compartida para reconstruir la cola del frontend entre navegadores. Lectura pura. |
 | GET | `/reclamos/{codreclamo}/informe` | Lectura pura de todo el informe en memoria (metadata, resúmenes por medio, objetivos, conclusión, propuesta, resolución, texto renderizado). Para rehidratar el frontend tras un refresh. `404` si no hay nada en memoria. |
+| GET | `/reclamos/{codreclamo}/sustentacion` | Ensambla el Informe de Sustentación del Régimen de Facturación (tarjeta de lecturas + record de facturación + datos del reclamo) como estructura tabular que el frontend convierte en `.docx`. Lectura pura. `404` si no hay informe en curso. |
 | DELETE | `/reclamos/{codreclamo}` | Cierra la atención: libera el informe y el token de la memoria. |
 
 <details>
@@ -176,13 +180,14 @@ Medios probatorios analizables: `inspeccion-externa`, `inspeccion-interna`,
 
 | Método | Ruta | Tag | Descripción |
 |---|---|---|---|
+| POST | `/investigacion/objetivos` | — | Genera los objetivos de investigación a partir del motivo guardado. |
 | POST | `/investigacion/{medio}/stream` | `interactivo` | Analiza un medio con progreso en vivo (NDJSON). |
 | POST | `/investigacion/{medio}` | `automatizacion` | Analiza un medio, espera el resultado completo. |
-| PATCH | `/investigacion/{medio}/resumen` | — | Edita a mano el resumen de un medio ya analizado (sin LLM). No borra conclusión/propuesta/resolución ya generadas. |
-| POST | `/investigacion/objetivos` | — | Genera los objetivos de investigación a partir del motivo guardado. |
-| POST | `/investigacion/medios-disponibles` | — | Verifica en paralelo qué medios traen datos en EMAPA (sin LLM, para habilitar/deshabilitar pestañas en el front). |
-| GET | `/investigacion/informe/preview` | — | Texto del informe con lo analizado hasta ahora (sin LLM). |
-| POST | `/investigacion/conclusion/stream` | `interactivo` | Fundamenta y concluye el informe, con eventos en vivo por cada problema. |
+| PATCH | `/investigacion/{medio}/resumen` | — | Edita a mano el resumen de un medio ya analizado (sin LLM). No borra fundamentación/conclusión/propuesta/resolución ya generadas. |
+| POST | `/investigacion/fundamentar-normativa/stream` | `interactivo` | Selecciona 1-3 hallazgos determinantes y redacta el párrafo de fundamentación normativa, con eventos en vivo. |
+| POST | `/investigacion/fundamentar-normativa` | `automatizacion` | Igual, pero espera el resultado completo. |
+| PATCH | `/investigacion/fundamentar-normativa` | — | Edita a mano el párrafo de fundamentación normativa (sin re-seleccionar problemas ni LLM). |
+| POST | `/investigacion/conclusion/stream` | `interactivo` | Evalúa objetivos vs. hallazgos y fija el veredicto, con eventos en vivo por cada problema. |
 | POST | `/investigacion/conclusion` | `automatizacion` | Igual, pero espera el resultado completo. |
 | PATCH | `/investigacion/conclusion` | — | Edita a mano el párrafo de conclusión (sin LLM, sin tocar el veredicto). |
 
@@ -309,6 +314,17 @@ Request de `PATCH /resolucion`:
 
 ---
 
+### 4.5.1 `evidencias` — prefix `/reclamos`
+
+Pruebas que respaldan el veredicto, para el panel «Evidencias» del frontend y los Word de anexo y hoja para el usuario.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/reclamos/{codreclamo}/evidencias` | Lectura pura de lo ya analizado en memoria (como `/sustentacion`): serie mensual (tarjeta de lecturas + record de facturación) con el mes reclamado marcado, indicadores (promedio de los 6 meses previos, veces el promedio, rango), resultados de las inspecciones, línea de tiempo y verificaciones determinantes. No llama a EMAPA ni al LLM. 404 sin informe en curso. |
+| GET | `/reclamos/{codreclamo}/evidencias/fotos?codsuc=001[&codcliente=…][&refrescar=true]` | Fotos desde SYSCO (`api-externa/ftp/generico/download/read`): foto del medidor de la lectura del mes reclamado, fotos de la inspección y formulario del reclamo. Sin firmas ni copias repetidas, reducidas a 1600 px (JPEG). Pide solo el día de la lectura reclamada y desde la recepción del reclamo hasta hoy (≈20 s la primera vez); queda 30 min en memoria. **Exige token** (`Authorization`), igual que la búsqueda del reclamo. |
+
+---
+
 ### 4.6 Normativa — 3 routers bajo `/normativa`
 
 #### `normativa-documentos` — `/normativa/documentos` (ingesta de un reglamento completo)
@@ -342,35 +358,37 @@ Request de `PATCH /resolucion`:
 ```
 1. GET    /reclamos/reclamo/{codsede}/{codsuc}/{codreclamo}/{codcliente}?sesion_id=
           └─ guarda el token EMAPA y crea (o reutiliza) el informe en el store
-2. POST   /investigacion/objetivos              ─┐
-   POST   /investigacion/medios-disponibles      ┘  en paralelo
+             (o POST /reclamos/iniciar-investigacion si el detalle ya se obtuvo)
+2. POST   /investigacion/objetivos                 (genera los objetivos)
    POST   /investigacion/<medio>[/stream]          (uno por cada medio a analizar)
    PATCH  /investigacion/<medio>/resumen           (opcional: corregir a mano)
-3. POST   /investigacion/conclusion[/stream]
-          └─ requiere al menos un medio analizado
+3. POST   /investigacion/fundamentar-normativa[/stream]
+          └─ fundamenta los hallazgos determinantes (requiere medios analizados)
+   PATCH  /investigacion/fundamentar-normativa     (opcional: corregir a mano)
+4. POST   /investigacion/conclusion[/stream]
+          └─ evalúa objetivos vs. hallazgos y fija el veredicto
    PATCH  /investigacion/conclusion                (opcional: corregir a mano)
-4. POST   /conciliacion/propuesta
-          └─ requiere que el informe tenga conclusión + veredicto (paso 3)
+5. POST   /conciliacion/propuesta
+          └─ requiere que el informe tenga conclusión + veredicto (paso 4)
    PATCH  /conciliacion/propuesta                  (opcional: corregir a mano)
-5. POST   /resolucion
-          └─ requiere conclusión + veredicto (paso 3); usa la propuesta del paso 4
+6. POST   /resolucion
+          └─ requiere conclusión + veredicto (paso 4); usa la propuesta del paso 5
    PATCH  /resolucion                              (opcional: corregir a mano)
-6. DELETE /reclamos/{codreclamo}
+7. DELETE /reclamos/{codreclamo}
           └─ cierra la atención (tras guardar/exportar la resolución)
 ```
 
-Los pasos 2 y 3 tienen **dos variantes** (ver [sección 6](#6-endpoints-con-streaming-ndjson)):
+Los pasos 2, 3 y 4 tienen **dos variantes** (ver [sección 6](#6-endpoints-con-streaming-ndjson)):
 
 - **`/stream`** (NDJSON) — para cuando hay un usuario mirando la pantalla: el
   frontend muestra progreso en vivo (preprocesamiento → resumen del LLM).
-- **sin `/stream`** — para flujos automatizados sin usuario presente (p.ej. al
-  registrarse un reclamo web, disparar objetivos + análisis de medios
-  automáticamente): se espera el resultado completo de una sola vez.
+- **sin `/stream`** — para flujos automatizados sin usuario presente: se espera
+  el resultado completo de una sola vez. Para automatizar **todo** el flujo en
+  una sola llamada existe además `POST /reclamos/informe-atencion` (sección 4.1).
 
-`GET /investigacion/informe/preview` puede llamarse en cualquier momento del
-paso 2 para obtener el texto del informe con lo que se ha analizado hasta
-ahora. `GET /reclamos/{codreclamo}/informe` (sección 3) devuelve lo mismo
-más estructurado, y sirve además para rehidratar el frontend tras un refresh.
+`GET /reclamos/{codreclamo}/informe` (sección 3) devuelve todo el estado
+estructurado guardado hasta el momento, y sirve para rehidratar el frontend
+tras un refresh.
 
 La **Gestión de Normativa** (sección 4.6) es independiente de este flujo — se
 usa para mantener la base de conocimiento que consume
@@ -391,15 +409,21 @@ parsing por `\n`), no con `response.json()`.
 {"evento": "resumen", "medio_id": "...", "resumen": "texto del LLM", "tiempo": 3.1}
 ```
 
-**`POST /investigacion/conclusion/stream`** emite, por cada problema
-fundamentado, 2 eventos, y al final 2 más:
+**`POST /investigacion/fundamentar-normativa/stream`** emite, a medida que se
+producen, la selección de hallazgos determinantes, sus artículos y el párrafo
+final de fundamentación:
 ```jsonl
-{"evento": "inicio", "total_problemas": 4}
-{"evento": "articulos", "indice": 0, "medio_id": "...", "articulos": [...]}
-{"evento": "fundamentacion", "indice": 0, "medio_id": "...", "accion": "...", "responsable": "...", "base_legal": "..."}
-... (se repite por cada problema)
+{"evento": "candidatos", "problemas": [...]}
+{"evento": "articulos", "medio_id": "...", "detalle": "...", "articulos": [...]}
+... (se repite por cada hallazgo seleccionado)
+{"evento": "fundamentacion", "codreclamo": "...", "fundamentacion": "párrafo...", "tiempo": 4.7}
+```
+
+**`POST /investigacion/conclusion/stream`** consume la fundamentación ya
+generada (no vuelve a fundamentar por problema) y emite 2 eventos:
+```jsonl
 {"evento": "conclusion", "veredicto": "FUNDADO", "conclusion": "..."}
-{"evento": "informe", "codreclamo": "...", "informe": "texto final", "problemas": [...], "tiempo": 12.4}
+{"evento": "informe", "codreclamo": "...", "informe": "texto final", "problemas": [...], "tiempo": 5.2}
 ```
 
 Ambos pueden emitir `{"evento": "error", "error": "..."}` en cualquier punto
@@ -418,11 +442,65 @@ error viene en el payload, no en el status code).
 - **`ReclamoSchema`** — datos del reclamante/propietario/motivo, tal como
   vienen de EMAPA.
 - **`ProblemaNormadoSchema`** — un hallazgo detectado en un medio: `tipo`,
-  `detalle`, `articulos` (recuperados por RAG), y tras la conclusión también
+  `detalle`, `fuente`, `texto_original`, `articulos` (recuperados por RAG), y
+  tras la conclusión también
   `accion`, `responsable`, `base_legal`.
 - **`ResumenMedio`** — el aporte de un medio al informe: `medio_id`,
   `medio_nombre`, `resumen` (editable a mano), `datos` (crudos de EMAPA),
   `problemas` (lista de `ProblemaNormadoSchema`).
+
+En los datos de `tarjeta_lectura`, `descensoConsumo` reemplaza al antiguo
+`fugaReparada`: representa únicamente un descenso cuantitativo posterior a un
+consumo elevado y no acredita fuga ni reparación.
+
+### Estado de evaluación y veredicto
+
+El análisis del récord de facturación incluye los registros mensuales de la
+ventana consultada. Cuando hay preguntas asignadas a un medio, se genera su
+resumen con el LLM aunque no se hayan detectado problemas. Los objetivos de
+inspección usan la interna y la externa como contexto complementario en el
+análisis, la fundamentación y la evaluación; esto no sustituye una inspección
+interna que no pudo realizarse. El campo público `medio` conserva el medio principal.
+
+Las respuestas del informe exponen `estado_evaluacion`, `motivos_evaluacion`
+y `mensaje_evaluacion`, separados de `veredicto` y `conclusion`:
+
+- `completada`: se generaron veredicto y conclusión, incluso con objetivos
+  `no_evaluable`. Si algún determinante es `procede_correccion`, el veredicto es
+  `FUNDADO`; en caso contrario, `INFUNDADO`, incluso si todos son `no_evaluable`.
+  Esto no convierte los objetivos no evaluables en verificaciones satisfactorias.
+- `requiere_evidencia`: estado histórico; ya no se genera por objetivos
+  `no_evaluable`. Estos conservan su `resultado` y `evidencia` para futuras notas,
+  sin producir avisos en `motivos_evaluacion` ni bloquear la conclusión.
+- `requiere_revision`: faltan objetivos o ninguno es determinante;
+  `veredicto` y `conclusion` son `null`.
+- `error_evaluacion`: la respuesta del proveedor es inválida, incompleta o
+  falló la comunicación; `veredicto` y `conclusion` son `null`.
+- `pendiente`: la evidencia u objetivos cambiaron y aún no se reevaluó.
+
+Ejemplo completado:
+
+```json
+{"estado_evaluacion":"completada","motivos_evaluacion":[],"veredicto":"INFUNDADO","conclusion":"En consecuencia, ..."}
+```
+
+Ejemplo completado con un objetivo no evaluable:
+
+```json
+{"estado_evaluacion":"completada","veredicto":"INFUNDADO","conclusion":"En consecuencia, con la información disponible no se acreditó una causa de corrección en los objetivos determinantes, por lo tanto se declara INFUNDADO.","motivos_evaluacion":[],"objetivos":[{"id":2,"descripcion":"¿La inspección acredita una fuga?","medio":"inspeccion_interna","determinante":true,"resultado":"no_evaluable","evidencia":"Falta inspección interna"}]}
+```
+
+Ejemplo de fallo técnico:
+
+```json
+{"estado_evaluacion":"error_evaluacion","veredicto":null,"conclusion":null,"motivos_evaluacion":[{"codigo":"ERROR_PROVEEDOR","objetivos_afectados":[1],"descripcion":"Falló la comunicación con el proveedor de evaluación.","accion_necesaria":"Reintentar cuando el proveedor esté disponible."}]}
+```
+
+Una reevaluación archiva la decisión vigente en `historial_decisiones` e
+invalida sus documentos derivados. La conciliación y la resolución automáticas
+responden `409` mientras no exista una evaluación `completada`. Los informes
+históricos recuperados de SYSCO se marcan como `completada` con
+`origen_decision="historica_sysco"` y no requieren evaluaciones inexistentes.
 
 Los tipos exactos (opcionalidad, defaults) están en Swagger — esta sección es
 solo el mapa mental de cómo se relacionan.
@@ -435,7 +513,8 @@ solo el mapa mental de cómo se relacionan.
 |---|---|---|
 | `401` | Falta el token EMAPA en `GET /reclamos/reclamo/...`. | Pedir/renovar el token. |
 | `404` | No hay informe en curso para el `codreclamo` (objetivos, medios, conclusión, conciliación, resolución, ediciones `PATCH`, `GET /reclamos/{cod}/informe`, `buscar-articulo`). | Guiar al usuario a buscar el reclamo primero, o quitarlo de la cola si es una rehidratación fallida. |
-| `409` | (a) Se pide conciliación o resolución sin que la conclusión tenga `veredicto` aún. (b) Se busca un reclamo que ya está siendo atendido por otra sesión (`sesion_id` distinto). | (a) Bloquear el botón hasta que el paso de conclusión termine. (b) Avisar al usuario y no reintentar automáticamente. |
+| `409` | (a) Se pide conciliación o resolución sin que la conclusión tenga `veredicto` aún. (b) Se busca un reclamo que ya está siendo atendido por otra sesión (`sesion_id` distinto). (c) SYSCO envía el informe vacío/`PENDIENTE` sin ambas inspecciones. | (a) Bloquear el botón hasta que el paso de conclusión termine. (b) Avisar al usuario y no reintentar automáticamente. (c) Completar las inspecciones faltantes. |
+| `422` | El informe existente de SYSCO no permite extraer y validar una conclusión con un único veredicto literal `FUNDADO` o `INFUNDADO`. | Mostrar el error y solicitar que se revise el texto almacenado en SYSCO. |
 | `400` | Body inválido (p.ej. `texto` vacío en búsqueda normativa, colección duplicada al subir un documento). | Mensaje de validación en el form. |
 | `503` | El índice vectorial (Qdrant) no responde en `/normativa/busqueda`. | Reintentar / avisar que la búsqueda normativa está caída. |
 | `503` / `401` (LLM) | El proveedor de inferencia externo está saturado o la API key es inválida (`X-LLM-Api-Key`). El backend distingue estos casos del 500 genérico. | Sugerir cambiar de modelo/proveedor. |

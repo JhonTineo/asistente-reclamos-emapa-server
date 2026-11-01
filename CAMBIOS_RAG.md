@@ -133,8 +133,26 @@ contenido. Los tres casos de fuga del gold recuperan el Art. 92.3 en primer luga
   `Retriever.build_context` y sus dos auxiliares (sin uso), el bloque que ejecutaba `chunk_and_index.py` como
   script (reindexaba calidad con el troceador defectuoso), el import roto de `test_pdf_chunk_pipeline`,
   comandos `app.scripts.*` inexistentes en el Makefile y el README, y los marcadores de merge del README.
-- **Rendimiento:** Ollama corría 100 % en CPU dentro de Docker aunque la máquina tiene una RTX 3050. Se reservó la
-  GPU en `docker-compose.override.yml` (solo local): indexar bajó de unos 2 minutos por corpus a 15–31 s.
+- **Rendimiento:** Ollama corría 100 % en CPU dentro de Docker aunque la máquina tiene una RTX 3050. Se agregó
+  `docker-compose.gpu.yml` (opcional, `make up-gpu`, solo local): indexar bajó de unos 2 minutos por corpus a
+  15–31 s. Va aparte del compose de desarrollo para no exigir NVIDIA a quien no la tiene.
+
+### E. Al integrar con la rama principal
+
+Mientras se hacía este trabajo, `origin/main` rediseñó el flujo de fundamentación y las herramientas de
+mantenimiento de normativa. Al mezclarlas aparecieron tres choques que se corrigieron:
+
+- **El flujo nuevo no pasaba por la búsqueda escalonada.** Ahora el LLM elige los problemas determinantes y
+  `marcar_aplica` decide qué artículos regulan cada uno; `buscar_y_marcar` consulta primero reclamos y, solo si
+  ningún artículo aplica, suma los de calidad. Los prompts nombran el reglamento de cada artículo.
+- **"ANEXO 3" se confundía con el artículo 3.** El normalizador de artículos extraía el primer número de
+  cualquier etiqueta, así que editar o desactivar el Art. 3 de reclamos habría arrastrado el Anexo 3. Ahora
+  anexos, disposiciones y formatos conservan su etiqueta.
+- **La reconstrucción daba falsas alarmas** sobre nuestros chunks: 14 en calidad (preámbulos y partes de un
+  numeral largo) y 16 en reclamos (anexos leídos como artículos). Ahora 0 en las dos colecciones.
+
+Además, las altas y ediciones sueltas de artículos calculaban el vector sin el prefijo de documento; ahora usan
+`encode_document`, igual que el indexado de las dos normas.
 
 ---
 
@@ -232,10 +250,12 @@ es reversible: en `DIAGNOSTICO_RAG.md` está el paso a paso para volver a nomic.
 
 ## 8. Cómo se probó
 
-- **34 tests offline** (sin Ollama ni Qdrant): las fallas de datos (A1–A6) tienen su prueba (ligaturas, preámbulo
-  del Art. 93, numerales únicos, 137 y 46 artículos, tamaños, ids únicos) y también el orden de la búsqueda
-  escalonada, la escalada cuando el LLM abstiene y las colecciones ausentes. Las demás correcciones (umbral,
-  modelo, GPU, endpoints) se comprobaron con el arnés y contra la API en vivo, no con tests automáticos.
+- **49 tests offline** (sin Ollama ni Qdrant): las fallas de datos (A1–A6) tienen su prueba (ligaturas, preámbulo
+  del Art. 93, numerales únicos, 137 y 46 artículos, tamaños, ids únicos), también el orden de la búsqueda
+  escalonada (flujo anterior y flujo vigente `buscar_y_marcar`), la escalada cuando el LLM abstiene y las colecciones
+  ausentes, y la convivencia con las herramientas de `main` (normalizador de artículos y reconstrucción). Las demás
+  correcciones (umbral, modelo, GPU, endpoints) se comprobaron con el arnés y contra la API en vivo, no con tests
+  automáticos.
 - **Arnés de evaluación** (`app/test/rag/evaluar_busqueda.py`): hit@k, recall@k, MRR, curva de umbrales,
   comparación de modelos y línea base léxica (BM25). Modos: `lexico`, `embeddings` y `qdrant` (colecciones en vivo,
   como lo hace la app).
@@ -244,7 +264,7 @@ es reversible: en `DIAGNOSTICO_RAG.md` está el paso a paso para volver a nomic.
 ```bash
 python -m app.test.rag.evaluar_busqueda --modo qdrant
 python -m app.test.rag.evaluar_busqueda --modo embeddings --modelos nomic-embed-text,bge-m3,embeddinggemma,qwen3-embedding:0.6b
-python -m pytest app/test/test_reclamos_chunker.py app/test/test_calidad_chunker.py app/test/test_normativa_escalonada.py app/test/test_qdrant_adapter.py
+python -m pytest app/test
 ```
 
 ## 9. Qué se borró
@@ -265,14 +285,19 @@ python -m pytest app/test/test_reclamos_chunker.py app/test/test_calidad_chunker
 - **Despliegue:** el servidor necesita `ollama pull qwen3-embedding:0.6b` y reindexar allí las dos colecciones
   (`make index`). Nada se tocó fuera de la máquina local.
 - **Sin cubrir:** Anexo 1 y Anexo 3 §2–§3 de reclamos, y los anexos de calidad (no vienen en el PDF del repo).
-- Los scripts `app/test/debug_*.py` están rotos desde antes (importan un módulo que no existe) y no se tocaron.
-- No hay nada confirmado en git.
+- Con un LLM real, la barrera contra citar un artículo que no aplica es `marcar_aplica`. Los chunks del Anexo 3
+  de reclamos superan el umbral con consultas de fuga y el flujo no se pudo probar con un modelo real: conviene
+  revisar los primeros informes para confirmar que el LLM los descarta y escala a calidad.
+- El flujo anterior de fundamentación por problema (`fundamentar`, `fundamentar_interpretacion`) ya no lo usa
+  ningún endpoint de `main`; sigue en el agente (con escalada) y con sus pruebas, y puede borrarse.
+- En el servidor de producción Ollama tiene 2 GB de RAM y 1,5 CPU (`docker-compose.prod.yml`): `qwen3-embedding:0.6b`
+  (639 MB) cabe, pero indexar allí será más lento que en tu GPU.
 
 ## 11. Cómo operar
 
 ```bash
-# Con Docker Desktop abierto
-docker compose up qdrant ollama -d
+# Con Docker Desktop abierto (make up-gpu si hay GPU NVIDIA)
+make up
 docker exec ollama ollama pull qwen3-embedding:0.6b
 
 # Crear/recrear las dos colecciones (usa los prefijos y el modelo del .env)
@@ -294,12 +319,13 @@ de modelos distintos no se pueden comparar entre sí.
 **Nuevos:** `rag/reclamos_chunker.py`, `rag/calidad_chunker.py`, `rag/index_reclamos.py`, `rag/index_calidad.py`,
 `rag/normativa_escalonada.py`, `app/test/test_reclamos_chunker.py`, `test_calidad_chunker.py`,
 `test_normativa_escalonada.py`, `app/test/rag/` (arnés y gold), `app/src/storage/files/reclamos/` (PDF del TUO de
-reclamos), `DIAGNOSTICO_RAG.md`, este documento.
+reclamos), `app/test/test_integracion_normativa.py`, `docker-compose.gpu.yml`, `DIAGNOSTICO_RAG.md`, este documento.
 
 **Modificados:** `embeddings.py`, `retriever.py`, `qdrant_adapter.py`, `vector_db_port.py`, `settings.py`,
-`fundamentacion_normativa.py`, `conclusion.py`, `investigacion_stream.py`, `normativa_busqueda.py`,
-`normativa_documentos.py`, `schemas/normativa.py`, `chunk_and_index.py`, `docker-compose.override.yml`,
-`.env.example`, `Makefile`, `README.md`, `test_pdf_chunk_pipeline.py`; en el frontend `useFlujoTareas.ts` y
-`reclamosStore.tsx`.
+`fundamentacion_normativa.py`, `fundamentacion_service.py`, `legal_chunker.py`, `normativa_reconstruccion.py`,
+`normativa_articulos.py`, `md_embedding_service.py`, `normativa_busqueda.py`, `normativa_documentos.py`,
+`schemas/normativa.py`, `chunk_and_index.py`, `.env.example`, `Makefile`, `README.md`; en el frontend
+`useFlujoTareas.ts` y `reclamosStore.tsx` (ver el commit del frontend).
 
-**Eliminado:** `usecase/agents/recuperador_rag.py`.
+**Eliminado:** `usecase/agents/recuperador_rag.py`. (`main` ya había quitado `docker-compose.override.yml`,
+`test_pdf_chunk_pipeline.py` y `test_qdrant_adapter.py`.)

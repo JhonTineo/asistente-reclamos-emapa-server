@@ -1,0 +1,20 @@
+/* Demostración del proceso: pantallas de SYSCO y aportes de Yumi. */
+.demo-heading { position:absolute; left:96px; top:112px; width:1728px; font-size:62px; line-height:1.08; }
+.demo-subtitle { position:absolute; left:96px; top:190px; width:1728px; font-size:34px; line-height:1.25; }
+.demo-phases { position:absolute; left:96px; top:280px; width:1728px; display:flex; gap:32px; }
+.demo-phase { width:408px; padding-bottom:14px; border-bottom:3px solid rgba(255,255,255,.22); font-size:30px; font-weight:500; opacity:.45; }
+.demo-phase.is-current { border-color:#fff; font-weight:600; opacity:1; }
+.demo-phase.is-done { opacity:.75; }
+.demo-step { position:absolute; left:0; top:360px; width:1920px; height:560px; }
+.demo-pane { position:absolute; top:0; width:838px; height:560px; }
+.demo-pane.left { left:96px; }
+.demo-pane.right { left:986px; }
+.demo-pane-label { height:38px; font-size:30px; font-weight:600; color:#fff; }
+.demo-pane.source-yumi .demo-pane-label { color:#9feee5; }
+.demo-screen { position:absolute; left:0; top:50px; width:838px; height:420px; overflow:hidden; background:#f4f8fc; border-radius:18px; box-shadow:0 20px 55px rgba(0,0,0,.2); }
+.demo-capture { position:absolute; left:0; top:0; transform-origin:0 0; }
+.demo-capture img { display:block; max-width:none; }
+.demo-caption { position:absolute; left:0; top:490px; width:838px; font-size:30px; line-height:1.2; color:rgba(255,255,255,.87); }
+.demo-outcome { position:absolute; left:96px; top:944px; width:1430px; font-size:34px; line-height:1.2; font-weight:600; color:#fff; }
+.demo-reference { position:absolute; left:96px; top:1035px; width:1728px; font-size:22px; line-height:1.2; color:rgba(255,255,255,.62); }
+#scene-demo .demo-live { position:absolute; left:1560px; top:950px; padding:18px 30px; font-size:32px; }

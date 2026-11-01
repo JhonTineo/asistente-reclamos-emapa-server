@@ -4,8 +4,11 @@ Evalúa cada OBJETIVO de investigación (derivado del motivo del reclamo) contra
 los HALLAZGOS de los medios probatorios y decide el veredicto con una REGLA
 EXPLÍCITA (puerta lógica), no con criterio libre del LLM:
 
-    FUNDADO  ⇔  algún objetivo DETERMINANTE resultó "procede_correccion"
-    INFUNDADO en caso contrario
+    FUNDADO   ⇔ algún objetivo DETERMINANTE resultó "procede_correccion"
+    INFUNDADO ⇔ ningún objetivo DETERMINANTE resultó "procede_correccion"
+
+Los objetivos no_evaluable se conservan sin bloquear el veredicto. Una
+evaluación inválida o un fallo del proveedor siguen siendo errores técnicos.
 
 "procede_correccion" cubre tanto un error de la empresa (medidor/medición) como
 una refacturación que procede sin culpa de la empresa (p.ej. fuga no visible ya
@@ -18,17 +21,29 @@ hallazgos; la decisión final la toma el código, de forma determinista y trazab
 import re
 import json
 import logging
+from dataclasses import asdict
+from datetime import datetime
 
 from app.src.application.ports.provider_port import MensajeLLM
 from app.src.application.services.llm.llm_router_service import LlmRouterService, MODELO_EXTERNO_DEFAULT
 from app.src.core.model.criterios_especialista import (
     CriterioEvaluacion, obtener_criterios, render_criterios,
 )
-from app.src.core.model.informe_atencion import InformeAtencion, ObjetivoInvestigacion
+from app.src.core.model.informe_atencion import (
+    InformeAtencion, MotivoEvaluacion, ObjetivoInvestigacion,
+)
 
 logger = logging.getLogger("agent.conclusion")
 
 RESULTADOS_VALIDOS = {"procede_correccion", "sin_correccion", "no_evaluable"}
+
+
+class RespuestaEvaluacionInvalida(ValueError):
+    def __init__(self, codigo: str, descripcion: str, objetivos: list[int] | None = None):
+        super().__init__(descripcion)
+        self.codigo = codigo
+        self.descripcion = descripcion
+        self.objetivos = objetivos or []
 
 
 def _formatear_meses_reclamados(informe: InformeAtencion) -> str:
@@ -55,46 +70,102 @@ class ConclusionAgent:
         """Evalúa objetivos vs hallazgos, fija el resultado de cada objetivo y
         calcula veredicto + conclusión sobre el informe (in-place).
         Devuelve el veredicto ("FUNDADO"/"INFUNDADO") o None si no hay objetivos."""
+        self._iniciar_nueva_evaluacion(informe)
         if not informe.objetivos:
-            logger.warning("[CONCLUSION] Informe sin objetivos; no se decide con regla")
-            informe.veredicto = None
-            informe.conclusion = (
-                "No se definieron objetivos de investigación, por lo que el "
-                "veredicto no se determina automáticamente."
+            return self._dejar_sin_decision(
+                informe, "requiere_revision", "SIN_OBJETIVOS", [],
+                "No se definieron objetivos de investigación.",
+                "Definir los objetivos antes de evaluar el reclamo.",
             )
-            return informe.veredicto
 
-        hallazgos_por_medio = self._hallazgos_por_medio(informe) # podriamos 
-        evaluaciones = self._evaluar_objetivos(informe, hallazgos_por_medio)
-
-        # Vuelca la evaluación (por id de objetivo) sobre cada objetivo.
-        for obj in informe.objetivos:
-            ev = evaluaciones.get(obj.id, {})
-            resultado = ev.get("resultado")
-            obj.resultado = resultado if resultado in RESULTADOS_VALIDOS else "no_evaluable"
-            obj.evidencia = ev.get("evidencia")
-
-        # --- Puerta lógica (determinista) --------------------------------
-        # FUNDADO ⇔ Si algún objetivo DETERMINANTE resultó "procede_correccion", es
-        # decir, corresponde corregir la facturación a favor del usuario. Esto
-        # abarca tanto un error de la empresa (medidor/medición) como una
-        # refacturación procedente sin culpa de la empresa 
-        # (p.ej. fuga no visible ya reparada → refacturar por promedio histórico).
         determinantes = [o for o in informe.objetivos if o.determinante]
+        if not determinantes:
+            return self._dejar_sin_decision(
+                informe, "requiere_revision", "SIN_OBJETIVOS_DETERMINANTES",
+                [o.id for o in informe.objetivos],
+                "Hay objetivos, pero ninguno está marcado como determinante.",
+                "Revisar y marcar los objetivos determinantes.",
+            )
+
+        try:
+            evaluaciones = self._evaluar_objetivos(
+                informe, self._hallazgos_por_medio(informe),
+            )
+        except RespuestaEvaluacionInvalida as exc:
+            return self._dejar_sin_decision(
+                informe, "error_evaluacion", exc.codigo, exc.objetivos,
+                exc.descripcion, "Reintentar la evaluación o revisar el proveedor.",
+            )
+        except Exception as exc:
+            logger.exception("[CONCLUSION] Falló el proveedor de evaluación")
+            return self._dejar_sin_decision(
+                informe, "error_evaluacion", "ERROR_PROVEEDOR",
+                [o.id for o in determinantes],
+                f"Falló la comunicación con el proveedor de evaluación: {exc}",
+                "Reintentar cuando el proveedor esté disponible.",
+            )
+
+        for obj in determinantes:
+            obj.resultado = evaluaciones[obj.id]["resultado"]
+            obj.evidencia = evaluaciones[obj.id]["evidencia"]
+
+        # no_evaluable conserva su resultado/evidencia para futuras notas,
+        # pero no veta una decisión ni se convierte en sin_correccion.
         con_correccion = [o for o in determinantes if o.resultado == "procede_correccion"]
         veredicto = "FUNDADO" if con_correccion else "INFUNDADO"
-
         informe.veredicto = veredicto
-        # El veredicto lo fija la puerta lógica (arriba); el LLM SOLO redacta el
-        # párrafo que lo fundamenta (no puede cambiarlo). Si el LLM falla, se usa
-        # la plantilla determinista como respaldo.
-        informe.conclusion = self._redactar_conclusion(informe, veredicto, determinantes, con_correccion)
-
-        logger.info(
-            "[CONCLUSION] veredicto=%s | determinantes=%d | con_correccion=%d",
-            veredicto, len(determinantes), len(con_correccion),
+        informe.estado_evaluacion = "completada"
+        informe.motivos_evaluacion = []
+        informe.mensaje_evaluacion = "Veredicto y conclusión generados con la evaluación disponible."
+        informe.origen_decision = "automatica"
+        informe.conclusion = self._redactar_conclusion(
+            informe, veredicto, determinantes, con_correccion,
         )
         return veredicto
+
+    @staticmethod
+    def _iniciar_nueva_evaluacion(informe: InformeAtencion) -> None:
+        if informe.veredicto or informe.conclusion or informe.propuesta_conciliacion or informe.resolucion:
+            informe.historial_decisiones.append({
+                "fecha": datetime.now().isoformat(),
+                "veredicto": informe.veredicto,
+                "conclusion": informe.conclusion,
+                "estado_evaluacion": informe.estado_evaluacion,
+                "origen_decision": informe.origen_decision,
+                "propuesta_conciliacion": (
+                    asdict(informe.propuesta_conciliacion)
+                    if informe.propuesta_conciliacion else None
+                ),
+                "resolucion": informe.resolucion,
+            })
+        informe.veredicto = None
+        informe.conclusion = None
+        informe.propuesta_conciliacion = None
+        informe.resolucion = None
+        informe.estado_evaluacion = "pendiente"
+        informe.motivos_evaluacion = []
+        informe.mensaje_evaluacion = None
+        informe.origen_decision = None
+        for objetivo in informe.objetivos:
+            objetivo.resultado = None
+            objetivo.evidencia = None
+
+    @staticmethod
+    def _dejar_sin_decision(
+        informe: InformeAtencion, estado: str, codigo: str,
+        objetivos: list[int], descripcion: str, accion: str,
+    ) -> None:
+        informe.estado_evaluacion = estado
+        informe.veredicto = None
+        informe.conclusion = None
+        informe.mensaje_evaluacion = descripcion
+        informe.motivos_evaluacion = [MotivoEvaluacion(
+            codigo=codigo,
+            objetivos_afectados=objetivos,
+            descripcion=descripcion,
+            accion_necesaria=accion,
+        )]
+        return None
 
     # ------------------------------------------------------------------ #
     # Evaluación de objetivos con LLM
@@ -116,21 +187,36 @@ class ConclusionAgent:
     def _evaluar_objetivos(
         self, informe: InformeAtencion, hallazgos_por_medio: dict[str, str],
     ) -> dict[int, dict]:
+        # Solo se evalúan los objetivos DETERMINANTES: son los únicos que la
+        # puerta lógica mira para decidir el veredicto. El resultado de los
+        # objetivos de contexto no se usa en ningún lado (ni en la puerta, ni en
+        # la redacción, ni en el response), así que evaluarlos es trabajo perdido.
+        determinantes = [o for o in informe.objetivos if o.determinante]
+        if not determinantes:
+            logger.info(
+                "[CONCLUSION] Sin objetivos determinantes; no se evalúa "
+                "(requiere revisión)"
+            )
+            return {}
+
         todos_los_hallazgos = (
             "\n".join(hallazgos_por_medio.values()) or "(sin hallazgos registrados)"
         )
-        # Cada objetivo se lista junto a SOLO los hallazgos de su medio (si lo
-        # tiene asignado); si no tiene medio asignado, recibe todos los
-        # hallazgos como contexto general. .
+        # Las inspecciones interna/externa comparten contexto complementario.
+        # Sin medio asignado se reciben todos los hallazgos.
         bloques_objetivo = []
-        for o in informe.objetivos:
-            etiqueta = f"{o.id}. {o.descripcion}" + (f" [medio: {o.medio}]" if o.medio else "")
+        for o in determinantes:
+            etiqueta = f"{o.id}. {o.descripcion}" + (
+                f" [medios: {', '.join(o.medios_relacionados)}]" if o.medio else ""
+            )
             hallazgos_obj = (
-                hallazgos_por_medio.get(o.medio, "(el medio aún no fue analizado)")
+                "\n".join(hallazgos_por_medio.get(
+                    medio, f"[{medio}] (el medio aún no fue analizado)",
+                ) for medio in o.medios_relacionados)
                 if o.medio else todos_los_hallazgos
             )
             bloques_objetivo.append(
-                f"{etiqueta}\nHallazgos del medio asignado a este objetivo:\n{hallazgos_obj}"
+                f"{etiqueta}\nHallazgos de los medios relacionados con este objetivo:\n{hallazgos_obj}"
             )
         objetivos_texto = "\n\n".join(bloques_objetivo)
 
@@ -138,14 +224,16 @@ class ConclusionAgent:
             "Eres un analista de reclamos de EMAPA. Evalúas cada objetivo de la "
             "investigación contra LOS HALLAZGOS QUE SE LISTAN DEBAJO DE ESE MISMO "
             "OBJETIVO (no contra los de otros objetivos).\n"
-            "La pregunta de fondo es: según los hallazgos de su medio, ¿CORRESPONDE "
+            "La pregunta de fondo es: según los hallazgos de sus medios, ¿CORRESPONDE "
             "CORREGIR la facturación a favor del usuario respecto de ese objetivo?\n"
             "Clasifica cada objetivo en uno de estos resultados, según estos "
             "criterios de especialista:\n"
             f"{render_criterios(self.criterios)}\n"
             "Básate ÚNICAMENTE en los hallazgos listados debajo de cada objetivo. "
-            "NUNCA uses como evidencia un hallazgo de un medio distinto al asignado "
-            "al objetivo. No inventes.\n"
+            "NUNCA uses hallazgos que no estén listados para el objetivo. "
+            "Las inspecciones interna y externa son complementarias: una inspección "
+            "externa no acredita que se revisó el interior del predio. Distingue una "
+            "visita sin acceso de una inspección interna realizada. No inventes.\n"
             "Responde SOLO con un JSON: una lista de objetos con las claves "
             "\"id\" (número del objetivo), \"resultado\" y \"evidencia\".\n"
             "\"evidencia\" debe ser una frase MUY BREVE (máximo 12 palabras) citando el "
@@ -170,63 +258,82 @@ class ConclusionAgent:
             ],
             modelo_id=self.model_id
         )
-        return self._parse_evaluaciones(response_text or "")
+        return self._parse_evaluaciones(response_text or "", {o.id for o in determinantes})
 
     @staticmethod
-    def _parse_evaluaciones(texto: str) -> dict[int, dict]:
-        """Extrae la lista JSON de la respuesta del LLM y la convierte en un dict"""
+    def _parse_evaluaciones(texto: str, ids_esperados: set[int]) -> dict[int, dict]:
+        """Valida forma, cobertura, ids, resultados y evidencia obligatoria."""
+        if not texto.strip():
+            raise RespuestaEvaluacionInvalida(
+                "RESPUESTA_VACIA", "El proveedor devolvió una respuesta vacía.",
+                sorted(ids_esperados),
+            )
         match = re.search(r"\[.*\]", texto, re.DOTALL)
         if not match:
-            logger.warning("[CONCLUSION] El LLM no devolvió lista JSON: %s", texto[:200])
-            return {}
+            raise RespuestaEvaluacionInvalida(
+                "JSON_INVALIDO", "La respuesta no contiene una lista JSON válida.",
+                sorted(ids_esperados),
+            )
         try:
             crudos = json.loads(match.group())
         except json.JSONDecodeError as e:
-            logger.warning("[CONCLUSION] JSON inválido del LLM: %s | %s", e, texto[:200])
-            return {}
+            raise RespuestaEvaluacionInvalida(
+                "JSON_INVALIDO", f"La respuesta JSON es inválida: {e}",
+                sorted(ids_esperados),
+            ) from e
+        if not isinstance(crudos, list):
+            raise RespuestaEvaluacionInvalida(
+                "FORMATO_INVALIDO", "La evaluación debe ser una lista JSON.",
+                sorted(ids_esperados),
+            )
 
         evaluaciones: dict[int, dict] = {}
         for item in crudos:
             if not isinstance(item, dict) or "id" not in item:
-                continue
+                raise RespuestaEvaluacionInvalida(
+                    "ITEM_INVALIDO", "Hay una evaluación sin objeto o identificador.",
+                    sorted(ids_esperados),
+                )
             try:
                 oid = int(item["id"])
             except (TypeError, ValueError):
-                continue
+                raise RespuestaEvaluacionInvalida(
+                    "IDENTIFICADOR_INVALIDO", "Hay un identificador de objetivo inválido.",
+                    sorted(ids_esperados),
+                )
+            if oid not in ids_esperados:
+                raise RespuestaEvaluacionInvalida(
+                    "IDENTIFICADOR_DESCONOCIDO", f"El objetivo {oid} no era esperado.", [oid],
+                )
+            if oid in evaluaciones:
+                raise RespuestaEvaluacionInvalida(
+                    "IDENTIFICADOR_DUPLICADO", f"El objetivo {oid} aparece duplicado.", [oid],
+                )
             evidencia = (str(item.get("evidencia") or "")).strip()
+            resultado = item.get("resultado")
+            if resultado not in RESULTADOS_VALIDOS:
+                raise RespuestaEvaluacionInvalida(
+                    "RESULTADO_INVALIDO", f"Resultado inválido para el objetivo {oid}.", [oid],
+                )
+            if resultado in {"procede_correccion", "sin_correccion"} and not evidencia:
+                raise RespuestaEvaluacionInvalida(
+                    "EVIDENCIA_OBLIGATORIA",
+                    f"El objetivo {oid} afirma un resultado sin sustento.", [oid],
+                )
             evaluaciones[oid] = {
-                "resultado": item.get("resultado"),
+                "resultado": resultado,
                 "evidencia": evidencia or None,
             }
+        faltantes = sorted(ids_esperados - set(evaluaciones))
+        if faltantes:
+            raise RespuestaEvaluacionInvalida(
+                "OBJETIVOS_OMITIDOS", "La respuesta omitió objetivos determinantes.", faltantes,
+            )
         return evaluaciones
 
     # ------------------------------------------------------------------ #
     # Redacción de la conclusión (LLM, coherente con la puerta lógica)
     # ------------------------------------------------------------------ #
-    @staticmethod
-    def _norma_aplicable(informe: InformeAtencion, medios: set[str] | None = None) -> str:
-        """Texto de la norma APLICABLE de los medios (determinantes): SOLO los
-        problemas cuya fundamentación halló un artículo pertinente (con
-        `base_legal` asignada tras el guardarraíl de abstención). Devuelve cadena
-        VACÍA si no se halló ninguno; en ese caso la conclusión se apoya solo en
-        los hechos y los criterios, sin citar normas ni inventarlas."""
-        lineas: list[str] = []
-        for bloque in informe.bloques:
-            if medios is not None and bloque.medio_id not in medios:
-                continue
-            for p in bloque.problemas:
-                if not p.base_legal:
-                    continue
-                partes = [f"- {p.detalle} → {p.accion or 'corrección'} ({p.base_legal})"]
-                for art in (p.articulos or []):
-                    texto = (art.get("texto") or "").strip()
-                    if texto:
-                        num = art.get("numeral") or art.get("article") or ""
-                        norma = f" del {art['norma_corta']}" if art.get("norma_corta") else ""
-                        partes.append(f"  Art. {num}{norma}: {texto}")
-                lineas.append("\n".join(partes))
-        return "\n".join(lineas)
-
     def _redactar_conclusion(
         self,
         informe: InformeAtencion,
@@ -246,17 +353,16 @@ class ConclusionAgent:
             for o in determinantes
         ) or "(sin objetivos determinantes)"
 
-        # Norma aplicable de los medios determinantes (solo artículos pertinentes).
-        # Puede estar vacía: en ese caso la conclusión se apoya solo en los hechos.
-        medios_det = {o.medio for o in determinantes if o.medio}
-        norma_aplicable = self._norma_aplicable(informe, medios_det or None)
+        # La base normativa YA NO se reconstruye por-problema: se consume el
+        # párrafo de fundamentación normativa ya generado (paso de fundamentación).
+        # Puede estar vacío: en ese caso la conclusión se apoya solo en los hechos.
+        norma_aplicable = (informe.fundamentacion_normativa or "").strip()
         hay_norma = bool(norma_aplicable)
 
         meses_reclamados = _formatear_meses_reclamados(informe)
 
-        # La fórmula del informe real depende del veredicto: FUNDADO narra el hecho
-        # decisivo y la refacturación que procede; INFUNDADO afirma que la
-        # facturación fue correcta por diferencia de lecturas.
+        # La fórmula distingue los hechos acreditados de una evaluación parcial.
+        # Un INFUNDADO con no_evaluable no certifica que la facturación sea correcta.
         if veredicto == "FUNDADO":
             formula = (
                 "«En consecuencia, toda vez que [hecho decisivo verificado con su "
@@ -264,13 +370,23 @@ class ConclusionAgent:
                 "manda la norma, p.ej. refacturar los meses reclamados por el "
                 "promedio histórico], por lo tanto se declara FUNDADO»"
             )
+        elif any(o.resultado == "no_evaluable" for o in determinantes):
+            formula = (
+                "«En consecuencia, con la información disponible [hechos evaluados "
+                "y alcance de la evaluación], no se acreditó un motivo de corrección "
+                "en los objetivos determinantes, por lo tanto se declara INFUNDADO». "
+                "No afirmes que toda la facturación es correcta ni que fue por "
+                "diferencia de lecturas si no hay evidencia que lo confirme"
+            )
         else:
             formula = (
-                f"«En consecuencia, la facturación emitida en el mes en reclamo "
-                f"({meses_reclamados}) es correcta, de acuerdo a diferencias de "
-                "lecturas, ya que [el medidor registraba consumo/estaba operativo y "
-                "no se halló problema atribuible a la empresa], por lo tanto se "
-                "declara INFUNDADO»"
+                f"«En consecuencia, toda vez que [hecho verificado concreto que "
+                f"sustenta el INFUNDADO; usa la evidencia de las verificaciones "
+                f"determinantes — p.ej. 'el usuario tuvo fuga visible en un inodoro' "
+                f"o 'la facturación del mes reclamado corresponde a lectura real del "
+                f"medidor sin error atribuible a la empresa'], se procedió a la "
+                f"facturación por diferencias de lectura del reclamo del mes de "
+                f"{meses_reclamados}, por lo tanto se declara INFUNDADO»"
             )
 
         # Cita de la norma: condicional. Si la búsqueda vectorial halló un
@@ -279,9 +395,10 @@ class ConclusionAgent:
         # cambia por esto: lo fijó la puerta lógica).
         if hay_norma:
             regla_norma = (
-                "- Como sustento normativo, cita el artículo/numeral incluido en "
-                "«Norma aplicable» y úsalo tal cual; NO inventes otros ni cifras que "
-                "no estén ahí.\n"
+                "- Como sustento normativo, apóyate en la FUNDAMENTACIÓN NORMATIVA "
+                "ya establecida (abajo) y sé coherente con ella: cita el "
+                "artículo/numeral que ahí figure y úsalo tal cual; NO inventes otros "
+                "ni cifras que no estén ahí.\n"
             )
         else:
             regla_norma = (
@@ -301,6 +418,11 @@ class ConclusionAgent:
             f"esta estructura del informe real: {formula}.\n"
             "- Usa lenguaje llano y directo; NO uses expresiones vagas como «dentro "
             "de los parámetros establecidos». Nombra el hecho concreto.\n"
+            "- Los objetivos no_evaluable no bloquean el veredicto, pero tampoco "
+            "acreditan hechos ni la corrección de un cobro. No los presentes como "
+            "verificaciones satisfactorias. Si todos son no_evaluable, explica "
+            "que la decisión se basa en que no se acreditó una causa de corrección "
+            "con la información disponible.\n"
             + regla_norma +
             "Responde SOLO con el párrafo de conclusión, sin encabezados."
         )
@@ -309,7 +431,7 @@ class ConclusionAgent:
             f"Meses reclamados: {meses_reclamados}\n\n"
             f"Motivo del reclamo:\n{informe.motivo or 'no especificado'}\n\n"
             f"Verificaciones determinantes y su resultado:\n{determinantes_texto}\n\n"
-            + (f"Norma aplicable (artículos pertinentes hallados):\n{norma_aplicable}\n\n"
+            + (f"Fundamentación normativa ya establecida:\n{norma_aplicable}\n\n"
                if hay_norma else "")
             + "Redacta la conclusión."
         )
@@ -353,6 +475,13 @@ class ConclusionAgent:
                 "En consecuencia, el reclamo se declara FUNDADO, por cuanto la "
                 f"investigación determinó que corresponde corregir la facturación a "
                 f"favor del usuario: {motivos}."
+            )
+        if any(o.resultado == "no_evaluable" for o in determinantes):
+            return (
+                "En consecuencia, con la información disponible no se acreditó "
+                "una causa de corrección en los objetivos determinantes, por lo "
+                "tanto se declara INFUNDADO. La evaluación incompleta de algunos "
+                "objetivos no acredita que la facturación sea correcta."
             )
         if determinantes:
             detalle = "; ".join(o.descripcion for o in determinantes)

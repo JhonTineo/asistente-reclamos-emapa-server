@@ -1,184 +1,131 @@
-# Asistente de Reclamos SUNASS (Modelos Locales)
+# Asistente de Reclamos EMAPA
 
-Proyecto de agentes para analizar, sustentar y dictaminar reclamos de usuarios usando normativa SUNASS.
+Backend de agentes de IA que analiza, sustenta y dictamina reclamos de usuarios
+de EMAPA, apoyándose en la normativa SUNASS. Toma un reclamo del sistema
+comercial de EMAPA, analiza sus medios probatorios, recupera la normativa
+aplicable por búsqueda vectorial (RAG) y emite un informe con veredicto
+(**FUNDADO / INFUNDADO**), propuesta de conciliación y resolución.
 
-Todo el flujo esta orientado a ejecucion local (FastAPI + Ollama + Qdrant), sin depender de modelos remotos para inferencia.
+La inferencia LLM puede correr **en la nube** (varios proveedores compatibles
+con la API de OpenAI) o **en local** (Ollama), de forma intercambiable por
+petición.
 
-## Arquitectura actual
+- **Documentación de la API (para frontend):** [`API.md`](API.md)
+- **Swagger UI (autogenerado):** `http://localhost:8000/docs`
+
+---
+
+## Arquitectura
+
+El proyecto sigue una arquitectura hexagonal (puertos y adaptadores) bajo
+`app/src/`:
 
 ```text
 app/
-|
-+-- agents/
-|   +-- analizador.py
-|   +-- normativo.py
-|   +-- dictaminador.py
-|
-+-- rag/
-|   +-- embeddings.py
-|   +-- retriever.py
-|   +-- qdrant_store.py
-|
-+-- core/
-|   +-- llm.py
-|   +-- config.py
-|
-+-- schemas/
-|   +-- reclamo.py
-|   +-- dictamen.py
-|
-+-- orchestrator/
-	 +-- workflow.py
-
-ollama/
-|
-+-- models/
-|
-+-- cache/
-
-qdrant_storage/
-|
-+-- aliases/
-|
-+-- collections
-
-
+├── Dockerfile
+├── requirements.txt          # ← única lista de dependencias del proyecto
+└── src/
+    ├── main.py               # App FastAPI (entrypoint: app.src.main:app)
+    ├── core/model/           # Entidades de dominio (reclamo, resolución, ...)
+    ├── application/
+    │   ├── ports/            # Interfaces (EMAPA, vector DB, proveedor LLM, ...)
+    │   ├── services/         # Lógica de negocio (rag, informe, investigación, ...)
+    │   └── usecase/agents/   # Agentes de IA (ver abajo)
+    ├── infrastructure/
+    │   ├── api_rest/         # Routers FastAPI (endpoints)
+    │   ├── adapters/         # Implementaciones: EMAPA HTTP, Qdrant, Ollama, OpenAI
+    │   └── config/           # settings (pydantic-settings, lee el .env)
+    └── storage/files/        # PDFs de normativa a indexar
 ```
 
-## Flujo funcional del reclamo
+### Componentes clave
 
-1. Agente Analizador (`app/agents/analizador.py`)
-	- Entiende el reclamo.
-	- Extrae hechos relevantes.
-	- Identifica tipo/tema y servicio.
+| Componente | Rol |
+|---|---|
+| **FastAPI** | Expone la API REST (sync y streaming NDJSON). |
+| **API comercial EMAPA** | Fuente de datos del reclamo: lecturas, facturación, inspecciones, cortes, saldos. |
+| **LLM** | Inferencia: externa (OpenRouter, Cerebras, Groq, OpenCode, Cloudflare) o local (Ollama). |
+| **Embeddings** | Ollama `qwen3-embedding:0.6b` (1024 dimensiones), con la instrucción de consulta de `.env.example`. |
+| **Qdrant** | Vector store del RAG normativo: `sunass_reclamos` (Reglamento de Reclamos, se consulta primero) y `sunass_reglamento` (Reglamento de Calidad, respaldo). |
 
-2. Agente Normativo (`app/agents/normativo.py`)
-	- Construye consulta semantica con analisis estructurado.
-	- Consulta Qdrant por similitud vectorial.
-	- Recupera Top 5 articulos SUNASS.
+### Agentes (`app/src/application/usecase/agents/`)
 
-3. Agente Dictaminador (`app/agents/dictaminador.py`)
-	- Analiza normativa y evidencias.
-	- Determina si el reclamo procede o no procede.
-	- Genera sustento en formato JSON.
+1. **clasificador_rapido** — Clasifica el tipo de reclamo por reglas (sin LLM).
+2. **objetivos** — Genera los objetivos de investigación a partir del motivo.
+3. **analista_medio** — Analiza cada medio probatorio (preproceso por reglas +
+   interpretación del LLM).
+4. **fundamentacion_normativa** — Recupera la normativa SUNASS aplicable en
+   Qdrant (primero el Reglamento de Reclamos y, si no alcanza, el de Calidad) y
+   fundamenta los hallazgos determinantes.
+5. **conclusion** — Evalúa objetivos vs. hallazgos y fija el veredicto.
+6. **conciliador** — Redacta la propuesta de conciliación.
+7. **resolucion** — Redacta la resolución final.
 
-4. Orquestador (`app/orchestrator/workflow.py`)
-	- Encadena analisis -> recuperacion normativa -> dictamen.
+El estado de cada atención (`InformeAtencion`) se mantiene **en memoria** del
+proceso, indexado por `codreclamo` (no hay base de datos todavía — ver
+[`API.md`](API.md) §3).
 
-## Modelos locales previstos
+---
 
-- Extraccion de entidades/hechos: spaCy (y extension futura GLiNER).
-- Embeddings para RAG: `qwen3-embedding:0.6b` (Ollama), con la instrucción de consulta de `.env.example`.
-- LLM local para dictamen: Qwen3 8B o Llama 3.1 8B via Ollama.
+## Requisitos previos
 
-## Variables de entorno recomendadas
+- Python 3.11+
+- Docker Desktop (para Qdrant y Ollama)
+- Git
 
-- `OLLAMA_BASE_URL` (default: `http://ollama:11434`)
-- `OLLAMA_GENERATOR_MODEL` (ejemplo: `qwen3:8b`)
-- `QDRANT_URL` (ejemplo: `http://localhost:6333`)
-- `QDRANT_COLLECTION_NAME` (default: `sunass_reglamento`)
-- `OLLAMA_EMBEDDING_MODEL` (recomendado: `qwen3-embedding:0.6b`), `EMBEDDING_QUERY_PREFIX` / `EMBEDDING_DOCUMENT_PREFIX`
-- `NORMATIVA_FUENTES` (default: `sunass_reclamos,sunass_reglamento`: primero atención de reclamos, después calidad), `NORMATIVA_TOP_K`, `NORMATIVA_UMBRAL_SCORE`
-- `SPACY_MODEL` (default: `es_core_news_sm`)
+---
 
 ## Despliegue local (desarrollo)
 
-### Requisitos previos
-
-- Python 3.11+
-- Docker Desktop corriendo
-- Git
-
-### 1. Clonar el repositorio
+### 1. Clonar e instalar dependencias
 
 ```bash
 git clone <url-del-repo>
 cd asistente-reclamos-emapa-server
-```
 
-### 2. Crear entorno virtual e instalar dependencias
-
-```bash
 python -m venv .venv
-
 # Windows
 .venv\Scripts\activate
-
 # Linux / macOS
 source .venv/bin/activate
 
-pip install -r requirements.txt
-python -m spacy download es_core_news_sm
+pip install -r app/requirements.txt
 ```
 
-### 3. Configurar variables de entorno
+### 2. Configurar variables de entorno
 
-Copiar el archivo de ejemplo y completar los valores:
+Copia el ejemplo y completa los valores. El archivo está documentado variable
+por variable (proveedores LLM, Ollama, Qdrant, API EMAPA):
 
 ```bash
-cp .env.example .env   # si no existe, crear .env manualmente
+cp .env.example .env
 ```
 
-Contenido minimo del `.env` para desarrollo local:
+Ver [`.env.example`](.env.example) para el detalle de cada variable.
 
-```env
-# LLM
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_GENERATOR_MODEL=qwen3:8b
-
-# Vector DB
-QDRANT_URL=http://localhost:6333
-QDRANT_COLLECTION_NAME=sunass_reglamento
-
-# Embeddings y búsqueda normativa (valores completos en .env.example)
-OLLAMA_EMBEDDING_MODEL=qwen3-embedding:0.6b
-EMBEDDING_QUERY_PREFIX="Instruct: Given a question about a water utility claim, retrieve the regulation article that answers it\nQuery: "
-EMBEDDING_DOCUMENT_PREFIX=
-NORMATIVA_FUENTES=sunass_reclamos,sunass_reglamento
-NORMATIVA_UMBRAL_SCORE=0.58
-
-# spaCy
-SPACY_MODEL=es_core_news_sm
-
-# EMAPA backend (obtener token actualizado del sistema EMAPA)
-EMAPA_API_BASE_URL=https://comercial.emapasanmartin.com:8889/sysco-comercial/backend
-EMAPA_ACCESS_TOKEN=<token-jwt-emapa>
-
-# Requerido por Settings (puede ser cualquier valor en dev local)
-OPENCODE_GO_API_KEY=local-dev
-```
-
-### 4. Levantar Qdrant y Ollama con Docker
+### 3. Levantar Qdrant y Ollama
 
 ```bash
-docker compose up qdrant ollama -d
+make up    # = docker compose -f docker-compose.yml -f docker-compose.dev.yml up qdrant ollama -d
 ```
 
-Verificar que Qdrant esta activo:
+`docker-compose.dev.yml` publica los puertos al host solo en desarrollo (`6333`
+Qdrant, `11434` Ollama). Con una GPU NVIDIA usa `make up-gpu` (suma
+`docker-compose.gpu.yml`): indexar las dos normas toma ~45 s en vez de varios
+minutos de CPU.
+
+Descargar los modelos que use Ollama (generación + embeddings):
 
 ```bash
-curl http://localhost:6333/
+docker exec ollama ollama pull qwen2.5:3b
+docker exec ollama ollama pull qwen3-embedding:0.6b
 ```
 
-### 5. Descargar el modelo LLM en Ollama
+### 4. Indexar la normativa SUNASS en Qdrant
 
-```bash
-# Qwen (~5 GB, descarga unica)
-docker exec ollama ollama pull qwen3.5:latest
-```
-
-Verificar modelos disponibles:
-
-```bash
-docker exec ollama ollama list
-```
-
-### 6. Indexar la normativa SUNASS en Qdrant
-
-Yumi busca primero en el Reglamento de Reclamos (`sunass_reclamos`) y solo si no alcanza
-para argumentar pasa al de Calidad (`sunass_reglamento`). Los PDF ya estan en el repo
-(`app/src/storage/files/`). Con Qdrant y Ollama arriba (y el modelo de embeddings
-descargado: `docker exec ollama ollama pull qwen3-embedding:0.6b`):
+Yumi busca primero en el Reglamento de Reclamos (`sunass_reclamos`) y solo si no
+alcanza para argumentar pasa al de Calidad (`sunass_reglamento`). Los PDF ya están
+en el repo (`app/src/storage/files/`). Con Qdrant y Ollama arriba:
 
 ```bash
 python -m app.src.application.services.rag.index_reclamos --recrear
@@ -186,72 +133,78 @@ python -m app.src.application.services.rag.index_calidad --recrear
 # o ambos:  make index
 ```
 
-Si se cambia el modelo o los prefijos de embeddings hay que reindexar las dos. Medicion de la
-busqueda: `python -m app.test.rag.evaluar_busqueda --modo qdrant` (ver `DIAGNOSTICO_RAG.md`).
+Si se cambia el modelo o los prefijos de embeddings (`.env`) hay que reindexar las
+dos. Medición de la búsqueda: `python -m app.test.rag.evaluar_busqueda --modo qdrant`
+(ver [`DIAGNOSTICO_RAG.md`](DIAGNOSTICO_RAG.md) y [`CAMBIOS_RAG.md`](CAMBIOS_RAG.md)).
 
-### 7. Iniciar la API en modo desarrollo
+> Alternativa vía API: `POST /normativa/documentos/pdf` (multipart) permite
+> subir e indexar un reglamento sin usar el script. Con `coleccion=sunass_reclamos`
+> o `sunass_reglamento` usa el troceador propio de cada norma (`estructura=auto`);
+> con cualquier otra colección, el genérico.
+
+### 5. Iniciar la API
 
 ```bash
 uvicorn app.src.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Swagger UI disponible en: **http://localhost:8000/docs**
+Swagger UI: **http://localhost:8000/docs**
+
+> Atajos: el [`Makefile`](Makefile) reúne estos pasos (`make setup`, `make up`,
+> `make run`, `make index`).
 
 ---
 
 ## Despliegue completo con Docker Compose
 
-Para correr todo en contenedores (incluida la API):
+Levanta todo en contenedores (Qdrant + Ollama + API):
 
 ```bash
-docker compose up --build
+docker compose up --build -d
 ```
 
-Esto levanta:
-- `qdrant` en `localhost:6333`
-- `ollama` en `localhost:11434`
-- `sunass-agent` (FastAPI) en `localhost:8000`
+Servicios (`docker-compose.yml`):
 
-> Nota: Al usar Docker Compose completo, cambiar en `.env`:
-> `OLLAMA_BASE_URL=http://ollama:11434`
-> `QDRANT_URL=http://qdrant:6333`
+- `qdrant`
+- `ollama`
+- `agent` (FastAPI, imagen construida desde `app/Dockerfile`)
 
-Luego indexar las dos normas desde dentro del contenedor:
+> En este modo, en `.env` usa los nombres de servicio como host:
+> `OLLAMA_BASE_URL=http://ollama:11434` y `QDRANT_URL=http://qdrant:6333`.
+
+Luego indexa las dos normas dentro del contenedor (descarga antes el modelo de
+embeddings: `docker exec ollama ollama pull qwen3-embedding:0.6b`):
 
 ```bash
-docker exec sunass-agent python -m app.src.application.services.rag.index_reclamos --recrear
-docker exec sunass-agent python -m app.src.application.services.rag.index_calidad --recrear
+docker exec yumi-agent python -m app.src.application.services.rag.index_reclamos --recrear
+docker exec yumi-agent python -m app.src.application.services.rag.index_calidad --recrear
 ```
 
 ---
 
 ## Endpoints principales
 
-| Metodo | Ruta | Descripcion |
-|--------|------|-------------|
-| POST | `/reclamos/clasificar` | Clasifica un reclamo por tipo |
-| POST | `/investigacion/iniciar` | Flujo completo: analisis + normas + dictamen |
-| POST | `/investigacion/planificar` | Solo planificacion |
-| GET | `/modelos` | Lista modelos disponibles |
+La API expone dos procesos de negocio: **atención de reclamos** (flujo
+orquestado) y **gestión de normativa** (base de conocimiento del RAG). Resumen:
 
-Ejemplo de request a `/investigacion/iniciar`:
+| Prefijo | Para qué sirve |
+|---|---|
+| `/reclamos` | Buscar el reclamo, iniciar/orquestar la atención, leer el informe, cerrar. |
+| `/investigacion` | Analizar cada medio probatorio, fundamentar y concluir (sync y `/stream`). |
+| `/conciliacion` | Generar/editar la propuesta de conciliación. |
+| `/resolucion` | Generar/editar la resolución final. |
+| `/modelos` | Catálogo y control de modelos/proveedores de inferencia. |
+| `/normativa/...` | Ingesta, mantenimiento y búsqueda de la normativa (RAG). |
 
-```json
-{
-  "suministro_id": "001-000123",
-  "codsede": "001",
-  "codsuc": "001",
-  "codcliente": "000123",
-  "codreclamo": "000456",
-  "anio": "2025",
-  "detalle_reclamo": "No estoy conforme con el cobro de los recibos del 2025, ya que mis consumos son de 23 m3 aproximadamente."
-}
-```
+El detalle completo (rutas, orden de llamada, ejemplos, streaming, errores)
+está en [`API.md`](API.md). Los tipos exactos, siempre en `/docs`.
 
 ---
 
 ## Notas
 
-- Se limpiaron imports heredados en rutas activas.
-- La carpeta legacy anterior fue eliminada completamente para cerrar la migracion.
-- Para nuevas funcionalidades, usar `app/agents/` y `app/orchestrator/workflow.py`.
+- La inferencia LOCAL (Ollama) y la EXTERNA (combo de proveedores) son modos
+  independientes; se eligen por petición vía headers `X-LLM-Provider` /
+  `X-LLM-Api-Key` (ver [`API.md`](API.md) §2).
+- Los tests de desarrollo y los `requirements` auxiliares no forman parte del
+  despliegue: la única lista de dependencias es `app/requirements.txt`.

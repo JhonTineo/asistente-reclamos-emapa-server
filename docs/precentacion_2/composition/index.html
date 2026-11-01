@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920, height=1080">
+<title>Yumi — Asistente de reclamos</title>
+<link rel="stylesheet" href="css/deck.css">
+<link rel="stylesheet" href="css/demo.css?v=sysco-flow">
+<script src="vendor/gsap.min.js"></script>
+</head>
+<body>
+<script type="application/hyperframes-slideshow+json">
+{
+  "slides": [
+    {
+      "sceneId": "portada",
+      "notes": "Buenas tardes. Les vamos a mostrar cómo atender un reclamo con Yumi en un intervalo de tres a cinco minutos, incluida la revisión y aprobación humana."
+    },
+    {
+      "sceneId": "dolor",
+      "notes": "Un reclamo toma de tres a cinco días desde que se realizaron las inspecciones. Hoy el especialista abre varias pestañas para resolver un reclamo, junta las pruebas a mano, busca la norma y redacta tres documentos por cada reclamo: informe de atención, propuesta de conciliación y resolución. Siguiente: pestañas. Siguiente: documentos.",
+      "fragments": [
+        6.3,
+        6.55,
+        6.8
+      ]
+    },
+    {
+      "sceneId": "riesgo",
+      "notes": "El reglamento da 30 días hábiles. Si no se emite la resolución a tiempo, el reclamo se declara fundado por silencio administrativo, sin haber terminado la investigación. No es un problema de fondo: es de tiempo.",
+      "fragments": [
+        12.3,
+        12.55
+      ]
+    },
+    {
+      "sceneId": "solucion",
+      "notes": "Yumi prepara el expediente completo: informe de atención, propuesta de conciliación y resolución, exportables a Word. Y la persona revisa y aprueba.",
+      "fragments": [
+        18.3,
+        18.55
+      ]
+    },
+    {
+      "sceneId": "recorrido",
+      "notes": "El reclamo sigue cuatro etapas en el sistema central. Primero, se registra y se sigue su estado en el sistema comercial de la empresa. Segundo, el personal realiza las inspecciones e investiga los medios probatorios; Yumi analiza los medios aplicables y prepara el informe de atención. Tercero, Yumi prepara la propuesta de la empresa para la conciliación con base en la atención. Cuarto, redacta la resolución a partir de la atención y la conciliación. El personal revisa y registra los documentos en el sistema comercial de la empresa. El apoyo de Yumi al análisis y redacción toma de tres a cinco minutos con las inspecciones ya realizadas y revisión humana. Cada Siguiente avanza una etapa. Yumi se incorpora al sistema comercial que utilice la empresa.",
+      "fragments": [
+        24.3,
+        24.55,
+        24.8,
+        25.05,
+        25.3
+      ]
+    },
+    {
+      "sceneId": "medios",
+      "notes": "Yumi analiza los medios probatorios aplicables al reclamo. La pantalla muestra ejemplos: tarjeta de lecturas, récord de facturación, cortes y reaperturas, saldo detalle e inspecciones interna y externa. No limita la investigación a esos ejemplos. Explica los hallazgos en lenguaje claro. Siguiente: análisis listo.",
+      "fragments": [
+        30.3,
+        30.55
+      ]
+    },
+    {
+      "sceneId": "normativa",
+      "notes": "Cada hallazgo se contrasta con el reglamento de SUNASS. El reglamento se corta en artículos y se guarda en una base vectorial. Con un hallazgo, Yumi recupera el artículo aplicable y lo cita. La resolución sale fundamentada, no de memoria.",
+      "fragments": [
+        36.3,
+        36.55
+      ]
+    },
+    {
+      "sceneId": "corre",
+      "notes": "Puede correr completamente en su servidor, con modelos locales, y los datos del reclamo no salen de la empresa. O con un proveedor en la nube. Si preguntan por la arquitectura: botón Ver arquitectura.",
+      "fragments": [
+        42.3,
+        42.55
+      ],
+      "hotspots": [
+        {
+          "id": "h-arq",
+          "label": "Ver arquitectura",
+          "target": "seq-arquitectura",
+          "region": {
+            "x": 62,
+            "y": 3,
+            "w": 36,
+            "h": 9
+          }
+        }
+      ]
+    },
+    {
+      "sceneId": "demo",
+      "notes": "Demostración del flujo integrado, con cuatro etapas y diez pasos de navegación. Ingreso: SYSCO conserva los datos y el seguimiento del reclamo; las capturas disponibles son el detalle y listado de un reclamo registrado, no el formulario de alta inicial. Atención: el personal realiza las inspecciones y reúne las pruebas; Yumi define la investigación, analiza los medios aplicables y genera el informe de atención para revisión y registro en SYSCO. Conciliación: se muestran el listado, los datos y los campos de propuesta y acuerdos de SYSCO junto a la propuesta que Yumi prepara con base en la atención. Resolución: se muestran el listado, los antecedentes y el campo de resolución de SYSCO junto a la redacción que Yumi elabora con base en la atención y conciliación. El personal conduce la conciliación, revisa los documentos y registra los resultados. Las capturas de SYSCO y Yumi son referencias de distintos expedientes y no representan una transacción automática entre pantallas. El botón final abre Yumi en vivo.",
+      "fragments": [
+        48.3,
+        48.55,
+        48.8,
+        49.05,
+        49.3,
+        49.55,
+        49.8,
+        50.05,
+        50.3,
+        50.55
+      ]
+    },
+    {
+      "sceneId": "piloto",
+      "notes": "Proponemos empezar en paralelo, sin tocar su proceso, durante dos meses. Después, escribir directamente en su sistema comercial y, por último, automatizar los reclamos simples.",
+      "fragments": [
+        54.3,
+        54.55,
+        54.8
+      ]
+    },
+    {
+      "sceneId": "cierre",
+      "notes": "Les proponemos algo concreto: tomamos 20 expedientes de su EPS y comparamos con lo que ustedes resolvieron. Gracias. El botón abre Yumi en vivo."
+    }
+  ],
+  "slideSequences": [
+    {
+      "id": "seq-arquitectura",
+      "label": "Arquitectura",
+      "slides": [
+        {
+          "sceneId": "arquitectura",
+          "notes": "Panel web en React, servicio en FastAPI, agentes, normativa en base vectorial, modelo local o en la nube y conexión al sistema comercial."
+        }
+      ]
+    }
+  ]
+}
+</script>
+
+<div id="root" data-composition-id="root" data-start="0" data-duration="72.0" data-width="1920" data-height="1080">
+<div id="bg"><div id="bg-waves" data-layout-allow-overflow></div><div id="bg-dots" data-layout-allow-overflow></div></div>
+<div id="viewport" data-layout-allow-overflow>
+  <div id="world" data-layout-allow-overflow>
+    <svg id="river" width="1" height="1"></svg>
+  <div id="scene-portada" class="scene-frame" data-layout-allow-overflow data-composition-id="portada" data-start="0.0" data-duration="6.0" data-label="Portada" data-width="1920" data-height="1080"></div>
+  <div id="scene-dolor" class="scene-frame" data-layout-allow-overflow data-composition-id="dolor" data-start="6.0" data-duration="6.0" data-label="El dolor" data-width="1920" data-height="1080"></div>
+  <div id="scene-riesgo" class="scene-frame" data-layout-allow-overflow data-composition-id="riesgo" data-start="12.0" data-duration="6.0" data-label="El riesgo" data-width="1920" data-height="1080"></div>
+  <div id="scene-solucion" class="scene-frame" data-layout-allow-overflow data-composition-id="solucion" data-start="18.0" data-duration="6.0" data-label="Presentamos a Yumi" data-width="1920" data-height="1080"></div>
+  <div id="scene-recorrido" class="scene-frame" data-layout-allow-overflow data-composition-id="recorrido" data-start="24.0" data-duration="6.0" data-label="El recorrido del reclamo" data-width="1920" data-height="1080"></div>
+  <div id="scene-medios" class="scene-frame" data-layout-allow-overflow data-composition-id="medios" data-start="30.0" data-duration="6.0" data-label="Los medios probatorios" data-width="1920" data-height="1080"></div>
+  <div id="scene-normativa" class="scene-frame" data-layout-allow-overflow data-composition-id="normativa" data-start="36.0" data-duration="6.0" data-label="La norma" data-width="1920" data-height="1080"></div>
+  <div id="scene-corre" class="scene-frame" data-layout-allow-overflow data-composition-id="corre" data-start="42.0" data-duration="6.0" data-label="Dónde corre" data-width="1920" data-height="1080"></div>
+  <div id="scene-demo" class="scene-frame" data-layout-allow-overflow data-composition-id="demo" data-start="48.0" data-duration="6.0" data-label="SYSCO y Yumi: funcionamiento" data-width="1920" data-height="1080"></div>
+  <div id="scene-piloto" class="scene-frame" data-layout-allow-overflow data-composition-id="piloto" data-start="54.0" data-duration="6.0" data-label="La ruta de un piloto" data-width="1920" data-height="1080"></div>
+  <div id="scene-cierre" class="scene-frame" data-layout-allow-overflow data-composition-id="cierre" data-start="60.0" data-duration="6.0" data-label="Cierre" data-width="1920" data-height="1080"></div>
+  <div id="scene-arquitectura" class="scene-frame" data-layout-allow-overflow data-composition-id="arquitectura" data-start="66.0" data-duration="6.0" data-label="Arquitectura" data-width="1920" data-height="1080"></div>
+    <div id="token"><div class="glow"></div><svg width="88" height="104" viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="gtok" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9CCBFC"/><stop offset="1" stop-color="#3A83F7"/></linearGradient></defs><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z" fill="url(#gtok)"/></svg></div>
+  </div>
+</div>
+</div>
+
+<script>window.YUMI_CFG = [{"id": "portada", "label": "Portada", "start": 0.0, "dur": 6.0, "cx": 0, "cy": 0, "levels": 1, "theme": "dark", "glow": true}, {"id": "dolor", "label": "El dolor", "start": 6.0, "dur": 6.0, "cx": 2700, "cy": -450, "levels": 3, "theme": "light", "glow": false, "frags": [6.3, 6.55, 6.8]}, {"id": "riesgo", "label": "El riesgo", "start": 12.0, "dur": 6.0, "cx": 5400, "cy": 250, "levels": 2, "theme": "ink", "glow": false, "frags": [12.3, 12.55]}, {"id": "solucion", "label": "Presentamos a Yumi", "start": 18.0, "dur": 6.0, "cx": 8100, "cy": -250, "levels": 2, "theme": "warm", "glow": false, "frags": [18.3, 18.55]}, {"id": "recorrido", "label": "El recorrido del reclamo", "start": 24.0, "dur": 6.0, "cx": 10800, "cy": 300, "levels": 5, "theme": "light", "glow": false, "foci": [[10800, 300], [12300, -100], [13800, 300], [15300, -100], [16800, 300]], "frags": [24.3, 24.55, 24.8, 25.05, 25.3]}, {"id": "medios", "label": "Los medios probatorios", "start": 30.0, "dur": 6.0, "cx": 21000, "cy": -300, "levels": 2, "theme": "cool", "glow": false, "frags": [30.3, 30.55]}, {"id": "normativa", "label": "La norma", "start": 36.0, "dur": 6.0, "cx": 23700, "cy": 350, "levels": 2, "theme": "light", "glow": false, "frags": [36.3, 36.55]}, {"id": "corre", "label": "Dónde corre", "start": 42.0, "dur": 6.0, "cx": 29100, "cy": 300, "levels": 2, "theme": "light", "glow": false, "frags": [42.3, 42.55]}, {"id": "demo", "label": "SYSCO y Yumi: funcionamiento", "start": 48.0, "dur": 6.0, "cx": 31800, "cy": -200, "levels": 10, "theme": "cool", "glow": false, "frags": [48.3, 48.55, 48.8, 49.05, 49.3, 49.55, 49.8, 50.05, 50.3, 50.55]}, {"id": "piloto", "label": "La ruta de un piloto", "start": 54.0, "dur": 6.0, "cx": 39900, "cy": 250, "levels": 3, "theme": "light", "glow": false, "frags": [54.3, 54.55, 54.8]}, {"id": "cierre", "label": "Cierre", "start": 60.0, "dur": 6.0, "cx": 42600, "cy": 0, "levels": 1, "theme": "dark", "glow": true}, {"id": "arquitectura", "label": "Arquitectura", "start": 66.0, "dur": 6.0, "cx": 29100, "cy": 1900, "levels": 1, "branch": true, "theme": "light", "glow": false}];</script>
+<script src="js/icons.js"></script>
+<script src="js/robot.js?v=yumi-icon"></script>
+<script src="js/robotfx.js?v=yumi-icon"></script>
+<script src="js/demo.js?v=sysco-flow"></script>
+<script src="js/scenes.js?v=sysco-flow"></script>
+<script src="js/engine.js"></script>
+<script>
+  // js/engine.js registra window.__timelines["root"] y un timeline vacío por escena; aquí queda declarado para el contrato.
+  window.__timelines = window.__timelines || {};
+  window.__timelines["root"] = window.__timelines["root"] || gsap.timeline({ paused: true });
+</script>
+</body>
+</html>

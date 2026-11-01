@@ -1,0 +1,102 @@
+/* Yumi · presentación — estilo OpenAI + shadcn/ui.
+   Paleta primitiva de openai.com (azul, naranja, rosa, amarillo, grises) sobre superficies neutras de shadcn.
+   Fuentes: Inter Tight (texto) y Geist Mono (etiquetas). Sin transiciones CSS: el movimiento lo hace GSAP. */
+@font-face { font-family: "Inter Tight"; src: url("../fonts/InterTight-wght.woff2") format("woff2"); font-weight: 100 900; font-style: normal; }
+@font-face { font-family: "Geist Mono"; src: url("../fonts/GeistMono-wght.woff2") format("woff2"); font-weight: 100 900; font-style: normal; }
+
+:root {
+  --k: #000; --ink: #0A0A0A; --g900: #181818; --g600: #414141; --g500: #5D5D5D; --g400: #8F8F8F; --g300: #AFAFAF; --g200: #CDCDCD; --g100: #E8E8E8; --g50: #F9F9F9;
+  --blue: #3A83F7; --blue200: #63A8F8; --blue500: #2C67C5; --blue600: #1F4E94; --blue50: #E8F3FE; --purple: #8952EE; --pink: #F077AF; --orange: #EE7C37; --orange500: #D25E28; --yellow: #F6C543;
+  --green: #53B559; --green50: #DEF3E5; --green600: #3A843F; --red: #FA423E; --red50: #FFE5E0; --red600: #BA2623;
+}
+
+/* ---------- temas de escena (cada escena es un "lienzo" sobre el mundo negro) ---------- */
+.t-dark, .t-ink { --bg: #000; --fg: #fff; --mut: #AFAFAF; --card: #111; --cardline: rgba(255,255,255,.11); --acc: #63A8F8; --accfill: #63A8F8; --onacc: #000; --track: rgba(255,255,255,.10); --warn: #EE7C37; --good: #6BC67F; --chipbg: rgba(255,255,255,.08); --chipline: rgba(255,255,255,.28); --glowc: rgba(99,168,248,.35); }
+.t-ink { --bg: #0A0A0A; }
+.t-light { --bg: #F7F7F7; --fg: #181818; --mut: #5D5D5D; --card: #fff; --cardline: #E8E8E8; --acc: #2C67C5; --accfill: #3A83F7; --onacc: #fff; --track: rgba(0,0,0,.07); --warn: #D25E28; --good: #3A843F; --chipbg: #fff; --chipline: rgba(0,0,0,.2); --glowc: rgba(58,131,247,.25); }
+.t-warm { --bg: #F6B58C; --fg: #181818; --mut: #414141; --card: #fff; --cardline: rgba(0,0,0,.06); --acc: #181818; --accfill: #181818; --onacc: #fff; --track: rgba(0,0,0,.10); --warn: #181818; --good: #3A843F; --chipbg: rgba(255,255,255,.55); --chipline: rgba(0,0,0,.22); --glowc: rgba(255,255,255,.5); }
+.t-cool { --bg: #1A2660; --fg: #fff; --mut: rgba(255,255,255,.8); --card: rgba(255,255,255,.11); --cardline: rgba(255,255,255,.24); --acc: #fff; --accfill: #fff; --onacc: #0A0A0A; --track: rgba(255,255,255,.14); --warn: #FFC08A; --good: #9FDDB1; --chipbg: rgba(255,255,255,.1); --chipline: rgba(255,255,255,.34); --glowc: rgba(255,255,255,.3); }
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 1920px; height: 1080px; overflow: hidden; background: #000; }
+body { font-family: "Inter Tight", system-ui, sans-serif; color: #fff; -webkit-font-smoothing: antialiased; }
+
+/* ---------- mundo y cámara ---------- */
+#bg { position: absolute; inset: 0; background: #000; }
+#bg-waves, #bg-dots { position: absolute; inset: -400px; will-change: transform; }
+#viewport { position: absolute; inset: 0; overflow: hidden; }
+#world { position: absolute; left: 0; top: 0; width: 1px; height: 1px; transform-origin: 0 0; will-change: transform; }
+#river { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; z-index: 3; }
+#token { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; z-index: 5; }
+#token .glow { position: absolute; left: -80px; top: -80px; width: 160px; height: 160px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(99,168,248,.55) 0%, rgba(99,168,248,0) 66%); }
+#token svg { position: absolute; left: -44px; top: -52px; }
+
+/* ---------- escenas: lienzos redondeados con su propio fondo ---------- */
+.scene-frame { position: absolute; width: 1920px; height: 1080px; overflow: hidden; border-radius: 56px;
+  background: var(--bg); color: var(--fg);
+  opacity: 0; visibility: hidden; pointer-events: none; box-shadow: 0 0 0 1.5px rgba(255,255,255,.07); }
+.scene-frame.is-active { visibility: visible; pointer-events: auto; }
+.scene-frame.wide { overflow: visible; background: transparent; box-shadow: none; }
+.scene-frame.glowb { background: radial-gradient(1300px 520px at 50% 118%, rgba(58,131,247,.42), transparent 70%), radial-gradient(900px 420px at 80% 122%, rgba(240,119,175,.30), transparent 70%), radial-gradient(800px 380px at 18% 122%, rgba(246,197,67,.20), transparent 70%), #000; }
+.scene-frame.t-warm { background: radial-gradient(1000px 800px at 6% 108%, #F6C543 0%, rgba(246,197,67,0) 62%), radial-gradient(1100px 860px at 96% -6%, #F077AF 0%, rgba(240,119,175,0) 64%), radial-gradient(900px 700px at 62% 78%, #EE7C37 0%, rgba(238,124,55,0) 68%), #F6B58C; }
+.scene-frame.t-cool { background: radial-gradient(1100px 800px at 8% -10%, rgba(58,131,247,.75), transparent 62%), radial-gradient(1100px 900px at 100% 108%, rgba(137,82,238,.70), transparent 62%), linear-gradient(135deg, #12275A 0%, #2A1C63 100%); }
+.hidden-frag { opacity: 0; }
+.strip { position: absolute; border-radius: 56px; background: #F7F7F7; box-shadow: 0 0 0 1.5px rgba(255,255,255,.07); }
+
+/* ---------- tipografía ---------- */
+.abs { position: absolute; }
+.center { display: flex; align-items: center; justify-content: center; }
+.col { display: flex; flex-direction: column; }
+.mono { font-family: "Geist Mono", ui-monospace, monospace; letter-spacing: -.02em; }
+.tag { display: inline-flex; align-items: center; gap: 12px; height: 52px; padding: 0 22px; border-radius: 999px; font-size: 28px; font-weight: 500; letter-spacing: -.01em; border: 1.5px solid var(--chipline); color: var(--mut); white-space: nowrap; }
+.title { font-size: 100px; line-height: 1.0; font-weight: 600; letter-spacing: -.045em; color: var(--fg); }
+.title.big { font-size: 150px; }
+.sub { font-size: 46px; line-height: 1.2; font-weight: 500; color: var(--mut); letter-spacing: -.02em; }
+.lab { font-size: 40px; line-height: 1.12; font-weight: 600; color: var(--fg); letter-spacing: -.025em; }
+.lab.sm { font-size: 34px; font-weight: 600; }
+.note { font-size: 30px; line-height: 1.25; font-weight: 500; color: var(--mut); }
+.stat { font-weight: 600; letter-spacing: -.055em; line-height: .95; color: var(--fg); }
+.hl { color: var(--acc); } .warn { color: var(--warn); } .bad { color: var(--red); } .good { color: var(--good); }
+.grad { background: linear-gradient(90deg, #F6C543 0%, #EE7C37 40%, #F077AF 70%, #F6C543 100%); background-size: 220% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
+.ico { display: inline-flex; line-height: 0; }
+
+/* ---------- superficies ---------- */
+.panel { background: var(--card); border: 1.5px solid var(--cardline); border-radius: 28px; }
+.t-light .panel, .t-warm .panel { box-shadow: 0 1px 3px rgba(0,0,0,.07), 0 28px 70px rgba(0,0,0,.07); }
+.panel.solid { background: var(--card); }
+.panel.inv { background: #fff; border-color: #fff; color: #181818; }
+.disc { border-radius: 30%; display: flex; align-items: center; justify-content: center; background: var(--card); border: 1.5px solid var(--cardline); color: var(--acc); }
+.t-light .disc, .t-warm .disc { box-shadow: 0 1px 3px rgba(0,0,0,.07), 0 20px 50px rgba(0,0,0,.07); }
+.disc.on { border: 3px solid var(--accfill); box-shadow: 0 0 0 12px var(--glowc); }
+.pill { display: inline-flex; align-items: center; gap: 14px; padding: 14px 30px; border-radius: 999px; font-size: 36px; font-weight: 600; letter-spacing: -.02em; white-space: nowrap; }
+.pill.acc, .pill.aqua-bg { background: var(--accfill); color: var(--onacc); }
+.pill.dk, .pill.leaf-bg { background: var(--fg); color: var(--bg); }
+.pill.red-bg { background: var(--red); color: #181818; }
+.pill.amber-bg { background: var(--orange); color: #181818; }
+.pill.ok { background: var(--green50); color: var(--green600); }
+.pill.line { border: 2px solid var(--chipline); color: var(--mut); }
+.badge-det { font-size: 24px; font-weight: 600; background: var(--red50); color: var(--red600); border-radius: 10px; padding: 6px 12px; font-family: "Geist Mono", monospace; letter-spacing: -.01em; }
+
+/* ventana de producto */
+.win { background: #fff; border-radius: 24px; overflow: hidden; color: #181818; box-shadow: 0 40px 90px rgba(0,0,0,.5), 0 0 0 1.5px rgba(255,255,255,.2); }
+
+.btn-live { display: inline-flex; align-items: center; gap: 20px; padding: 28px 52px; border-radius: 999px;
+  background: #fff; color: #0A0A0A; font-size: 46px; font-weight: 600; letter-spacing: -.025em; cursor: pointer; border: 0;
+  box-shadow: 0 0 0 0 rgba(255,255,255,.4), 0 18px 50px rgba(0,0,0,.35); font-family: inherit; }
+.btn-live:hover { box-shadow: 0 0 0 14px rgba(255,255,255,.16), 0 22px 60px rgba(0,0,0,.4); }
+
+.num { position: absolute; left: 80px; top: 64px; }
+#root { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden; }
+
+/* ---------- Yumi, el robot ---------- */
+.yb { position: absolute; z-index: 6; }
+.ybi { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+.ybi svg { display: block; }
+.bubble { position: absolute; z-index: 7; background: #fff; color: #181818; border-radius: 28px; padding: 16px 28px; font-size: 34px; font-weight: 600; letter-spacing: -.025em; line-height: 1.1; white-space: nowrap; box-shadow: 0 18px 44px rgba(0,0,0,.25); opacity: 0; }
+.bubble::after { content: ""; position: absolute; width: 24px; height: 24px; background: #fff; border-radius: 5px; transform: rotate(45deg); }
+.bubble.br::after { right: var(--tr, 52px); bottom: -10px; } .bubble.bl::after { left: var(--tl, 52px); bottom: -10px; }
+.bubble.rr::after { right: -10px; top: 40px; } .bubble.ll::after { left: -10px; top: 40px; }
+.blob { position: absolute; width: 760px; height: 760px; border-radius: 50%; pointer-events: none; }
+.t-warm .blob { background: radial-gradient(circle, rgba(255,255,255,.38), rgba(255,255,255,0) 66%); }
+.t-cool .blob { background: radial-gradient(circle, rgba(99,168,248,.34), rgba(99,168,248,0) 66%); }

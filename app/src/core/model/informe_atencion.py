@@ -1,8 +1,24 @@
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Literal
 
 from app.src.core.model.reclamo import Reclamo
 from app.src.core.model.conciliacion import Conciliacion
+
+
+EstadoEvaluacion = Literal[
+    "pendiente", "completada", "requiere_evidencia", "requiere_revision",
+    "error_evaluacion",
+]
+
+
+@dataclass
+class MotivoEvaluacion:
+    codigo: str
+    objetivos_afectados: list[int] = field(default_factory=list)
+    descripcion: str = ""
+    evidencia_pendiente: str | None = None
+    accion_necesaria: str | None = None
 
 
 @dataclass
@@ -11,8 +27,14 @@ class ProblemaNormado:
     normativa (se completa en la fase de fundamentación)."""
     tipo: str                          # "errorConsumo", "observacion", ...
     detalle: str                       # texto concreto CON cifras (para el LLM)
+    fuente: str | None = None
+    texto_original: str | None = None
 
     # --- se llena en la fase de fundamentación normativa ---
+    # `seleccionado`: el problema fue elegido como determinante (1-3) y por tanto
+    # se fundamenta (RAG + párrafo). Los no seleccionados se muestran igual como
+    # tarjeta, pero sin artículos.
+    seleccionado: bool = False
     articulos: list[dict] = field(default_factory=list)   # recuperados de Qdrant
     accion: str | None = None
     responsable: str | None = None     # "cliente" | "empresa" | "no_determinable"
@@ -30,6 +52,13 @@ class ObjetivoInvestigacion:
     # se llenan al evaluarlo contra los hallazgos (fase de conclusión)
     resultado: str | None = None
     evidencia: str | None = None
+
+    @property
+    def medios_relacionados(self) -> tuple[str, ...]:
+        """Las inspecciones aportan contexto complementario sin sustituirse."""
+        if self.medio in {"inspeccion_interna", "inspeccion_externa"}:
+            return ("inspeccion_interna", "inspeccion_externa")
+        return (self.medio,) if self.medio else ()
 
 
 @dataclass
@@ -57,12 +86,30 @@ class InformeAtencion:
     suministro: str
     destinatario: str | None = None
     datos_reclamo: Reclamo | None = None
+    medios_probatorios: list[dict[str, str]] = field(default_factory=list)
     objetivos: list["ObjetivoInvestigacion"] = field(default_factory=list)  # paso 2
     # --- cuerpo (se llena por medio, paso 3-4) ---
     bloques: list[BloqueMedio] = field(default_factory=list)
+    # PDF temporal cargado para el medio técnico operacional. Solo existe
+    # mientras la atención del reclamo permanezca abierta.
+    documento_tecnico_operacional: dict | None = None
     ventana_meses: list[tuple[int, int]] = field(default_factory=list)
+    # Párrafo de fundamentación normativa: se genera tras analizar los medios
+    # (a partir de los hallazgos determinantes) y se renderiza como punto final,
+    # antes de la conclusión, tal como el punto normativo de los informes reales.
+    fundamentacion_normativa: str | None = None
+    estado_evaluacion: EstadoEvaluacion = "pendiente"
+    motivos_evaluacion: list[MotivoEvaluacion] = field(default_factory=list)
+    mensaje_evaluacion: str | None = None
+    origen_decision: str | None = None  # "automatica" | "historica_sysco"
+    historial_decisiones: list[dict] = field(default_factory=list)
     veredicto: str | None = None       # "FUNDADO" | "INFUNDADO" (puerta lógica)
     conclusion: str | None = None      # texto de la conclusión (paso final)
+    # Texto completo recuperado de SYSCO. Cuando existe, es la fuente original
+    # que debe devolverse al frontend; los tres campos anteriores son su vista
+    # estructurada para que conciliación y resolución puedan reutilizar el mismo
+    # flujo que un informe generado por este servicio.
+    informe_texto_original: str | None = None
     # --- pasos posteriores a la conclusión (paso 4-5) ---
     propuesta_conciliacion: Conciliacion | None = None
     resolucion: str | None = None
@@ -71,6 +118,9 @@ class InformeAtencion:
     # pestaña recargando" de "otra ventana intentando atender el mismo
     # reclamo en paralelo".
     sesion_id: str | None = None
+    # Usuario de EMAPA que inició la atención. Se usa solo para organizar la
+    # cola en la interfaz; no constituye una regla de autorización.
+    creado_por: str | None = None
 
     @property
     def clasificacion(self) -> str | None:

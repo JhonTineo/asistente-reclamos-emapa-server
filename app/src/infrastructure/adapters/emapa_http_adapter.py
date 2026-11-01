@@ -4,7 +4,7 @@ from typing import Any, Optional
 import httpx
 
 from app.src.infrastructure.config.settings import settings
-from app.src.infrastructure.adapters.http_client import http_get_json
+from app.src.infrastructure.adapters.http_client import http_get_json, http_post_json, EmapaSinDatosError
 from app.src.application.ports.emapa_api_port import PuertoEmapaAPI
 
 logger = logging.getLogger("tools.emapa_api")
@@ -36,6 +36,10 @@ EMAPA_ENDPOINTS = {
     "inspeccion_interna": {
         "path": "/api-micromedicion/reclamos/get-inspeccion-interna/{codsuc}/{codinspeccion}",
         "method": "GET",
+    },
+    "imagenes_cliente": {
+        "path": "/api-externa/ftp/generico/download/read",
+        "method": "POST",
     },
     "buscar_reclamo": {
         "path": "/api-reclamos/reclamo/obtener/detalle/{codsede}/{codsuc}/{codreclamo}/{codcliente}",
@@ -148,3 +152,32 @@ class EmapaHttpAdapter(PuertoEmapaAPI):
             codinspeccion=codinspeccion,
         )
         return self._request(endpoint)
+
+    def obtener_imagenes_cliente(self, codsuc: str, codcliente: str,
+                                 fecha_inicial: str, fecha_final: str) -> dict[str, Any]:
+        """POST ftp/generico/download/read. Devuelve las imágenes con su base64,
+        por eso puede tardar (≈20 s para dos meses): timeout amplio y sin
+        reintentos. Se prueba primero con 'Bearer <token>' (como el resto del
+        adaptador) y, si SYSCO responde vacío o 401/403, con el token crudo
+        (así lo acepta api-externa en las pruebas realizadas)."""
+        url = self._get_url(EMAPA_ENDPOINTS["imagenes_cliente"]["path"])
+        cuerpo = {"codsuc": codsuc, "codcliente": int(codcliente) if str(codcliente).isdigit() else codcliente,
+                  "fecha_inicial": fecha_inicial, "fecha_final": fecha_final}
+        headers = self._get_headers()
+        intentos = [headers]
+        auth = headers.get("Authorization", "")
+        if auth.lower().startswith("bearer "):
+            intentos.append({**headers, "Authorization": auth[7:]})
+        ultimo: Exception | None = None
+        for h in intentos:
+            try:
+                return http_post_json(url=url, json_data=cuerpo, headers=h, timeout=120.0, retries=0)
+            except EmapaSinDatosError as exc:
+                ultimo = exc
+            except httpx.HTTPStatusError as exc:
+                if exc.response is None or exc.response.status_code not in (401, 403):
+                    raise
+                ultimo = exc
+        if isinstance(ultimo, EmapaSinDatosError):
+            return {"data": []}
+        raise ultimo  # type: ignore[misc]

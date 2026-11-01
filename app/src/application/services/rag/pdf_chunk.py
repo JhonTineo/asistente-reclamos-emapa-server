@@ -136,8 +136,19 @@ CAP_RE = re.compile(r"^CAP[IÍ]TULO", re.I)
 
 SUBCAP_RE = re.compile(r"^SUBCAP[IÍ]TULO", re.I)
 
+# Encabezado de artículo. Acepta la forma completa "Artículo 13.-" y la
+# abreviada "Art. 126.-" (que usa el TUO en algunos artículos), además de
+# sufijos "62-A". Exige el guion "N.-" para no confundirse con las referencias
+# internas del tipo "el artículo 34 del Reglamento".
 ARTICLE_RE = re.compile(
-    r"^ART[IÍ]CULO\s+(\d+)",
+    r"^ART(?:[IÍ]CULO|\.)\s*(\d+(?:\s*-\s*[A-Za-z])?)\s*\.?\s*-",
+    re.I
+)
+
+# Cierre del articulado: a partir de aquí vienen las Disposiciones, que no son
+# artículos y no deben mezclarse con el último artículo.
+DISPOSICIONES_RE = re.compile(
+    r"DISPOSICIONES\s+(?:TRANSITORIAS|COMPLEMENTARIAS|FINALES)",
     re.I
 )
 
@@ -180,6 +191,20 @@ def parse_document(blocks):
             subcapitulo = text
 
             continue
+
+        if DISPOSICIONES_RE.match(text):
+
+            # Fin del articulado: cerramos el último artículo y dejamos de
+            # acumular (las disposiciones no son artículos).
+            if current is not None:
+
+                current["texto"] = current["texto"].strip()
+
+                articles.append(current)
+
+                current = None
+
+            break
 
         m = ARTICLE_RE.match(text)
 
@@ -225,6 +250,10 @@ import re
 def clean_article(article):
 
     txt = article["texto"]
+
+    # Si las disposiciones quedaron pegadas al último artículo (por venir en el
+    # mismo bloque), las recortamos aquí.
+    txt = DISPOSICIONES_RE.split(txt)[0]
 
     txt = re.sub(
         r"\(Texto según.*?\)",

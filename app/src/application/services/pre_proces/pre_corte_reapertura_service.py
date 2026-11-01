@@ -76,7 +76,6 @@ class PreCorteReaperturaService:
             return CorteReapertura(), pd.DataFrame(columns=COLUMNAS)
 
         df_raw = pd.DataFrame(registros)
-        codcliente = str(df_raw["codcliente"].iloc[0]) if "codcliente" in df_raw.columns else None
         total_originales = len(df_raw)
 
         # 1. Tipar año/mes y filtrar por la ventana (inner join).
@@ -99,7 +98,6 @@ class PreCorteReaperturaService:
                 len(ventana), total_originales,
             )
             corte = CorteReapertura(
-                codcliente=codcliente,
                 sinRegistrosEnVentana=True,
                 totalRegistrosOriginales=total_originales,
             )
@@ -116,7 +114,6 @@ class PreCorteReaperturaService:
 
         indicadores = self._calcular_indicadores(df)
         corte = CorteReapertura(
-            codcliente=codcliente,
             totalRegistrosOriginales=total_originales,
             registros=df_a_registros(df),
             **indicadores,

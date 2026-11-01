@@ -23,3 +23,16 @@ class ClasificarRapidoResponse(BaseModel):
 class FinalizarAtencionResponse(BaseModel):
     codreclamo: str
     eliminado: bool
+
+
+class ReclamoEnMemoria(BaseModel):
+    """Metadatos mínimos de un reclamo con informe vivo en memoria del servidor."""
+    codreclamo: str
+    codcliente: str | None = None
+    sesion_id: str | None = None
+    creado_por: str | None = None
+    veredicto: str | None = None
+
+
+class ReclamosEnMemoriaResponse(BaseModel):
+    reclamos: list[ReclamoEnMemoria]

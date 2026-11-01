@@ -96,7 +96,6 @@ class PreRecordFacturacionService:
             return RecordFacturacion(), pd.DataFrame(columns=COLUMNAS)
 
         df_raw = pd.DataFrame(registros)
-        codcliente = str(df_raw["codcliente"].iloc[0]) if "codcliente" in df_raw.columns else None
 
         # 1. Tipar año/mes y filtrar por la ventana (inner join).
         df = df_raw.copy()
@@ -123,7 +122,7 @@ class PreRecordFacturacionService:
             "catetar": CATETAR,
             "estadoservicio": INDICADORES_TARJETA_LECTURA["estadoservicio"],
         })
-        record = RecordFacturacion(codcliente=codcliente, registros=registros, **indicadores)
+        record = RecordFacturacion(registros=registros, **indicadores)
         return record, df
 
     def _calcular_indicadores(self, df: pd.DataFrame) -> dict:

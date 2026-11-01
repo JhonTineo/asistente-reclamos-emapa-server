@@ -176,7 +176,7 @@ def construir_sustentacion(informe: InformeAtencion) -> SustentacionData:
 
     data = SustentacionData(
         cliente=ClientePredio(
-            suministro=(reclamo.codcliente if reclamo else None) or tarjeta.get("codcliente"),
+            suministro=reclamo.codcliente if reclamo else None,
             nombre_usuario=tarjeta.get("propietario") or (reclamo.propietario if reclamo else None),
             dni=reclamo.dni if reclamo else None,
             direccion=tarjeta.get("direccion"),

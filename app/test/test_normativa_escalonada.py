@@ -159,6 +159,73 @@ def test_cada_norma_se_consulta_con_su_propia_query():
     assert "diferencia de lecturas" in q_calidad
 
 
+class RouterMarcarFalso:
+    """Para `marcar_aplica` (flujo vigente): devuelve la lista de índices que
+    aplican según la norma que aparezca en el listado de artículos del prompt."""
+    def __init__(self, aplica_en):
+        self.aplica_en = aplica_en
+        self.prompts = []
+
+    def generar_json(self, mensajes, modelo_id=None):
+        prompt = mensajes[0].contenido + mensajes[1].contenido
+        self.prompts.append(prompt)
+        norma = "calidad" if "del Reglamento de Calidad" in prompt else "reclamos"
+        return "[0]" if norma in self.aplica_en else "[]"
+
+
+def test_buscar_y_marcar_se_queda_en_reclamos_si_un_articulo_aplica():
+    RetrieverFalso.por_coleccion = {
+        "sunass_reclamos": [_punto("14", "14.2", 0.8)],
+        "sunass_reglamento": [_punto("92", "92.3", 0.9)],
+    }
+    router = RouterMarcarFalso(aplica_en={"reclamos"})
+    arts = _agente(router).buscar_y_marcar(_problema(), "", "motivo")
+    assert [(a["coleccion"], a["aplica"]) for a in arts] == [("sunass_reclamos", True)]
+    assert len(router.prompts) == 1
+    assert [c for c, _ in RetrieverFalso.consultas] == ["sunass_reclamos"]   # calidad ni se consulta
+
+
+def test_buscar_y_marcar_escala_a_calidad_si_en_reclamos_ninguno_aplica():
+    RetrieverFalso.por_coleccion = {
+        "sunass_reclamos": [_punto("14", "14.2", 0.8)],
+        "sunass_reglamento": [_punto("92", "92.3", 0.9)],
+    }
+    router = RouterMarcarFalso(aplica_en={"calidad"})
+    arts = _agente(router).buscar_y_marcar(_problema(), "", "motivo")
+    # El frontend ve lo evaluado en la norma prioritaria (sin aplicar) y con cuál se argumentó.
+    assert [(a["norma_corta"], a["aplica"]) for a in arts] == [
+        ("Reglamento de Reclamos", False), ("Reglamento de Calidad", True),
+    ]
+    assert "del Reglamento de Reclamos" in router.prompts[0]
+    assert [c for c, _ in RetrieverFalso.consultas] == ["sunass_reclamos", "sunass_reglamento"]
+
+
+def test_buscar_y_marcar_pasa_directo_a_calidad_si_reclamos_no_supera_el_umbral():
+    RetrieverFalso.por_coleccion = {
+        "sunass_reclamos": [_punto("14", "14.2", 0.3)],
+        "sunass_reglamento": [_punto("92", "92.3", 0.9)],
+    }
+    router = RouterMarcarFalso(aplica_en={"calidad"})
+    arts = _agente(router).buscar_y_marcar(_problema(), "", "motivo")
+    assert [(a["coleccion"], a["aplica"]) for a in arts] == [("sunass_reglamento", True)]
+    assert len(router.prompts) == 1
+
+
+def test_buscar_y_marcar_si_ninguna_norma_aplica_devuelve_lo_evaluado_sin_aplica():
+    RetrieverFalso.por_coleccion = {
+        "sunass_reclamos": [_punto("14", "14.2", 0.8)],
+        "sunass_reglamento": [_punto("92", "92.3", 0.9)],
+    }
+    arts = _agente(RouterMarcarFalso(aplica_en=set())).buscar_y_marcar(_problema(), "", "motivo")
+    assert len(arts) == 2 and not any(a["aplica"] for a in arts)
+
+
+def test_buscar_y_marcar_sin_colecciones_o_sin_resultados_devuelve_vacio():
+    assert _agente(RouterMarcarFalso(aplica_en=set()), existentes=()).buscar_y_marcar(_problema()) == []
+    RetrieverFalso.por_coleccion = {"sunass_reclamos": [_punto("14", "14.2", 0.1)]}
+    assert _agente(RouterMarcarFalso(aplica_en=set())).buscar_y_marcar(_problema()) == []
+
+
 def test_todos_los_tipos_de_problema_tienen_consulta_canonica():
     from app.src.application.services.pre_proces import problemas_normalizer as pn
     tipos = (set(pn.GRUPOS_TARJETA) | set(pn.GRUPOS_SALDO) | set(pn.GRUPOS_RECORD)

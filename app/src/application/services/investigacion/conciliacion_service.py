@@ -11,6 +11,7 @@ from app.src.infrastructure.api_rest.schemas.investigacion import (
     ConciliacionRequest, ConciliacionResponse,
     ActualizarPropuestaRequest, ActualizarPropuestaResponse,
     ActualizarConciliacionRequest, ActualizarConciliacionResponse,
+    GuardarConciliacionRequest,
 )
 from app.src.application.usecase.agents.conciliador import ConciliadorAgent
 from app.src.application.services.informe.informe_store import informe_store
@@ -40,12 +41,13 @@ async def generar_propuesta_conciliacion(request: ConciliacionRequest, llm_route
                 "Genere el informe de atención antes de la propuesta de conciliación."
             ),
         )
-    if not informe.conclusion or not informe.veredicto:
+    if (informe.estado_evaluacion != "completada"
+            or not informe.conclusion or not informe.veredicto):
         raise HTTPException(
             status_code=409,
             detail=(
-                "El informe aún no tiene conclusión con veredicto. Genere el "
-                "informe (paso de conclusión) antes de la propuesta."
+                "No existe una decisión vigente y completa. Revise el estado "
+                "de evaluación antes de generar la propuesta."
             ),
         )
 
@@ -98,7 +100,7 @@ def actualizar_conciliacion(request: ActualizarConciliacionRequest) -> Actualiza
         puntos_desacuerdo=request.puntos_desacuerdo,
         observaciones=request.observaciones,
     )
-    if conciliacion is None:
+    if not conciliacion:
         raise HTTPException(
             status_code=404,
             detail=f"No hay un informe en curso para el reclamo {request.codreclamo}.",
@@ -109,4 +111,33 @@ def actualizar_conciliacion(request: ActualizarConciliacionRequest) -> Actualiza
         puntos_acuerdo=conciliacion.puntos_acuerdo,
         puntos_desacuerdo=conciliacion.puntos_desacuerdo,
         observaciones=conciliacion.observaciones,
+    )
+
+
+def guardar_conciliacion(request: GuardarConciliacionRequest) -> ActualizarConciliacionResponse:
+    """Guarda todos los campos de la conciliación en una sola petición."""
+    # Primero guardamos la propuesta de la empresa
+    if request.propuesta_empresa is not None:
+        informe_store.actualizar_propuesta(request.codreclamo, request.propuesta_empresa)
+    
+    # Luego los demás datos
+    conciliacion = informe_store.actualizar_conciliacion(
+        request.codreclamo,
+        propuesta_reclamante=request.propuesta_reclamante,
+        puntos_acuerdo=request.puntos_acuerdo,
+        puntos_desacuerdo=request.puntos_desacuerdo,
+        observaciones=request.observaciones,
+    )
+    
+    if not conciliacion and request.propuesta_empresa is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No hay un informe en curso para el reclamo {request.codreclamo}.",
+        )
+    return ActualizarConciliacionResponse(
+        codreclamo=request.codreclamo,
+        propuesta_reclamante=conciliacion.propuesta_reclamante if conciliacion else None,
+        puntos_acuerdo=conciliacion.puntos_acuerdo if conciliacion else None,
+        puntos_desacuerdo=conciliacion.puntos_desacuerdo if conciliacion else None,
+        observaciones=conciliacion.observaciones if conciliacion else None,
     )

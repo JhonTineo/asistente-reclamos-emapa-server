@@ -10,6 +10,7 @@ from app.src.infrastructure.api_rest.deps import (
     catalogo_externo,
     PROVEEDOR_PREDETERMINADO,
     MODELO_PREDETERMINADO,
+    PROVEEDORES_EXTERNOS,
 )
 from app.src.infrastructure.config.settings import settings
 from app.src.infrastructure.config.llm_context import get_llm_ctx
@@ -100,12 +101,17 @@ def proveedores() -> ProveedoresListResponse:
     Es ESTÁTICO a propósito: no consulta ninguna API externa, así que responde
     al instante. Los modelos de cada proveedor se piden aparte, y solo del que
     el usuario seleccione, con GET /modelos/proveedor/{id}."""
+    # Se ordenan según PROVEEDORES_EXTERNOS (el orden real en que el proxy los
+    # intenta), no el de catalogo_externo(), para que el frontend liste el combo
+    # del proxy en la misma prioridad con que se ejecuta.
+    externos_por_id = catalogo_externo()
+    orden = {pid: i for i, pid in enumerate(PROVEEDORES_EXTERNOS)}
     externos = [
         ProveedorResponse(
             id=p.id, label=p.label, tipo="openai_compat",
             requiere_key=True, modelos=p.modelos,
         )
-        for p in catalogo_externo().values()
+        for p in sorted(externos_por_id.values(), key=lambda p: orden.get(p.id, len(orden)))
     ]
 
     ollama_ok = _ollama_online()

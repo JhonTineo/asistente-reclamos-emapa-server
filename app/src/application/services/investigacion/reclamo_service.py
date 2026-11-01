@@ -29,6 +29,10 @@ def codigo_inspeccion(datos: dict | None, campo: str) -> str | None:
     completa. None si el reclamo no tiene ninguna inspección de ese tipo
     vinculada todavía."""
     data = datos.get("data") if isinstance(datos, dict) else None
+    if isinstance(data, dict):
+        codigo_directo = data.get(f"cod{campo}")
+        if codigo_directo:
+            return str(codigo_directo)
     items = data.get(campo) if isinstance(data, dict) else None
     if isinstance(items, list) and items:
         ultimo = items[-1]
