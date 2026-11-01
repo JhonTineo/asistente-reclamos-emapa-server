@@ -43,8 +43,8 @@ run:
 	$(UVICORN) app.main:app --host 0.0.0.0 --port 8000 --reload
 
 index:
-	$(VENV_PYTHON) -m app.scripts.chunk_and_index
-	$(VENV_PYTHON) -m app.scripts.build_reclamos_index
+	$(VENV_PYTHON) -m app.src.application.services.rag.index_reclamos --recrear
+	$(VENV_PYTHON) -m app.src.application.services.rag.index_calidad --recrear
 
 test-llm:
 	$(VENV_PYTHON) test_llm.py

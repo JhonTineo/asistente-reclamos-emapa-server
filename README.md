@@ -1,5 +1,3 @@
-<<<<<<< Updated upstream
-=======
 # Asistente de Reclamos SUNASS (Modelos Locales)
 
 Proyecto de agentes para analizar, sustentar y dictaminar reclamos de usuarios usando normativa SUNASS.
@@ -70,7 +68,7 @@ qdrant_storage/
 ## Modelos locales previstos
 
 - Extraccion de entidades/hechos: spaCy (y extension futura GLiNER).
-- Embeddings para RAG: BGE-M3.
+- Embeddings para RAG: `qwen3-embedding:0.6b` (Ollama), con la instrucción de consulta de `.env.example`.
 - LLM local para dictamen: Qwen3 8B o Llama 3.1 8B via Ollama.
 
 ## Variables de entorno recomendadas
@@ -79,7 +77,8 @@ qdrant_storage/
 - `OLLAMA_GENERATOR_MODEL` (ejemplo: `qwen3:8b`)
 - `QDRANT_URL` (ejemplo: `http://localhost:6333`)
 - `QDRANT_COLLECTION_NAME` (default: `sunass_reglamento`)
-- `EMBEDDING_MODEL` (default: `BAAI/bge-m3`)
+- `OLLAMA_EMBEDDING_MODEL` (recomendado: `qwen3-embedding:0.6b`), `EMBEDDING_QUERY_PREFIX` / `EMBEDDING_DOCUMENT_PREFIX`
+- `NORMATIVA_FUENTES` (default: `sunass_reclamos,sunass_reglamento`: primero atención de reclamos, después calidad), `NORMATIVA_TOP_K`, `NORMATIVA_UMBRAL_SCORE`
 - `SPACY_MODEL` (default: `es_core_news_sm`)
 
 ## Despliegue local (desarrollo)
@@ -131,8 +130,12 @@ OLLAMA_GENERATOR_MODEL=qwen3:8b
 QDRANT_URL=http://localhost:6333
 QDRANT_COLLECTION_NAME=sunass_reglamento
 
-# Embeddings
-EMBEDDING_MODEL=BAAI/bge-m3
+# Embeddings y búsqueda normativa (valores completos en .env.example)
+OLLAMA_EMBEDDING_MODEL=qwen3-embedding:0.6b
+EMBEDDING_QUERY_PREFIX="Instruct: Given a question about a water utility claim, retrieve the regulation article that answers it\nQuery: "
+EMBEDDING_DOCUMENT_PREFIX=
+NORMATIVA_FUENTES=sunass_reclamos,sunass_reglamento
+NORMATIVA_UMBRAL_SCORE=0.58
 
 # spaCy
 SPACY_MODEL=es_core_news_sm
@@ -172,18 +175,24 @@ docker exec ollama ollama list
 
 ### 6. Indexar la normativa SUNASS en Qdrant
 
-Colocar el PDF del Reglamento SUNASS en `app/storage/files/` y ejecutar:
+Yumi busca primero en el Reglamento de Reclamos (`sunass_reclamos`) y solo si no alcanza
+para argumentar pasa al de Calidad (`sunass_reglamento`). Los PDF ya estan en el repo
+(`app/src/storage/files/`). Con Qdrant y Ollama arriba (y el modelo de embeddings
+descargado: `docker exec ollama ollama pull qwen3-embedding:0.6b`):
 
 ```bash
-python -m app.scripts.chunk_and_index
+python -m app.src.application.services.rag.index_reclamos --recrear
+python -m app.src.application.services.rag.index_calidad --recrear
+# o ambos:  make index
 ```
 
-Este paso descargara el modelo de embeddings BGE-M3 (~2.3 GB) la primera vez.
+Si se cambia el modelo o los prefijos de embeddings hay que reindexar las dos. Medicion de la
+busqueda: `python -m app.test.rag.evaluar_busqueda --modo qdrant` (ver `DIAGNOSTICO_RAG.md`).
 
 ### 7. Iniciar la API en modo desarrollo
 
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn app.src.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 Swagger UI disponible en: **http://localhost:8000/docs**
@@ -207,10 +216,11 @@ Esto levanta:
 > `OLLAMA_BASE_URL=http://ollama:11434`
 > `QDRANT_URL=http://qdrant:6333`
 
-Luego indexar el reglamento desde dentro del contenedor:
+Luego indexar las dos normas desde dentro del contenedor:
 
 ```bash
-docker exec sunass-agent python -m app.scripts.chunk_and_index
+docker exec sunass-agent python -m app.src.application.services.rag.index_reclamos --recrear
+docker exec sunass-agent python -m app.src.application.services.rag.index_calidad --recrear
 ```
 
 ---
@@ -245,4 +255,3 @@ Ejemplo de request a `/investigacion/iniciar`:
 - Se limpiaron imports heredados en rutas activas.
 - La carpeta legacy anterior fue eliminada completamente para cerrar la migracion.
 - Para nuevas funcionalidades, usar `app/agents/` y `app/orchestrator/workflow.py`.
->>>>>>> Stashed changes

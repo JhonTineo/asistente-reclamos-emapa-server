@@ -162,6 +162,10 @@ async def generar_conclusion_stream(request: InformeRequest, llm_router: LlmRout
                             "accion": problema.accion,
                             "responsable": problema.responsable,
                             "base_legal": problema.base_legal,
+                            # Tras la interpretación pueden ser otros que los del
+                            # evento "articulos": si el LLM no pudo argumentar con
+                            # la norma de reclamos, se escaló a la de calidad.
+                            "articulos": problema.articulos,
                         }, ensure_ascii=False) + "\n"
                         indice += 1
 

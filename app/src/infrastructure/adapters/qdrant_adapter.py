@@ -29,11 +29,14 @@ class QdrantAdapter(PuertoBaseVectorial):
         else:
             self.client = QdrantClient(url=os.getenv("QDRANT_URL", "http://127.0.0.1:6333"))
 
-    def create_collection(self, collection_name: Optional[str] = None, dimension: int = 768) -> None:
+    def create_collection(self, collection_name: Optional[str] = None, dimension: Optional[int] = None) -> None:
         target = collection_name or self.collection_name
+        # Antes el argumento valía 768 siempre e ignoraba `dim` del constructor.
+        dimension = dimension or self.dim
         if self.collection_exists(target):
+            self._verificar_dimension(target, dimension)
             return
-            
+
         self.client.create_collection(
             collection_name=target,
             vectors_config=VectorParams(
@@ -42,6 +45,26 @@ class QdrantAdapter(PuertoBaseVectorial):
             )
         )
         logger.info(f"Colección Qdrant creada: {target}")
+
+    def _verificar_dimension(self, target: str, dimension: int) -> None:
+        """Una colección creada con otro modelo de embeddings tiene otra
+        dimensión; sin esta comprobación el desajuste solo aparece como un error
+        opaco de Qdrant al hacer upsert o buscar."""
+        try:
+            vectores = self.client.get_collection(target).config.params.vectors
+            actual = getattr(vectores, "size", None)
+        except Exception:
+            return
+        if actual is not None and actual != dimension:
+            raise ValueError(
+                f"La colección '{target}' guarda vectores de dimensión {actual}, pero el "
+                f"modelo de embeddings actual produce {dimension}. Reindexa la colección "
+                f"con el modelo actual (o vuelve al modelo con que se creó)."
+            )
+
+    def delete_collection(self, collection_name: str) -> None:
+        self.client.delete_collection(collection_name=collection_name)
+        logger.info(f"Colección Qdrant eliminada: {collection_name}")
 
     def collection_exists(self, collection_name: str) -> bool:
         try:

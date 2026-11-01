@@ -11,6 +11,15 @@ services:
   ollama:
     ports:
       - "11434:11434"
+    # GPU NVIDIA (requiere el NVIDIA Container Toolkit / Docker Desktop con WSL2).
+    # Sin esto los embeddings corren en CPU y indexar una norma tarda minutos.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   agent:
     ports:

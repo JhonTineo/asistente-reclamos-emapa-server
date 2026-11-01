@@ -86,11 +86,19 @@ class BuscarNormativaRequest(BaseModel):
         le=20,
         description="Cantidad de artículos a devolver (por defecto 5)."
     )
+    coleccion: str | None = Field(
+        None,
+        description="Colección a consultar. Si se omite se busca por niveles, como Yumi: "
+                    "primero la norma de atención de reclamos (sunass_reclamos) y, si "
+                    "ningún artículo supera el umbral, la de calidad (sunass_reglamento). "
+                    "Cada resultado indica de qué colección viene."
+    )
 
 
 class ArticuloRelacionado(BaseModel):
     rank: int
     score: float
+    coleccion: str | None = None
     article: str | None = None
     numeral: str | None = None
     titulo: str | None = None
@@ -105,6 +113,22 @@ class BuscarNormativaResponse(BaseModel):
     query: str
     total: int
     resultados: list[ArticuloRelacionado]
+
+
+class NivelEscalonado(BaseModel):
+    nivel: int
+    coleccion: str
+    norma: str
+    disponible: bool
+    umbral: float
+    supera_umbral: bool
+    resultados: list[ArticuloRelacionado]
+
+
+class BuscarEscalonadaResponse(BaseModel):
+    query: str
+    coleccion_elegida: str | None
+    niveles: list[NivelEscalonado]
 
 
 class BuscarPalabraClaveRequest(BaseModel):

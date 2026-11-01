@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+import tempfile
 import uuid
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
@@ -10,7 +11,11 @@ from app.src.application.services.rag.md_embedding_service import (
     generar_embeddings,
     indexar_en_qdrant,
 )
+from app.src.application.services.rag.calidad_chunker import COLECCION_CALIDAD
 from app.src.application.services.rag.chunk_and_index import build_index
+from app.src.application.services.rag.index_calidad import indexar_calidad
+from app.src.application.services.rag.index_reclamos import indexar_reclamos
+from app.src.application.services.rag.reclamos_chunker import COLECCION_RECLAMOS
 from app.src.infrastructure.adapters.qdrant_adapter import QdrantAdapter
 from app.src.infrastructure.api_rest.schemas.normativa import (
     VectorizarMarkdownResponse,
@@ -25,6 +30,12 @@ logger = logging.getLogger("api.normativa.documentos")
 # cargada, ver normativa_articulos.py.
 router = APIRouter(prefix="/normativa/documentos", tags=["normativa-documentos"])
 
+ESTRUCTURAS = ("auto", "generica", "reclamos_tuo", "calidad_tuo")
+# Las dos colecciones de la búsqueda escalonada se cargan siempre con su chunker
+# propio: el genérico rompe ligaturas, pierde los preámbulos de los artículos y
+# deja fragmentos sueltos (ver DIAGNOSTICO_RAG.md).
+_ESTRUCTURA_POR_COLECCION = {COLECCION_RECLAMOS: "reclamos_tuo", COLECCION_CALIDAD: "calidad_tuo"}
+
 
 def sanitize_filename(filename: str) -> str:
     name = filename.rsplit(".", 1)[0] if "." in filename else filename
@@ -38,7 +49,7 @@ async def cargar_markdown(file: UploadFile = File(...)) -> VectorizarMarkdownRes
     colección en Qdrant (el nombre de la colección se deriva del nombre del
     archivo). Falla con 400 si la colección ya existe."""
     texto_md = await file.read()
-    logger.info(f"Archivo recibido: {file.filename}, texto: {texto_md.decode('utf-8')} bytes")
+    logger.info(f"Archivo recibido: {file.filename}, {len(texto_md)} bytes")
     coleccion = sanitize_filename(file.filename)
 
     qdrant = QdrantAdapter()
@@ -66,13 +77,26 @@ async def cargar_pdf(
     coleccion: str = Form(...),
     norma: str = Form(...),
     is_el_peruano: bool = Form(False),
+    estructura: str = Form(
+        "auto",
+        description="'auto' (por defecto): 'sunass_reclamos' usa 'reclamos_tuo', 'sunass_reglamento' usa "
+                    "'calidad_tuo' y cualquier otra colección usa 'generica'. 'reclamos_tuo' = TUO del "
+                    "Reglamento de Reclamos (RCD 015-2023-SUNASS-CD); 'calidad_tuo' = TUO del "
+                    "Reglamento de Calidad (RCD 058-2023-SUNASS-CD); 'generica' = reglamento con "
+                    "artículos y numerales de otra norma. Con las dos primeras el nombre `norma` "
+                    "no se usa: la norma la fija el chunker.",
+    ),
 ) -> VectorizarPdfResponse:
     """Sube un documento en PDF, extrae el texto, lo trocea y lo indexa en la
     colección indicada."""
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="El archivo debe ser un PDF.")
+    if estructura not in ESTRUCTURAS:
+        raise HTTPException(status_code=400, detail=f"'estructura' debe ser una de: {', '.join(ESTRUCTURAS)}.")
+    if estructura == "auto":
+        estructura = _ESTRUCTURA_POR_COLECCION.get(coleccion, "generica")
 
-    temp_path = f"/tmp/{uuid.uuid4()}_{file.filename}"
+    temp_path = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}_{file.filename}")
     try:
         with open(temp_path, "wb") as f:
             content = await file.read()
@@ -83,13 +107,18 @@ async def cargar_pdf(
             f"Formato El Peruano: {is_el_peruano})"
         )
 
-        build_index(
-            pdf_path=temp_path,
-            store=QdrantAdapter(),
-            coleccion=coleccion,
-            norma=norma,
-            is_el_peruano=is_el_peruano,
-        )
+        if estructura == "reclamos_tuo":
+            indexar_reclamos(temp_path, QdrantAdapter(), coleccion=coleccion)
+        elif estructura == "calidad_tuo":
+            indexar_calidad(temp_path, QdrantAdapter(), coleccion=coleccion)
+        else:
+            build_index(
+                pdf_path=temp_path,
+                store=QdrantAdapter(),
+                coleccion=coleccion,
+                norma=norma,
+                is_el_peruano=is_el_peruano,
+            )
 
         return VectorizarPdfResponse(
             status="ok",

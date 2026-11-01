@@ -33,7 +33,7 @@ from app.src.application.services.rag.pdf_chunk import (
     parse_document,
     clean_article,
 )
-from app.src.application.services.chunck.legal_chunker import (
+from app.src.application.services.rag.legal_chunker import (
     split_numerals,
 )
 

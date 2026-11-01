@@ -222,7 +222,8 @@ class ConclusionAgent:
                     texto = (art.get("texto") or "").strip()
                     if texto:
                         num = art.get("numeral") or art.get("article") or ""
-                        partes.append(f"  Art. {num}: {texto}")
+                        norma = f" del {art['norma_corta']}" if art.get("norma_corta") else ""
+                        partes.append(f"  Art. {num}{norma}: {texto}")
                 lineas.append("\n".join(partes))
         return "\n".join(lineas)
 
