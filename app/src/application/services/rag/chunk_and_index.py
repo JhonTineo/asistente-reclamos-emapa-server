@@ -1,5 +1,14 @@
+"""Indexado GENÉRICO de un PDF de reglamento (un punto por artículo), usado por la
+carga desde la UI (`POST /normativa/documentos/pdf`, estructura 'generica') para
+normas distintas de las dos de la búsqueda escalonada.
+
+Las dos colecciones de Yumi (`sunass_reclamos` y `sunass_reglamento`) NO se indexan con
+este módulo (rompe ligaturas, pierde los preámbulos de los artículos y no separa los
+numerales): usar `index_reclamos` e `index_calidad`. Por eso este módulo ya no se
+ejecuta como script: reindexaría `sunass_reglamento` con el troceo genérico.
+"""
+
 import os
-import glob
 import logging
 
 from dotenv import load_dotenv
@@ -79,7 +88,7 @@ def build_index(pdf_path, store: PuertoBaseVectorial, coleccion="sunass_reglamen
             article["articulo"] + "\n" + article["texto"]
         ).strip()
 
-        embedding = embedder.encode(article_text)
+        embedding = embedder.encode_document(article_text)
 
         points.append(
             {
@@ -118,43 +127,3 @@ def build_index(pdf_path, store: PuertoBaseVectorial, coleccion="sunass_reglamen
         "Chunks indexados: %d",
         len(points)
     )
-
-
-if __name__ == "__main__":
-
-    logging.basicConfig(
-        level=logging.INFO
-    )
-
-    # chunck -> services -> application -> src
-    SRC_DIR = os.path.dirname(
-        os.path.dirname(
-            os.path.dirname(
-                os.path.dirname(__file__)
-            )
-        )
-    )
-
-    pdf_path = os.path.join(
-        SRC_DIR,
-        "storage",
-        "files",
-        "*.pdf"
-    )
-
-    pdfs = glob.glob(
-        pdf_path
-    )
-
-    if not pdfs:
-        logger.warning(
-            "No se encontraron PDFs para indexar en %s",
-            os.path.join(SRC_DIR, "storage", "files")
-        )
-
-    # Punto de composición del script: acá sí se elige el adaptador concreto.
-    from app.src.infrastructure.adapters.qdrant_adapter import QdrantAdapter
-
-    store = QdrantAdapter()
-    for pdf in pdfs:
-        build_index(pdf, store)

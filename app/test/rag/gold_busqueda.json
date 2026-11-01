@@ -1,0 +1,122 @@
+{
+  "_aviso": "Etiquetas PROPUESTAS tras leer el TUO de Reclamos (015-2023) y el de Calidad (058-2023). Hay que validarlas con quien atiende reclamos en EMAPA antes de tomar decisiones con las métricas. 'esperados' = artículos que la búsqueda DEBE traer; 'aceptables' = suman si aparecen pero no son obligatorios. Los informes históricos (test/informes/gold) citan 'Art. 88.3 (RCD 061-2018)': en el TUO vigente esa regla es el Art. 92.3 de Calidad, por eso aquí se define por contenido y no por número.",
+  "casos": [
+    {"id": "fuga_visible_inodoro", "origen": "informes 0099-2023 y 3294-2022",
+     "tipo": "fugas", "detalle": "Fuga visible: fuga en 01 inodoro detectada en la inspección interna",
+     "motivo": "Usuario reclama facturación elevada del mes de noviembre",
+     "esperados": [{"coleccion": "sunass_reglamento", "article": "92", "numeral": "92.3"}]},
+
+    {"id": "fuga_no_visible_persiste", "origen": "informe 0123-2023",
+     "tipo": "fugas", "detalle": "Fuga no visible: con todos los puntos de agua cerrados el medidor sigue registrando consumo",
+     "motivo": "Usuario reclama facturación elevada de octubre y noviembre",
+     "esperados": [{"coleccion": "sunass_reglamento", "article": "92", "numeral": "92.3"}]},
+
+    {"id": "fuga_no_visible_reparada", "origen": "informes 0307-2023, 0316-2023 y 3430-2022",
+     "tipo": "fugaReparada", "detalle": "Fuga no visible reparada: el consumo bajó de 469 m3 en agosto a 38 m3 en octubre",
+     "motivo": "Usuario reclama consumo elevado de agosto y septiembre",
+     "esperados": [{"coleccion": "sunass_reglamento", "article": "92", "numeral": "92.3"}]},
+
+    {"id": "consumo_excesivo_sin_fuga", "origen": "informes 0289, 0295, 0326 y 0334-2023",
+     "nota": "ETIQUETA DUDOSA: esos 4 informes 'sin indicios de fuga' no citan ningún artículo; 92.2/92.3 son criterio propio. Validar con EMAPA.",
+     "tipo": "errorConsumo", "detalle": "Consumo excesivo: noviembre registró 45 m3 frente a un promedio de 20 m3",
+     "motivo": "Usuario reclama consumo elevado de noviembre",
+     "esperados": [{"coleccion": "sunass_reglamento", "article": "92", "numeral": "92.2"}],
+     "aceptables": [{"coleccion": "sunass_reglamento", "article": "92", "numeral": "92.3"},
+                    {"coleccion": "sunass_reglamento", "article": "92", "numeral": "92.1"}]},
+
+    {"id": "consumo_atipico", "tipo": "atipico",
+     "detalle": "Consumo atípico: la diferencia de lecturas supera en más del 100% al promedio histórico",
+     "motivo": "Usuario reclama consumo elevado",
+     "esperados": [{"coleccion": "sunass_reglamento", "article": "92", "numeral": "92.1"}]},
+
+    {"id": "racha_promediados", "tipo": "rachaPromediados",
+     "detalle": "Se facturó por promedio histórico durante 3 meses consecutivos",
+     "motivo": "Usuario reclama facturación por promedio",
+     "esperados": [{"coleccion": "sunass_reglamento", "article": "92", "numeral": "92.3"}]},
+
+    {"id": "medidor_sobrerregistra", "consulta": "la verificación posterior determinó que el medidor sobrerregistra el consumo, ¿el reclamo es fundado?",
+     "esperados": [{"coleccion": "sunass_reclamos", "article": "15", "numeral": "15.5"}]},
+
+    {"id": "verificacion_posterior_cuando", "consulta": "¿cuándo procede la verificación posterior del medidor como medio de prueba?",
+     "esperados": [{"coleccion": "sunass_reclamos", "article": "15", "numeral": "15.1"}]},
+
+    {"id": "verificacion_posterior_costo", "consulta": "¿quién asume el costo de la verificación posterior del medidor?",
+     "esperados": [{"coleccion": "sunass_reclamos", "article": "16", "numeral": null}],
+     "aceptables": [{"coleccion": "sunass_reclamos", "article": "15", "numeral": "15.2"}]},
+
+    {"id": "inspeccion_aviso", "consulta": "con cuánta anticipación se informa al reclamante el día y la hora de la inspección",
+     "esperados": [{"coleccion": "sunass_reclamos", "article": "14", "numeral": "14.2"}]},
+
+    {"id": "inspeccion_reclamante_ausente", "consulta": "el reclamante no estuvo presente en la inspección pese a haber sido notificado",
+     "esperados": [{"coleccion": "sunass_reclamos", "article": "14", "numeral": "14.4"}]},
+
+    {"id": "inspeccion_sin_reclamante_culpa_empresa", "consulta": "la inspección se realizó sin presencia del reclamante por causas atribuibles a la empresa prestadora",
+     "esperados": [{"coleccion": "sunass_reclamos", "article": "14", "numeral": "14.5"}]},
+
+    {"id": "inspeccion_interna_sin_acceso", "consulta": "la empresa no pudo acceder al predio para la inspección interna por causas no atribuibles a ella",
+     "esperados": [{"coleccion": "sunass_reclamos", "article": "14", "numeral": "14.6"}],
+     "aceptables": [{"coleccion": "sunass_reglamento", "article": "92", "numeral": "92.4"}]},
+
+    {"id": "reclamo_previo_mismo_ciclo", "tipo": "reclamosPrevios",
+     "detalle": "2022-11: reclamo N° 223328 por facturación del mismo ciclo",
+     "motivo": "Usuario presenta un nuevo reclamo por el mismo ciclo de facturación",
+     "esperados": [{"coleccion": "sunass_reclamos", "article": "14", "numeral": "14.8"}]},
+
+    {"id": "pagos_en_exceso", "tipo": "cobroIndebido",
+     "detalle": "Cobro indebido: se facturó alcantarillado en una conexión que no cuenta con el servicio",
+     "motivo": "Usuario pide la devolución de lo pagado",
+     "esperados": [{"coleccion": "sunass_reclamos", "article": "34", "numeral": null}]},
+
+    {"id": "pago_previo_y_corte", "tipo": "mesesNoPagados",
+     "detalle": "Meses no pagados: junio y julio sin cancelar",
+     "motivo": "Usuario reclama la facturación de junio y teme el corte del servicio",
+     "esperados": [{"coleccion": "sunass_reclamos", "article": "32", "numeral": "32.2"}],
+     "aceptables": [{"coleccion": "sunass_reclamos", "article": "33", "numeral": null}]},
+
+    {"id": "plazo_presentar_reclamo", "consulta": "plazo para presentar un reclamo relativo a la facturación",
+     "esperados": [{"coleccion": "sunass_reclamos", "article": "10", "numeral": "10.1"}]},
+
+    {"id": "plazo_resolver_primera_instancia", "consulta": "plazo de la empresa prestadora para resolver en primera instancia un reclamo por facturación",
+     "esperados": [{"coleccion": "sunass_reclamos", "article": "21", "numeral": "21.1"}]},
+
+    {"id": "silencio_administrativo_positivo", "consulta": "la empresa no notificó la resolución dentro del plazo: silencio administrativo positivo",
+     "esperados": [{"coleccion": "sunass_reclamos", "article": "25", "numeral": null}]},
+
+    {"id": "reclamo_fundado_sin_pruebas", "consulta": "si la empresa no actúa los medios de prueba del anexo el reclamo se declara fundado",
+     "esperados": [{"coleccion": "sunass_reclamos", "article": "12", "numeral": "12.1"}]},
+
+    {"id": "medios_prueba_consumo_medido", "consulta": "medios de prueba mínimos que debe presentar la empresa en un reclamo por consumo medido",
+     "esperados": [{"coleccion": "sunass_reclamos", "article": "ANEXO 3", "numeral": "B.1.1"}],
+     "aceptables": [{"coleccion": "sunass_reclamos", "article": "12", "numeral": "12.1"}]},
+
+    {"id": "medios_prueba_consumo_promedio", "consulta": "medios de prueba en un reclamo por consumo promedio: informe de los meses tomados para hallar el promedio",
+     "esperados": [{"coleccion": "sunass_reclamos", "article": "ANEXO 3", "numeral": "B.1.2"}]},
+
+    {"id": "recursos", "consulta": "plazo para presentar recurso de reconsideración o apelación contra la resolución",
+     "esperados": [{"coleccion": "sunass_reclamos", "article": "22", "numeral": null}]},
+
+    {"id": "notificacion_bajo_puerta", "consulta": "cómo se notifica la resolución cuando no hay nadie en el domicilio: notificación bajo puerta",
+     "esperados": [{"coleccion": "sunass_reclamos", "article": "36", "numeral": "36.2"}]},
+
+    {"id": "conciliacion", "consulta": "a más tardar cuándo se cita al usuario a la reunión de conciliación",
+     "esperados": [{"coleccion": "sunass_reclamos", "article": "18", "numeral": null}]},
+
+    {"id": "queja_trass", "consulta": "causales para presentar una queja ante el TRASS por defectos de tramitación",
+     "esperados": [{"coleccion": "sunass_reclamos", "article": "41", "numeral": null}]},
+
+    {"id": "promedio_historico_definicion", "nota": "CONOCIDO: el preámbulo del Art. 93 NO está en el índice actual de calidad (split_numerals lo descarta); debe fallar con el índice actual y pasar con el chunker corregido.",
+     "consulta": "qué es el promedio histórico de consumos y cuántas diferencias de lecturas válidas se necesitan",
+     "esperados": [{"coleccion": "sunass_reglamento", "article": "93", "numeral": null}]},
+
+    {"id": "promedio_no_incluye_reclamado", "consulta": "para calcular el promedio histórico de consumos no se incluye la facturación reclamada",
+     "esperados": [{"coleccion": "sunass_reglamento", "article": "91", "numeral": null}]},
+
+    {"id": "negativo_tarifas", "nota": "NEGATIVO: ninguna norma debería superar el umbral.",
+     "consulta": "horario de atención al público de la oficina y precio del m3 de agua potable de la categoría industrial",
+     "esperados": []},
+
+    {"id": "negativo_ajeno", "nota": "NEGATIVO: ninguna norma debería superar el umbral.",
+     "consulta": "requisitos para obtener un préstamo bancario para construir una casa",
+     "esperados": []}
+  ]
+}

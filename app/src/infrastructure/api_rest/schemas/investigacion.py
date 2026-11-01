@@ -68,6 +68,10 @@ class ArticuloSeleccion(BaseModel):
     score: float | None = None
     aplica: bool = True
     manual: bool = False
+    # Norma de origen (búsqueda escalonada): sin esto, un artículo curado por el
+    # usuario pierde de qué reglamento es al volver del front.
+    coleccion: str | None = None
+    norma_corta: str | None = None
 
 
 class ProblemaSeleccion(BaseModel):

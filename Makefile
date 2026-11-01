@@ -3,12 +3,13 @@ VENV_DIR ?= .venv
 VENV_PYTHON := $(VENV_DIR)/Scripts/python
 UVICORN := $(VENV_DIR)/Scripts/uvicorn
 
-.PHONY: help venv install setup up down restart logs run index docker-up docker-build docker-down clean deploy
+.PHONY: help venv install setup up up-gpu down restart logs run index docker-up docker-build docker-down clean deploy
 
 help:
 	@echo "Targets disponibles:"
 	@echo "  make setup        - Crear venv e instalar dependencias (app/requirements.txt)"
 	@echo "  make up           - Levantar infraestructura local (qdrant + ollama)"
+	@echo "  make up-gpu       - Igual, con GPU NVIDIA para Ollama"
 	@echo "  make run          - Ejecutar API FastAPI en modo reload"
 	@echo "  make index        - Indexar normativa en Qdrant"
 	@echo "  make docker-build - Levantar stack completo con build"
@@ -24,8 +25,14 @@ install: venv
 
 setup: install
 
+COMPOSE_DEV := docker compose -f docker-compose.yml -f docker-compose.dev.yml
+
 up:
-	docker compose up qdrant ollama -d
+	$(COMPOSE_DEV) up qdrant ollama -d
+
+# Igual que `up`, reservando la GPU NVIDIA para Ollama (ver docker-compose.gpu.yml).
+up-gpu:
+	$(COMPOSE_DEV) -f docker-compose.gpu.yml up qdrant ollama -d
 
 down:
 	docker compose stop qdrant ollama
@@ -39,7 +46,8 @@ run:
 	$(UVICORN) app.src.main:app --host 0.0.0.0 --port 8000 --reload
 
 index:
-	$(VENV_PYTHON) -m app.src.application.services.rag.chunk_and_index
+	$(VENV_PYTHON) -m app.src.application.services.rag.index_reclamos --recrear
+	$(VENV_PYTHON) -m app.src.application.services.rag.index_calidad --recrear
 
 docker-up:
 	docker compose up -d

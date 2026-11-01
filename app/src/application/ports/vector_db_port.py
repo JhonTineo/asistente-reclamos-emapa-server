@@ -15,6 +15,11 @@ class PuertoBaseVectorial(ABC):
     def collection_exists(self, collection_name: str) -> bool:
         pass
 
+    def delete_collection(self, collection_name: str) -> None:
+        """Elimina una colección completa (reindexado desde cero). No es
+        abstracto para no obligar a otras implementaciones a soportarlo."""
+        raise NotImplementedError
+
     @abstractmethod
     def get_collections(self) -> List[str]:
         pass

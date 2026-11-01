@@ -45,8 +45,8 @@ app/
 | **FastAPI** | Expone la API REST (sync y streaming NDJSON). |
 | **API comercial EMAPA** | Fuente de datos del reclamo: lecturas, facturación, inspecciones, cortes, saldos. |
 | **LLM** | Inferencia: externa (OpenRouter, Cerebras, Groq, OpenCode, Cloudflare) o local (Ollama). |
-| **Embeddings** | Ollama `nomic-embed-text` (768 dimensiones). |
-| **Qdrant** | Vector store del RAG normativo (colección `sunass_reglamento`). |
+| **Embeddings** | Ollama `qwen3-embedding:0.6b` (1024 dimensiones), con la instrucción de consulta de `.env.example`. |
+| **Qdrant** | Vector store del RAG normativo: `sunass_reclamos` (Reglamento de Reclamos, se consulta primero) y `sunass_reglamento` (Reglamento de Calidad, respaldo). |
 
 ### Agentes (`app/src/application/usecase/agents/`)
 
@@ -54,8 +54,9 @@ app/
 2. **objetivos** — Genera los objetivos de investigación a partir del motivo.
 3. **analista_medio** — Analiza cada medio probatorio (preproceso por reglas +
    interpretación del LLM).
-4. **recuperador_rag** / **fundamentacion_normativa** — Recuperan la normativa
-   SUNASS aplicable en Qdrant y fundamentan los hallazgos determinantes.
+4. **fundamentacion_normativa** — Recupera la normativa SUNASS aplicable en
+   Qdrant (primero el Reglamento de Reclamos y, si no alcanza, el de Calidad) y
+   fundamenta los hallazgos determinantes.
 5. **conclusion** — Evalúa objetivos vs. hallazgos y fija el veredicto.
 6. **conciliador** — Redacta la propuesta de conciliación.
 7. **resolucion** — Redacta la resolución final.
@@ -105,29 +106,41 @@ Ver [`.env.example`](.env.example) para el detalle de cada variable.
 ### 3. Levantar Qdrant y Ollama
 
 ```bash
-docker compose up qdrant ollama -d
+make up    # = docker compose -f docker-compose.yml -f docker-compose.dev.yml up qdrant ollama -d
 ```
 
-`docker-compose.override.yml` publica los puertos al host solo en desarrollo
-(`6333` Qdrant, `11434` Ollama, `8000` API con hot-reload).
+`docker-compose.dev.yml` publica los puertos al host solo en desarrollo (`6333`
+Qdrant, `11434` Ollama). Con una GPU NVIDIA usa `make up-gpu` (suma
+`docker-compose.gpu.yml`): indexar las dos normas toma ~45 s en vez de varios
+minutos de CPU.
 
 Descargar los modelos que use Ollama (generación + embeddings):
 
 ```bash
 docker exec ollama ollama pull qwen2.5:3b
-docker exec ollama ollama pull nomic-embed-text
+docker exec ollama ollama pull qwen3-embedding:0.6b
 ```
 
 ### 4. Indexar la normativa SUNASS en Qdrant
 
-Coloca el PDF del Reglamento SUNASS en `app/src/storage/files/` y ejecuta:
+Yumi busca primero en el Reglamento de Reclamos (`sunass_reclamos`) y solo si no
+alcanza para argumentar pasa al de Calidad (`sunass_reglamento`). Los PDF ya están
+en el repo (`app/src/storage/files/`). Con Qdrant y Ollama arriba:
 
 ```bash
-python -m app.src.application.services.rag.chunk_and_index
+python -m app.src.application.services.rag.index_reclamos --recrear
+python -m app.src.application.services.rag.index_calidad --recrear
+# o ambos:  make index
 ```
 
+Si se cambia el modelo o los prefijos de embeddings (`.env`) hay que reindexar las
+dos. Medición de la búsqueda: `python -m app.test.rag.evaluar_busqueda --modo qdrant`
+(ver [`DIAGNOSTICO_RAG.md`](DIAGNOSTICO_RAG.md) y [`CAMBIOS_RAG.md`](CAMBIOS_RAG.md)).
+
 > Alternativa vía API: `POST /normativa/documentos/pdf` (multipart) permite
-> subir e indexar un reglamento sin usar el script.
+> subir e indexar un reglamento sin usar el script. Con `coleccion=sunass_reclamos`
+> o `sunass_reglamento` usa el troceador propio de cada norma (`estructura=auto`);
+> con cualquier otra colección, el genérico.
 
 ### 5. Iniciar la API
 
@@ -159,10 +172,12 @@ Servicios (`docker-compose.yml`):
 > En este modo, en `.env` usa los nombres de servicio como host:
 > `OLLAMA_BASE_URL=http://ollama:11434` y `QDRANT_URL=http://qdrant:6333`.
 
-Luego indexa el reglamento dentro del contenedor:
+Luego indexa las dos normas dentro del contenedor (descarga antes el modelo de
+embeddings: `docker exec ollama ollama pull qwen3-embedding:0.6b`):
 
 ```bash
-docker exec sunass-agent python -m app.src.application.services.rag.chunk_and_index
+docker exec yumi-agent python -m app.src.application.services.rag.index_reclamos --recrear
+docker exec yumi-agent python -m app.src.application.services.rag.index_calidad --recrear
 ```
 
 ---

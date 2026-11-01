@@ -111,5 +111,26 @@ class Settings(BaseSettings):
     qdrant_collection_name: str = "sunass_reglamento"
 
 
+    # --- Embeddings ---
+    # Si se cambia ollama_embedding_model hay que REINDEXAR todas las colecciones
+    # (los vectores de modelos distintos no son comparables entre sí).
+    # embedding_dimension = 0 -> se detecta consultando al modelo.
+    embedding_dimension: int = 0
+    # Prefijos de tarea que exigen algunos modelos (nomic-embed-text:
+    # "search_query: " / "search_document: "; e5: "query: " / "passage: ").
+    # Vacíos por defecto = comportamiento anterior. Si se activan, reindexar.
+    embedding_query_prefix: str = ""
+    embedding_document_prefix: str = ""
+
+
+    # --- Normativa: qué colecciones se consultan y en qué orden ---
+    # El orden ES la prioridad: se argumenta primero con la primera colección
+    # (atención de reclamos) y solo si no alcanza se pasa a la siguiente
+    # (calidad). Una colección que aún no existe en Qdrant se omite.
+    normativa_fuentes: str = "sunass_reclamos,sunass_reglamento"
+    normativa_top_k: int = 3
+    normativa_umbral_score: float = 0.5
+
+
 
 settings = Settings()

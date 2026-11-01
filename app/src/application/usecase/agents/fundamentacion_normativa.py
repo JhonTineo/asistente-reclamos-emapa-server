@@ -1,10 +1,14 @@
 """Agente de fundamentación normativa.
 
 Dado un ProblemaNormado detectado en un medio probatorio:
-  1. Busca en el reglamento SUNASS (Qdrant) los artículos que tratan ese tipo
-     de problema, usando una query canónica (concepto, sin cifras).
+  1. Busca en la normativa (Qdrant) los artículos que tratan ese tipo de
+     problema, usando una query canónica (concepto, sin cifras). La búsqueda es
+     ESCALONADA: primero la norma de atención de reclamos y, si sus artículos no
+     alcanzan para argumentar, la norma de calidad (ver `normativa_escalonada`).
   2. Pasa el problema (con sus datos) + los artículos al LLM para que infiera
-     qué corresponde hacer y de quién es la responsabilidad.
+     qué corresponde hacer y de quién es la responsabilidad. Si el LLM juzga que
+     ningún artículo de la norma consultada regula el hallazgo (aplica=false), se
+     escala a la siguiente norma en vez de forzar una cita.
 
 """
 
@@ -13,18 +17,21 @@ import re
 import logging
 from app.src.application.ports.provider_port import MensajeLLM
 from app.src.application.services.llm.llm_router_service import LlmRouterService, MODELO_EXTERNO_DEFAULT
+from app.src.application.services.rag.normativa_escalonada import (
+    BuscadorNormativo,
+    FuenteNormativa,
+    fuentes_configuradas,
+)
 from app.src.application.services.rag.retriever import Retriever
 from app.src.core.model.informe_atencion import ProblemaNormado
 from app.src.application.ports.vector_db_port import PuertoBaseVectorial
+from app.src.infrastructure.config.settings import settings
 
 
 logger = logging.getLogger("agent.fundamentacion_normativa")
 
-COLLECTION = "sunass_reglamento"
-TOP_K = 3
-UMBRAL_SCORE = 0.5   # descarta artículos poco relevantes (calibrar con casos)
-
-# Query canónica por tipo de problema (concepto, SIN cifras ni fechas)
+# Query canónica por tipo de problema (concepto, SIN cifras ni fechas).
+# Redactada para la norma de CALIDAD (facturación, lecturas, fugas).
 CONSULTA_POR_TIPO = {
     "errorConsumo": (
         "consumo atípico y facturación elevada por diferencia de lecturas "
@@ -81,6 +88,135 @@ CONSULTA_POR_TIPO = {
         "deuda pendiente de pago, saldos vencidos y facturación de meses "
         "anteriores no cancelados"
     ),
+    # Tipos que salían SIN consulta canónica (la búsqueda quedaba sin el
+    # concepto general del grupo): hallazgos de inspección, record y cortes.
+    "atipico": (
+        "consumo atípico: diferencia de lecturas que supera el promedio "
+        "histórico y verificación de factores distorsionantes del registro "
+        "mediante inspección"
+    ),
+    "equipo": (
+        "estado del medidor, de la caja del medidor o de la conexión "
+        "domiciliaria: medidor inoperativo, dañado o caja deteriorada"
+    ),
+    "mesesPromediados": (
+        "facturación por promedio histórico de consumos o asignación de "
+        "consumo en lugar de la diferencia de lecturas"
+    ),
+    "rachaPromediados": (
+        "meses consecutivos facturados por promedio histórico de consumos: "
+        "máximo de dos meses consecutivos y una vez cada doce meses"
+    ),
+    "mesesCortados": (
+        "servicio cortado o cerrado en el periodo facturado y facturación de "
+        "meses sin servicio"
+    ),
+    "reclamosPrevios": (
+        "reclamo previo presentado sobre el mismo periodo o ciclo de "
+        "facturación"
+    ),
+}
+
+# Misma idea para la norma de RECLAMOS, que habla de procedimiento: inspección,
+# verificación posterior del medidor, medios de prueba, resolución, pagos en
+# exceso, prohibición de cortar/condicionar durante el reclamo.
+# OJO: son hipótesis de redacción; se calibran con app/test/rag (gold set).
+CONSULTA_RECLAMOS_POR_TIPO = {
+    "errorConsumo": (
+        "reclamo por consumo elevado: inspección, verificación posterior del "
+        "medidor y medios de prueba para declarar el reclamo fundado o infundado"
+    ),
+    "fugaReparada": (
+        "reclamo por consumo elevado con fuga: inspección interna y externa "
+        "como medio de prueba y resolución del reclamo"
+    ),
+    "errorLecturas": (
+        "reclamo por lectura o facturación errónea: medios de prueba de "
+        "histórico de lecturas y de facturación, y resolución del reclamo"
+    ),
+    "errorReinstalacion": (
+        "retiro o reinstalación del medidor durante el reclamo, verificación "
+        "posterior del medidor y su costo"
+    ),
+    "errorServicio": (
+        "servicio cerrado o cortado durante el reclamo: prohibición de cierre "
+        "del servicio por los montos reclamados"
+    ),
+    "cobroIndebido": (
+        "devolución de pagos efectuados en exceso, compensación mediante notas "
+        "de abono e intereses"
+    ),
+    "mora": (
+        "cobro de intereses y de los montos reclamados mientras el reclamo "
+        "no se resuelve: prohibición de condicionar el reclamo al pago previo"
+    ),
+    "mesesNoPagados": (
+        "cobro de montos no reclamados, pago previo y cierre del servicio "
+        "durante el reclamo"
+    ),
+    "fugas": (
+        "inspección interna y externa como medio de prueba en el reclamo por "
+        "consumo elevado, aviso previo y acta de inspección"
+    ),
+    # Tipos de hallazgo de fuga y consumo añadidos al flujo de selección de
+    # problemas determinantes: misma idea que "fugas" (la norma de reclamos
+    # regula la inspección como prueba, no la facturación por fuga).
+    "descensoConsumo": (
+        "medios de prueba del reclamo por consumo: histórico de lecturas y de "
+        "facturación para declarar el reclamo fundado o infundado"
+    ),
+    "fugaNoVisible": (
+        "inspección interna y externa como medio de prueba en el reclamo por "
+        "consumo elevado cuando se detecta una fuga, y acta de inspección"
+    ),
+    "fugaVisible": (
+        "inspección interna y externa como medio de prueba en el reclamo por "
+        "consumo elevado cuando se detecta una fuga, y acta de inspección"
+    ),
+    "fugaNoDetectada": (
+        "inspección interna y externa como medio de prueba cuando no se detecta "
+        "una fuga: acta de inspección y declaración del reclamo"
+    ),
+    "fugaSospechada": (
+        "inspección y verificación como medios de prueba ante una sospecha de "
+        "fuga en el reclamo por consumo elevado"
+    ),
+    "fugaReferida": (
+        "inspección interna y externa como medio de prueba ante una fuga "
+        "referida por el usuario en el reclamo por consumo elevado"
+    ),
+    "contradiccionFuga": (
+        "acta de inspección como medio de prueba y valoración de las "
+        "observaciones de la inspección en el reclamo por consumo"
+    ),
+    "atipico": (
+        "inspección y verificación posterior del medidor como medios de prueba "
+        "ante un consumo atípico reclamado"
+    ),
+    "equipo": (
+        "verificación posterior del medidor dañado o alterado, costo de la "
+        "prueba y declaración de fundado o infundado"
+    ),
+    "mesesPromediados": (
+        "medios de prueba de facturación por promedio o asignación en el "
+        "reclamo por consumo y resolución del reclamo"
+    ),
+    "rachaPromediados": (
+        "medios de prueba de facturación por promedio en el reclamo por "
+        "consumo y resolución del reclamo"
+    ),
+    "mesesCortados": (
+        "reclamo por consumo facturado con el servicio cerrado: histórico de "
+        "cierres y prohibición de cierre durante el reclamo"
+    ),
+    "reclamosPrevios": (
+        "reclamos previos del mismo ciclo de facturación: pruebas e "
+        "inspecciones ya realizadas pueden presentarse en el nuevo reclamo"
+    ),
+}
+
+CONSULTA_POR_FUENTE = {
+    "sunass_reclamos": CONSULTA_RECLAMOS_POR_TIPO,
 }
 
 
@@ -103,25 +239,35 @@ class FundamentacionNormativaAgent:
         self.retriever = Retriever(qdrant)
         self.llm_router = llm_router
         self.model_id = model or MODELO_EXTERNO_DEFAULT
+        self.buscador = BuscadorNormativo(
+            retriever=self.retriever,
+            store=qdrant,
+            fuentes=fuentes_configuradas(settings.normativa_fuentes),
+            top_k=settings.normativa_top_k,
+            umbral=settings.normativa_umbral_score,
+        )
 
     # ------------------------------------------------------------------ #
-    # 1) Búsqueda vectorial
+    # 1) Búsqueda vectorial (escalonada)
     # ------------------------------------------------------------------ #
-    def buscar_articulos(self, problema: ProblemaNormado, contexto: str = "") -> list[dict]:
-        concepto_general = CONSULTA_POR_TIPO.get(problema.tipo, "")
+    @staticmethod
+    def _construir_query(problema: ProblemaNormado, contexto: str, fuente: FuenteNormativa) -> str:
+        consultas = CONSULTA_POR_FUENTE.get(fuente.coleccion, CONSULTA_POR_TIPO)
+        concepto_general = consultas.get(problema.tipo, "")
         concepto_especifico = _concepto(problema.detalle)
         # El concepto específico va primero (mayor peso semántico); luego el
         # concepto general del grupo, y por último el motivo del reclamo, que
         # aporta el contexto real del caso (p.ej. "fuga reparada") sin el cual
         # no se pueden recuperar los artículos que tratan ese contexto.
-        query = f"{concepto_especifico}. {concepto_general}. {contexto}".strip(". ")
-        resultados = self.retriever.retrieve(
-            query=query,
-            top_k=TOP_K,
-            collection_name=COLLECTION,
+        return f"{concepto_especifico}. {concepto_general}. {contexto}".strip(". ")
+
+    def buscar_articulos(self, problema: ProblemaNormado, contexto: str = "", nivel: int = 0) -> list[dict]:
+        """Artículos de la primera norma (desde `nivel`) que tenga alguno por
+        encima del umbral. Cada resultado lleva su `fuente`."""
+        return self.buscador.buscar_desde(
+            lambda fuente: self._construir_query(problema, contexto, fuente),
+            nivel=nivel,
         )
-        # Qdrant devuelve ordenado por score desc; filtramos por umbral.
-        return [r for r in resultados if r.get("score", 0) >= UMBRAL_SCORE]
 
     # ------------------------------------------------------------------ #
     # 2) Inferencia del LLM
@@ -132,17 +278,21 @@ class FundamentacionNormativaAgent:
         articulos: list[dict],
         clasificacion: str = "",
         contexto: str = "",
+        fuente: FuenteNormativa | None = None,
     ) -> dict:
 
+        fuente = fuente or (articulos[0].get("fuente") if articulos else None) or self.buscador.fuentes[-1]
+
         articulos_texto = "\n\n".join(
-            f"[Art. {a['payload'].get('numeral') or a['payload'].get('article')}] "
+            f"[Art. {a['payload'].get('numeral') or a['payload'].get('article')} "
+            f"del {fuente.nombre_corto}] "
             f"{a['payload'].get('text', '')}"
             for a in articulos
         )
 
         system = (
-            "Eres un analista normativo de EMAPA. Determinas, según el "
-            "Reglamento de Calidad SUNASS, qué corresponde hacer ante un HALLAZGO "
+            "Eres un analista normativo de EMAPA. Determinas, según "
+            f"{fuente.nombre}, qué corresponde hacer ante un HALLAZGO "
             "concreto.\n"
             "Procede en dos pasos:\n"
             "1. RELEVANCIA: decide si alguno de los artículos proporcionados "
@@ -154,7 +304,8 @@ class FundamentacionNormativaAgent:
             "2. Si NINGÚN artículo regula el hallazgo → aplica=false, "
             "accion=\"no_determinable\", base_legal=null. NO fuerces un artículo "
             "que no corresponde. Si al menos uno aplica → aplica=true, determina "
-            "la accion y cita el artículo/numeral (base_legal) en que te apoyas.\n"
+            "la accion y cita el artículo/numeral (base_legal) en que te apoyas, "
+            f"indicando la norma (p. ej. \"Art. 15.5 del {fuente.nombre_corto}\").\n"
             "Basáte ÚNICAMENTE en los artículos dados; no inventes normas ni cifras.\n"
             "Responde SOLO con un JSON válido con las claves: aplica (true/false), "
             "accion, base_legal, justificacion."
@@ -219,6 +370,10 @@ class FundamentacionNormativaAgent:
                 "numeral": a["payload"].get("numeral"),
                 "score": round(a.get("score", 0), 4),
                 "texto": a["payload"].get("text"),
+                # Norma de la que sale: sin esto "Art. 14.2" no dice si es del
+                # Reglamento de Reclamos o del de Calidad.
+                "coleccion": a["fuente"].coleccion if a.get("fuente") else None,
+                "norma_corta": a["fuente"].nombre_corto if a.get("fuente") else None,
             }
             for a in articulos
         ]
@@ -241,27 +396,55 @@ class FundamentacionNormativaAgent:
         contexto: str = "",
     ) -> ProblemaNormado:
         """Fase 2: infierencia acción/base_legal a partir de los artículos
-        hallados y rellena el problema in-place."""
+        hallados y rellena el problema in-place.
+
+        ESCALADA: si el LLM juzga que ningún artículo de la norma consultada
+        regula el hallazgo, se busca en la siguiente norma (reclamos -> calidad)
+        y se vuelve a interpretar. Solo si ninguna norma alcanza, el problema
+        queda sin base legal."""
+        nivel = self.buscador.nivel_de(articulos)
+
+        while articulos:
+            fuente = articulos[0].get("fuente") or self.buscador.fuentes[nivel]
+            interp = self.interpretar(problema, articulos, clasificacion, contexto, fuente)
+            accion = self._a_texto(interp.get("accion"))
+            # Guardarraíl de abstención: si el LLM juzgó que ningún artículo regula
+            # el hallazgo (aplica=false) o devolvió "no_determinable", NO se
+            # fundamenta; así se evita citar artículos irrelevantes.
+            no_aplica = interp.get("aplica") is False or (accion or "").strip().lower() == "no_determinable"
+            if not no_aplica:
+                problema.articulos = self.articulos_a_payload(articulos)
+                problema.accion = accion
+                problema.base_legal = self._con_norma(self._a_texto(interp.get("base_legal")), fuente)
+                return problema
+
+            logger.info(
+                "[%s] el LLM no halló artículo que regule el hallazgo; se escala a la siguiente norma",
+                fuente.coleccion,
+            )
+            siguiente = self.buscar_articulos(problema, contexto, nivel=nivel + 1)
+            if not siguiente:
+                break
+            articulos = siguiente
+            nivel = self.buscador.nivel_de(articulos)
+            # El frontend debe ver los artículos de la norma con que se argumentó.
+            problema.articulos = self.articulos_a_payload(articulos)
+
         if not articulos:
             problema.accion = (
                 "No se hallaron artículos aplicables con relevancia suficiente."
             )
-            problema.base_legal = None
-            return problema
-
-        interp = self.interpretar(problema, articulos, clasificacion, contexto)
-        accion = self._a_texto(interp.get("accion"))
-        # Guardarraíl de abstención: si el LLM juzgó que ningún artículo regula el
-        # hallazgo (aplica=false) o devolvió "no_determinable", NO se fundamenta;
-        # así se evita citar artículos irrelevantes.
-        no_aplica = interp.get("aplica") is False or (accion or "").strip().lower() == "no_determinable"
-        if no_aplica:
-            problema.accion = "No corresponde: los artículos recuperados no regulan este hallazgo."
-            problema.base_legal = None
         else:
-            problema.accion = accion
-            problema.base_legal = self._a_texto(interp.get("base_legal"))
+            problema.accion = "No corresponde: los artículos recuperados no regulan este hallazgo."
+        problema.base_legal = None
         return problema
+
+    @staticmethod
+    def _con_norma(base_legal: str | None, fuente: FuenteNormativa) -> str | None:
+        """Asegura que la cita diga de qué norma es el artículo."""
+        if base_legal and fuente.nombre_corto.lower() not in base_legal.lower():
+            return f"{base_legal} ({fuente.nombre_corto})"
+        return base_legal
 
     @staticmethod
     def _a_texto(valor) -> str | None:
@@ -378,8 +561,8 @@ class FundamentacionNormativaAgent:
         system = (
             "Eres un analista de reclamos de EMAPA. Debes seleccionar, de la lista "
             "de PROBLEMAS agrupados por objetivo, los 1 a 3 problemas con relación "
-            "DIRECTA con el motivo del reclamo y que, según el Reglamento de Calidad "
-            "SUNASS, deciden si corresponde corregir la facturación.\n"
+            "DIRECTA con el motivo del reclamo y que, según la normativa SUNASS, "
+            "deciden si corresponde corregir la facturación.\n"
             "Reglas:\n"
             "- Elige los MÍNIMOS que deciden el caso (entre 1 y 3); descarta "
             "problemas de contexto, de meses lejanos o ajenos al motivo.\n"
@@ -444,6 +627,37 @@ class FundamentacionNormativaAgent:
                 indices.append(i)
         return indices[:3]
 
+    def buscar_y_marcar(
+        self,
+        problema: ProblemaNormado,
+        clasificacion: str = "",
+        contexto: str = "",
+    ) -> list[dict]:
+        """Búsqueda ESCALONADA + relevancia por artículo (`marcar_aplica`).
+
+        Se recuperan los artículos de la norma de atención de reclamos y el LLM
+        marca cuáles regulan el hallazgo. Si NINGUNO aplica, se pasa a la
+        siguiente norma (calidad) y se repite. Devuelve los artículos de todas las
+        normas consultadas (cada uno con su `coleccion` y `norma_corta`): el
+        frontend ve qué se evaluó en la norma prioritaria y con cuál se argumentó.
+        Si ninguna norma tiene artículos por encima del umbral, devuelve []."""
+        todos: list[dict] = []
+        nivel = 0
+        while nivel < len(self.buscador.fuentes):
+            crudos = self.buscar_articulos(problema, contexto, nivel=nivel)
+            if not crudos:
+                break
+            marcados = self.marcar_aplica(problema, crudos, clasificacion, contexto)
+            todos.extend(marcados)
+            if any(a.get("aplica") for a in marcados):
+                break
+            logger.info(
+                "[%s] ningún artículo regula el hallazgo; se escala a la siguiente norma",
+                crudos[0]["fuente"].coleccion,
+            )
+            nivel = self.buscador.nivel_de(crudos) + 1
+        return todos
+
     def marcar_aplica(
         self,
         problema: ProblemaNormado,
@@ -463,14 +677,16 @@ class FundamentacionNormativaAgent:
             return payload
 
         listado = "\n".join(
-            f"[{i}] Art. {a['numeral'] or a['article']}: {a['texto']}"
+            f"[{i}] Art. {a['numeral'] or a['article']}"
+            + (f" del {a['norma_corta']}" if a.get("norma_corta") else "")
+            + f": {a['texto']}"
             for i, a in enumerate(payload)
         )
         system = (
-            "Eres un analista normativo de EMAPA. De la lista de ARTÍCULOS del "
-            "Reglamento de Calidad SUNASS, decide cuáles REGULAN DIRECTAMENTE el "
-            "hallazgo indicado (no basta que sean del mismo tema). Un artículo que "
-            "no trata la situación del hallazgo NO aplica.\n"
+            "Eres un analista normativo de EMAPA. De la lista de ARTÍCULOS de la "
+            "normativa SUNASS (cada uno indica de qué reglamento es), decide cuáles "
+            "REGULAN DIRECTAMENTE el hallazgo indicado (no basta que sean del mismo "
+            "tema). Un artículo que no trata la situación del hallazgo NO aplica.\n"
             "Responde SOLO con un JSON: una lista de enteros con los índices [n] de "
             "los artículos que SÍ aplican (p. ej. [0, 2]). Si ninguno aplica, [ ]."
         )
@@ -511,7 +727,9 @@ class FundamentacionNormativaAgent:
             aplicables = [a for a in (problema.articulos or []) if a.get("aplica")]
             if aplicables:
                 arts = "\n".join(
-                    f"    [Art. {a.get('numeral') or a.get('article')}] {a.get('texto', '')}"
+                    f"    [Art. {a.get('numeral') or a.get('article')}"
+                    + (f" del {a['norma_corta']}" if a.get("norma_corta") else "")
+                    + f"] {a.get('texto', '')}"
                     for a in aplicables
                 )
             else:
@@ -521,14 +739,16 @@ class FundamentacionNormativaAgent:
 
         system = (
             "Eres un analista normativo de EMAPA. Redactas el PÁRRAFO de "
-            "fundamentación normativa de un informe de atención, según el "
-            "Reglamento de Calidad SUNASS (RCD 061-2018-SUNASS-CD).\n"
+            "fundamentación normativa de un informe de atención, según la "
+            "normativa SUNASS (Reglamento de Reclamos o Reglamento de Calidad, "
+            "según indique cada artículo).\n"
             "Reglas:\n"
             "- Escribe UN SOLO párrafo formal, CONCRETO y sin relleno (sin viñetas "
             "ni JSON, sin título).\n"
             "- Nombra el hecho concreto y cita el/los artículo(s) recuperado(s) que "
-            "REGULAN ese hecho (por su numeral); puedes citar más de uno si ambos "
-            "aplican. Di qué corresponde facturar según la norma.\n"
+            "REGULAN ese hecho (por su numeral y el reglamento del que son); puedes "
+            "citar más de uno si ambos aplican. Di qué corresponde facturar según la "
+            "norma.\n"
             "- TERMINA una vez enunciado qué manda la norma. NO agregues una oración "
             "de cierre especulativa o editorial que vaya más allá de la norma (p. ej. "
             "conjeturar que una reparación «podría haber sido necesaria» o especular "

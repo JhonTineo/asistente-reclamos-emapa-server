@@ -22,6 +22,11 @@ def normalizar_numero_articulo(texto: str) -> str:
     if not texto:
         return ""
 
+    # Anexos, disposiciones y formatos NO son artículos: "ANEXO 3" no es el artículo 3
+    # (si no, editar o desactivar el Art. 3 arrastraría el Anexo 3 de la misma colección).
+    if re.match(r"\s*(anexo|disposici[oó]n|formato|ap[eé]ndice)\b", str(texto), re.IGNORECASE):
+        return str(texto).strip()
+
     match = re.search(r"(\d+)(?:\s*-\s*([A-Za-z]))?", str(texto))
 
     if not match:

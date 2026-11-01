@@ -98,10 +98,15 @@ async def reconstruir_reglamento(
                 modificado_por_art = payload.get("modificado_por")
 
             if numeral is None:
-                numeral_none += 1
+                # El preámbulo (encabezado + párrafo introductorio) de un artículo con
+                # numerales es un chunk legítimo de las colecciones sunass_reclamos y
+                # sunass_reglamento (calidad_chunker / reclamos_chunker), no un resto viejo.
+                if payload.get("tipo_unidad") != "preambulo":
+                    numeral_none += 1
             else:
-                # ¿el numeral pertenece realmente a este artículo?
-                if not str(numeral).startswith(f"{art}."):
+                # ¿el numeral pertenece realmente a este artículo? (solo aplica a
+                # artículos numerados: los numerales de un anexo son "B.1.1", etc.)
+                if art[:1].isdigit() and not str(numeral).startswith(f"{art}."):
                     inconsistencias.append(
                         Inconsistencia(
                             article=art,
@@ -110,7 +115,8 @@ async def reconstruir_reglamento(
                         )
                     )
                 sub = _subnumeral(art, numeral)
-                if sub is not None:
+                # Un numeral largo se parte en varios chunks (parte 1..N): no es un duplicado.
+                if sub is not None and payload.get("parte") in (None, 1):
                     subs_vistos[sub] += 1
 
         primer_payload = (chunks[0].get("payload") or {}) if chunks else {}

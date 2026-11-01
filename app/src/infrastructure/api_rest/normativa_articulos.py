@@ -83,7 +83,7 @@ async def actualizar_articulo(request: ActualizarArticuloRequest) -> ActualizarA
     num_clean = request.numeral if request.numeral else None
     point_id = request.id or calcular_point_id(request.article, request.numeral)
 
-    vector = embedder.encode(request.text)
+    vector = embedder.encode_document(request.text)
 
     payload = {
         "norma": request.norma,
@@ -139,7 +139,7 @@ async def reemplazar_articulo(request: ReemplazarArticuloRequest) -> ReemplazarA
     insertados = []
     for chunk in chunks:
         point_id = calcular_point_id(chunk["article"], chunk["numeral"])
-        vector = embedder.encode(chunk["text"])
+        vector = embedder.encode_document(chunk["text"])
         points.append(
             {
                 "id": point_id,

@@ -111,9 +111,10 @@ def _aplicar_seleccion_manual(informe, seleccion) -> list[tuple]:
 
 def _rag_y_marcar(fundamentador: FundamentacionNormativaAgent, problema, clasificacion: str, motivo: str) -> list[dict]:
     """RAG de los artículos + relevancia (`marcar_aplica`) en un solo paso
-    bloqueante (para un único run_in_threadpool)."""
-    raw = fundamentador.buscar_articulos(problema, motivo)
-    return fundamentador.marcar_aplica(problema, raw, clasificacion, motivo)
+    bloqueante (para un único run_in_threadpool). La búsqueda es escalonada:
+    primero el Reglamento de Reclamos y, si ninguno de sus artículos aplica, el
+    de Calidad (ver `FundamentacionNormativaAgent.buscar_y_marcar`)."""
+    return fundamentador.buscar_y_marcar(problema, clasificacion, motivo)
 
 
 async def _resolver_seleccion(informe, request, fundamentador) -> list[tuple]:
