@@ -272,8 +272,9 @@ Errores:
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| POST | `/conciliacion/propuesta` | Genera la propuesta de conciliación a partir de la conclusión ya guardada en el informe. Requiere `conclusion` + `veredicto` (`409` si no). |
-| PATCH | `/conciliacion/propuesta` | Edita a mano el texto de la propuesta (sin LLM). |
+| GET | `/conciliacion/propuesta?codreclamo=…` | Genera la propuesta de conciliación con el **formato de EMAPA** (Reglamento 058-2023-SUNASS-CD, reclamante y DNI, mes reclamado, artículos citados). El LLM solo redacta el sustento ("AL HABERSE VERIFICADO QUE …"); el resto es texto fijo (`services/informe/formatos.py`). Requiere `conclusion` + `veredicto` (`409` si no). |
+| PATCH | `/conciliacion/propuesta` | Edita a mano el texto de la propuesta (sin LLM). Desde ese momento el texto ya no se rearma solo. |
+| PATCH | `/conciliacion/datos` | Guarda postura del reclamante, puntos de acuerdo/desacuerdo, observaciones y el **resultado de la audiencia** (`asistio`, `subsiste`, `por_telefono`, `fecha_audiencia`, como en SYSCO). Al cambiar el resultado se rearma el cierre de la propuesta ("EL USUARIO ACEPTA…", "NO ACEPTA…", inasistencia) salvo que el texto se haya editado a mano; `reaplicar_formato: true` lo fuerza. El resultado también se agrega al informe de atención (`informe_texto`) y llega a la resolución. |
 
 ---
 
@@ -281,8 +282,8 @@ Errores:
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| POST | `/resolucion` | Genera la resolución final (considerandos redactados por el LLM; el veredicto FUNDADO/INFUNDADO ya viene fijado por la conclusión, no lo decide el LLM). Requiere `conclusion` + `veredicto` (`409` si no). |
-| PATCH | `/resolucion` | Edita a mano el texto de la resolución (sin LLM). |
+| POST | `/resolucion` | Genera la resolución final (considerandos redactados por el LLM; el veredicto FUNDADO/INFUNDADO ya viene fijado por la conclusión, no lo decide el LLM). Devuelve además `se_resuelve`: la parte resolutiva con el formato de EMAPA (RCD 066-2006, 015-2023 y 058-2023; procedimiento de refacturación con cuadro de lecturas si es FUNDADO, con los importes como `[S/ IMPORTE]` para completar; presentación de recursos). Requiere `conclusion` + `veredicto` (`409` si no). |
+| PATCH | `/resolucion` | Edita a mano los considerandos (`resolucion`) y/o la parte resolutiva (`se_resuelve`), sin LLM. |
 
 Request de `POST /resolucion`:
 ```json

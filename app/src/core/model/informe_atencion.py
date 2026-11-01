@@ -113,6 +113,9 @@ class InformeAtencion:
     # --- pasos posteriores a la conclusión (paso 4-5) ---
     propuesta_conciliacion: Conciliacion | None = None
     resolucion: str | None = None
+    # Parte resolutiva ("SE RESUELVE") con el formato de EMAPA: declaración,
+    # procedimiento de refacturación (FUNDADO) y presentación de recursos.
+    se_resuelve: str | None = None
     # Id de la pestaña/sesión del frontend que abrió este reclamo (ver
     # InformeAtencionStore.crear_metadata). Permite distinguir "la misma
     # pestaña recargando" de "otra ventana intentando atender el mismo

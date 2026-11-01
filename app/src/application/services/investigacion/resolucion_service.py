@@ -14,6 +14,7 @@ from app.src.infrastructure.api_rest.schemas.investigacion import (
 from app.src.application.usecase.agents.resolucion import ResolucionAgent
 from app.src.application.services.informe.informe_store import informe_store
 from app.src.application.services.llm.llm_router_service import LlmRouterService
+from app.src.application.services.informe.formatos import se_resuelve as armar_se_resuelve
 
 logger = logging.getLogger("service.resolucion")
 
@@ -79,6 +80,12 @@ async def generar_resolucion_final(request: ResolucionRequest, llm_router: LlmRo
     # Se guarda en el informe (no solo se devuelve) para poder recuperarla si
     # el frontend recarga la página después de este paso.
     informe.resolucion = resultado["resolucion"]
+    # Parte resolutiva con el formato de EMAPA. En un FUNDADO, la IA solo
+    # redacta el borrador del procedimiento de refacturación (sin importes).
+    procedimiento = []
+    if (informe.veredicto or "").upper() == "FUNDADO":
+        procedimiento = await run_in_threadpool(resolucion_agent.redactar_procedimiento, informe)
+    informe.se_resuelve = armar_se_resuelve(informe, procedimiento)
 
     tiempo = time.perf_counter() - t_inicio
 
@@ -89,16 +96,19 @@ async def generar_resolucion_final(request: ResolucionRequest, llm_router: LlmRo
         codreclamo=request.codreclamo,
         tipo=resultado["tipo"],
         resolucion=resultado["resolucion"],
+        se_resuelve=informe.se_resuelve,
         tiempo=tiempo,
     )
 
 
 def actualizar_resolucion_texto(request: ActualizarResolucionTextoRequest) -> ActualizarResolucionTextoResponse:
     """Edita a mano el texto de la resolución, sin invocar al LLM."""
-    actualizado = informe_store.actualizar_resolucion(request.codreclamo, request.resolucion)
+    actualizado = informe_store.actualizar_resolucion(request.codreclamo, request.resolucion, request.se_resuelve)
     if not actualizado:
         raise HTTPException(
             status_code=404,
             detail=f"No hay un informe en curso para el reclamo {request.codreclamo}.",
         )
-    return ActualizarResolucionTextoResponse(codreclamo=request.codreclamo, resolucion=request.resolucion)
+    return ActualizarResolucionTextoResponse(
+        codreclamo=request.codreclamo, resolucion=request.resolucion, se_resuelve=request.se_resuelve,
+    )

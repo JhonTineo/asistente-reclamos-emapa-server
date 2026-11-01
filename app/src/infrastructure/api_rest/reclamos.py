@@ -436,6 +436,18 @@ async def listar_reclamos_en_memoria() -> ReclamosEnMemoriaResponse:
     )
 
 
+def _conciliacion_dict(informe) -> dict | None:
+    """Datos de la conciliación para que el frontend la reconstruya al recargar."""
+    from app.src.application.services.informe.formatos import resultado_conciliacion
+    c = informe.propuesta_conciliacion
+    if c is None:
+        return None
+    datos = asdict(c)
+    datos.pop("sustento", None)
+    datos["resultado"] = resultado_conciliacion(c)
+    return datos
+
+
 @router.get("/{codreclamo}/informe", response_model=InformeCompletoResponse)
 async def obtener_informe_completo(codreclamo: str) -> InformeCompletoResponse:
     """
@@ -504,7 +516,9 @@ async def obtener_informe_completo(codreclamo: str) -> InformeCompletoResponse:
             informe.propuesta_conciliacion.propuesta_empresa
             if informe.propuesta_conciliacion else None
         ),
+        conciliacion=_conciliacion_dict(informe),
         resolucion=informe.resolucion,
+        se_resuelve=informe.se_resuelve,
         informe_texto=construir_texto_informe(informe),
     )
 

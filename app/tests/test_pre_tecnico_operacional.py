@@ -34,3 +34,22 @@ class PreTecnicoTests(unittest.TestCase):
                     p.insert_text((x,100), 'X')
                 r = _respuesta_casilla(p, 'Estado de la VPA', ('Operativa','Inoperativa'))
                 self.assertTrue(r.startswith(esperado), r)
+
+    def test_formulario_con_tildes(self):
+        # Los PDF reales escriben "presión" con tilde: el límite del bloque
+        # de casillas debe reconocerse igual.
+        texto = ('INFORME TÉCNICO OPERACIONAL\nDATOS DEL PREDIO\nREPORTE DE INTERRUPCIONES\n'
+                 'REPORTE DE VÁLVULAS DE PURGA DE AIRE\nReporte de presión\nPROMEDIO: 38.5')
+        self.assertTrue(_es_formulario(texto))
+        with pymupdf.open() as doc:
+            doc.new_page().insert_text((40, 40), texto)
+            r = PreTecnicoOperacionalService()._extraer_formulario(doc, 'test.pdf')
+        self.assertIn('38.5', r.texto_extraido)
+
+    def test_narrativo_quita_vinetas_y_conserva_preguntas(self):
+        r = PreTecnicoOperacionalService()._extraer_narrativo(
+            ['II) Análisis Ubicación y horario de abastecimiento:\n• Servicio de 8 a 12. ¿Hubo cortes? No.\nIII) Fin'],
+            'test.pdf')
+        self.assertNotIn('•', r.texto_extraido)
+        self.assertIn('¿Hubo cortes?', r.texto_extraido)
+

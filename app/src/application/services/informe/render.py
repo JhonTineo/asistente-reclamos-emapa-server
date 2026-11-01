@@ -4,6 +4,7 @@ EMAPA: metadatos -> introducción -> hallazgos numerados -> conclusión.
 """
 
 from app.src.core.model.informe_atencion import InformeAtencion, BloqueMedio
+from app.src.application.services.informe.formatos import parrafo_conciliacion_informe
 
 INTRO = (
     "Mediante el presente, me dirijo a Usted, para informarle que, en atención "
@@ -36,7 +37,10 @@ def construir_texto_informe(informe: InformeAtencion) -> str:
     # Los informes ya existentes en SYSCO pueden haber sido redactados a mano o
     # por una ejecución anterior de la IA. Se conserva el documento original en
     # vez de intentar reconstruirlo con bloques que no existen en esta sesión.
+    conciliacion = parrafo_conciliacion_informe(informe)
     if informe.informe_texto_original:
+        if conciliacion:
+            return f"{informe.informe_texto_original.rstrip()}\n\n{conciliacion}"
         return informe.informe_texto_original
 
     fecha = _fecha_es(informe.fecha)
@@ -71,5 +75,9 @@ def construir_texto_informe(informe: InformeAtencion) -> str:
         # Sin título: la conclusión es un párrafo que arranca con "En
         # consecuencia, ..." a continuación de los hallazgos, como el informe real.
         partes.append("\n" + informe.conclusion)
+
+    # Tras la audiencia, el informe se actualiza con su resultado.
+    if conciliacion:
+        partes.append("\n" + conciliacion)
 
     return "\n".join(partes).strip()

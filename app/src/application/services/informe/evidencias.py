@@ -48,6 +48,7 @@ SECCION_DE_MEDIO = {
     "tarjeta_lectura": "consumo", "record_facturacion": "consumo",
     "inspeccion_externa": "inspeccion", "inspeccion_interna": "inspeccion",
     "corte_reapertura": "linea_tiempo", "saldo_detalle": "linea_tiempo",
+    "tecnico_operacional": "tecnico",
 }
 
 
@@ -267,6 +268,51 @@ def construir_inspeccion_interna(informe: InformeAtencion) -> dict | None:
     }
 
 
+def construir_informe_tecnico(informe: InformeAtencion) -> dict | None:
+    """Ficha del informe técnico operacional (si se cargó el PDF)."""
+    e = _entidad(informe, "tecnico_operacional")
+    c = e.get("campos") or {}
+    if not e or not c:
+        return None
+    puntos = []
+
+    def add(punto, valor, estado="conforme"):
+        if valor not in (None, ""):
+            puntos.append({"punto": punto, "resultado": str(valor), "estado": estado})
+
+    # "info": dato descriptivo (ni favorable ni desfavorable).
+    add("Horario de abastecimiento", c.get("horario_abastecimiento"), "info")
+    add("Fuente / sector", c.get("fuente_abastecimiento"), "info")
+    add("Zona (curvas de nivel)", c.get("zona").capitalize() if c.get("zona") else None, "info")
+    if c.get("interrupciones") == "SI":
+        add("Interrupciones en el periodo reclamado", "Sí hubo", "alerta")
+    elif c.get("interrupciones") == "NO":
+        add("Interrupciones en el periodo reclamado", "No hubo")
+    if c.get("reporte_interrupciones_adjunto"):
+        add("Reporte de interrupciones adjunto", "Sí" if c["reporte_interrupciones_adjunto"] == "SI" else "No", "info")
+    existe, estado = c.get("existe_valvula_aire"), c.get("estado_valvula_aire")
+    if existe == "SI":
+        add("Válvula de purga de aire", f"Existe{', ' + estado.lower() if estado else ''}",
+            "alerta" if estado == "Inoperativa" else "conforme")
+    elif existe == "NO":
+        add("Válvula de purga de aire", "No existe en la zona", "alerta" if c.get("zona") == "ALTA" else "conforme")
+    if c.get("presion_mca") is not None:
+        add("Presión promedio", f"{c['presion_mca']:g} m.c.a.", "info")
+    elif c.get("presion"):
+        add("Presión", c["presion"], "info")
+    if c.get("plano_curvas_nivel"):
+        add("Plano de curvas de nivel", "Anexado" if c["plano_curvas_nivel"] == "SI" else "No anexado", "info")
+    return {
+        "numero_informe": c.get("numero_informe"),
+        "fecha_informe": c.get("fecha_informe"),
+        "formato": e.get("formato"),
+        "puntos": puntos,
+        "conclusiones": c.get("conclusiones"),
+        "observaciones": c.get("observaciones"),
+        "alertas": sum(1 for p in puntos if p["estado"] == "alerta"),
+    }
+
+
 def construir_linea_tiempo(informe: InformeAtencion, indicadores: dict | None,
                            externa: dict | None, interna: dict | None) -> list[dict]:
     r = informe.datos_reclamo
@@ -333,6 +379,7 @@ def construir_evidencias(informe: InformeAtencion) -> dict:
         "inspeccion_externa": externa,
         "inspeccion_interna": interna,
         "linea_tiempo": construir_linea_tiempo(informe, indicadores, externa, interna),
+        "informe_tecnico": construir_informe_tecnico(informe),
         "disponible": {
             "consumo": bool(serie),
             "inspeccion_externa": externa is not None,

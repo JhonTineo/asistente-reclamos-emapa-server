@@ -50,23 +50,31 @@ class ConciliadorAgent:
 
     @staticmethod
     def _construir_prompt(veredicto: str, conclusion: str, numero_informe: str) -> str:
+        """El texto de la propuesta tiene el formato fijo de EMAPA (ver
+        services/informe/formatos.py). Aquí la IA solo redacta el SUSTENTO: la
+        frase que completa "AL HABERSE VERIFICADO QUE ...", tomada de la
+        conclusión del informe de atención."""
         veredicto = (veredicto or "").strip().upper() or "INFUNDADO"
-        cierre = (
-            f"Por tanto, la empresa propone declarar {veredicto} el presente "
-            f"reclamo, en base al Informe de Atención N° {numero_informe}."
+        ejemplo = (
+            "EL CONSUMO FACTURADO SE AJUSTA A REGISTROS REALES CONFORME AL ANÁLISIS TÉCNICO EFECTUADO"
+            if veredicto == "INFUNDADO" else
+            "EL MEDIDOR REGISTRÓ UN CONSUMO ATÍPICO EN EL MES RECLAMADO, POR LO QUE CORRESPONDE "
+            "REFACTURAR EL CONSUMO POR EL PROMEDIO HISTÓRICO"
         )
         return (
-            "Eres un agente de conciliación de EMAPA. Redactas la PROPUESTA DE "
-            "CONCILIACIÓN que la empresa presenta al usuario, a partir de la "
-            "conclusión del informe de atención.\n\n"
+            "Eres un agente de conciliación de EMAPA. Redactas el SUSTENTO TÉCNICO de la "
+            "propuesta de conciliación, a partir de la conclusión del informe de atención "
+            f"N° {numero_informe}.\n\n"
             f"El veredicto ya fue determinado y NO puedes cambiarlo: {veredicto}.\n\n"
-            "La propuesta debe:\n"
-            "1. Explicar de forma clara y formal, en uno o dos párrafos, los "
-            "hallazgos de la investigación respecto a lo reclamado, tomándolos de "
-            "la conclusión (no inventes cifras ni artículos que no estén en ella).\n"
-            f"2. Cerrar EXACTAMENTE con esta oración: \"{cierre}\"\n\n"
+            "Escribe UNA sola frase, EN MAYÚSCULAS, que complete esta oración: "
+            "\"AL HABERSE VERIFICADO QUE ...\". No repitas esas palabras iniciales; "
+            "empieza directamente por lo verificado. Máximo 45 palabras.\n"
+            "- Usa SOLO hechos de la conclusión (cifras, lecturas, inspección); no inventes "
+            "datos ni cites artículos (los artículos se agregan aparte).\n"
+            "- No menciones al usuario por su nombre ni declares el veredicto (también se "
+            "agrega aparte).\n"
+            f"Ejemplo de estilo: \"{ejemplo}\".\n\n"
             "=== CONCLUSIÓN DEL INFORME DE ATENCIÓN ===\n"
             f"{conclusion}\n\n"
-            "Responde ÚNICAMENTE con la propuesta redactada, sin encabezados ni "
-            "comentarios adicionales."
+            "Responde ÚNICAMENTE con la frase, sin comillas ni comentarios."
         )

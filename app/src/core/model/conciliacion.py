@@ -16,3 +16,13 @@ class Conciliacion:
     puntos_acuerdo: str = "LO PROPUESTO POR LA EPS"
     puntos_desacuerdo: str = "NINGUNO"
     observaciones: str = "NINGUNO"
+    # --- Resultado de la audiencia (mismos campos que la pantalla de SYSCO) ---
+    asistio: bool | None = None          # ASISTIÓ
+    subsiste: bool | None = None         # ¿SUBSISTE EL RECLAMO? (False = acepta la propuesta)
+    por_telefono: bool = False           # CONCILIACIÓN X TELÉFONO
+    fecha_audiencia: str | None = None   # fecha de la audiencia (texto, p.ej. 26/10/2026)
+    # Frase técnica "AL HABERSE VERIFICADO QUE ..." que redactó la IA; se
+    # guarda para rearmar el texto con el formato cuando cambia el resultado.
+    sustento: str | None = None
+    # True si el analista editó a mano el texto: entonces no se reescribe solo.
+    propuesta_editada: bool = False

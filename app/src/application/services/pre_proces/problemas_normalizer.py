@@ -246,6 +246,35 @@ def problemas_de_inspeccion_interna(inspeccion: InspeccionInterna) -> list[Probl
     return problemas
 
 
+def problemas_de_tecnico_operacional(informe) -> list[ProblemaNormado]:
+    """Hallazgos del informe técnico operacional que pueden afectar el registro
+    del medidor: interrupciones del abastecimiento en el periodo reclamado y
+    válvula de purga de aire inoperativa, o inexistente en zona alta (el aire
+    acumulado tras una interrupción puede ser registrado por el medidor). Se
+    leen de los campos ya extraídos del PDF; sin campos no hay hallazgos."""
+    campos = getattr(informe, "campos", None) or {}
+    problemas: list[ProblemaNormado] = []
+    if campos.get("interrupciones") == "SI":
+        problemas.append(ProblemaNormado(
+            tipo="interrupcionAbastecimiento",
+            detalle="El informe técnico operacional reporta interrupciones del abastecimiento en el periodo reclamado.",
+            fuente="interrupciones",
+        ))
+    if campos.get("estado_valvula_aire") == "Inoperativa":
+        problemas.append(ProblemaNormado(
+            tipo="valvulaAireInoperativa",
+            detalle="La válvula de purga de aire de la zona está inoperativa según el informe técnico operacional.",
+            fuente="estado_valvula_aire",
+        ))
+    elif campos.get("existe_valvula_aire") == "NO" and campos.get("zona") == "ALTA":
+        problemas.append(ProblemaNormado(
+            tipo="sinValvulaAire",
+            detalle="No existe válvula de purga de aire en la zona, que es zona alta según el plano de curvas de nivel.",
+            fuente="existe_valvula_aire",
+        ))
+    return problemas
+
+
 def extraer_problemas(medio_id: str, entidad) -> list[ProblemaNormado]:
     """Dispatcher por medio probatorio."""
     if medio_id == "tarjeta_lectura":
@@ -260,5 +289,7 @@ def extraer_problemas(medio_id: str, entidad) -> list[ProblemaNormado]:
         return problemas_de_inspeccion_externa(entidad)
     if medio_id == "inspeccion_interna":
         return problemas_de_inspeccion_interna(entidad)
+    if medio_id == "tecnico_operacional":
+        return problemas_de_tecnico_operacional(entidad)
     logger.debug("Normalizador de problemas no implementado para: %s", medio_id)
     return []

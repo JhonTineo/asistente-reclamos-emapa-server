@@ -170,6 +170,7 @@ class ResolucionResponse(BaseModel):
     codreclamo: str
     tipo: str = Field(description="FUNDADO o INFUNDADO")
     resolucion: str
+    se_resuelve: str = Field(default="", description="Parte resolutiva con el formato de EMAPA")
     tiempo: float
 
 
@@ -261,7 +262,9 @@ class IniciarInvestigacionResponse(BaseModel):
     conclusion: str | None = None
     problemas: list[dict] = Field(default_factory=list)
     propuesta_conciliacion: str | None = None
+    conciliacion: dict | None = None
     resolucion: str | None = None
+    se_resuelve: str | None = None
     informe_texto: str = ""
     error: str | None = None
     tiempo: float
@@ -435,6 +438,11 @@ class GuardarConciliacionRequest(BaseModel):
     puntos_acuerdo: str | None = Field(default=None, description="Puntos de acuerdo")
     puntos_desacuerdo: str | None = Field(default=None, description="Puntos de desacuerdo")
     observaciones: str | None = Field(default=None, description="Observaciones adicionales")
+    asistio: bool | None = Field(default=None, description="¿El reclamante asistió a la audiencia? (ASISTIÓ en SYSCO)")
+    subsiste: bool | None = Field(default=None, description="¿Subsiste el reclamo? False = aceptó la propuesta de la EPS")
+    por_telefono: bool | None = Field(default=None, description="Conciliación por teléfono")
+    fecha_audiencia: str | None = Field(default=None, description="Fecha de la audiencia (p.ej. 26/10/2026)")
+    reaplicar_formato: bool = Field(default=False, description="Rearmar el texto de la propuesta con el formato aunque se haya editado a mano")
 
 
 class ActualizarConciliacionRequest(BaseModel):
@@ -443,6 +451,11 @@ class ActualizarConciliacionRequest(BaseModel):
     puntos_acuerdo: str | None = Field(default=None, description="Puntos en los que llegaron a un acuerdo")
     puntos_desacuerdo: str | None = Field(default=None, description="Puntos en los que no llegaron a un acuerdo")
     observaciones: str | None = Field(default=None, description="Observaciones del reclamante o de la EPS")
+    asistio: bool | None = Field(default=None, description="¿El reclamante asistió a la audiencia? (ASISTIÓ en SYSCO)")
+    subsiste: bool | None = Field(default=None, description="¿Subsiste el reclamo? False = aceptó la propuesta de la EPS")
+    por_telefono: bool | None = Field(default=None, description="Conciliación por teléfono")
+    fecha_audiencia: str | None = Field(default=None, description="Fecha de la audiencia (p.ej. 26/10/2026)")
+    reaplicar_formato: bool = Field(default=False, description="Rearmar el texto de la propuesta con el formato aunque se haya editado a mano")
 
 
 class ActualizarConciliacionResponse(BaseModel):
@@ -451,16 +464,26 @@ class ActualizarConciliacionResponse(BaseModel):
     puntos_acuerdo: str
     puntos_desacuerdo: str
     observaciones: str
+    asistio: bool | None = None
+    subsiste: bool | None = None
+    por_telefono: bool = False
+    fecha_audiencia: str | None = None
+    resultado: str = "pendiente"          # acepta | no_acepta | no_asistio | pendiente
+    propuesta_empresa: str = ""
+    propuesta_editada: bool = False
+    propuesta_regenerada: bool = False
 
 
 class ActualizarResolucionTextoRequest(BaseModel):
     codreclamo: str = Field(description="Código del reclamo (clave del informe en el store)")
-    resolucion: str = Field(description="Nuevo texto de la resolución (edición manual)")
+    resolucion: str | None = Field(default=None, description="Nuevo texto de los considerandos (edición manual)")
+    se_resuelve: str | None = Field(default=None, description="Nuevo texto de la parte resolutiva (edición manual)")
 
 
 class ActualizarResolucionTextoResponse(BaseModel):
     codreclamo: str
-    resolucion: str
+    resolucion: str | None = None
+    se_resuelve: str | None = None
 
 
 # --- Recuperación del informe completo (rehidratación tras recargar la página) ---

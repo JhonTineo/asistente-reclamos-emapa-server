@@ -134,6 +134,7 @@ class InformeAtencionStore:
         informe.conclusion = None
         informe.propuesta_conciliacion = None
         informe.resolucion = None
+        informe.se_resuelve = None
         informe.estado_evaluacion = "pendiente"
         informe.motivos_evaluacion = []
         informe.mensaje_evaluacion = (
@@ -261,6 +262,8 @@ class InformeAtencionStore:
                 return False
             if informe.propuesta_conciliacion is None:
                 informe.propuesta_conciliacion = Conciliacion()
+            if informe.propuesta_conciliacion.propuesta_empresa != texto:
+                informe.propuesta_conciliacion.propuesta_editada = True
             informe.propuesta_conciliacion.propuesta_empresa = texto
             logger.info("[INFORME_STORE] Propuesta editada a mano: reclamo=%s", codreclamo)
             return True
@@ -272,6 +275,10 @@ class InformeAtencionStore:
         puntos_acuerdo: str | None = None,
         puntos_desacuerdo: str | None = None,
         observaciones: str | None = None,
+        asistio: bool | None = None,
+        subsiste: bool | None = None,
+        por_telefono: bool | None = None,
+        fecha_audiencia: str | None = None,
     ) -> Conciliacion | None:
         """Edita a mano los datos de la conciliación aportados por el
         reclamante/agente (no la propuesta de la empresa, que tiene su propio
@@ -292,17 +299,31 @@ class InformeAtencionStore:
                 conciliacion.puntos_desacuerdo = puntos_desacuerdo
             if observaciones is not None:
                 conciliacion.observaciones = observaciones
+            if asistio is not None:
+                conciliacion.asistio = asistio
+                if asistio is False:
+                    conciliacion.subsiste = True
+            if subsiste is not None and conciliacion.asistio is not False:
+                conciliacion.subsiste = subsiste
+            if por_telefono is not None:
+                conciliacion.por_telefono = por_telefono
+            if fecha_audiencia is not None:
+                conciliacion.fecha_audiencia = fecha_audiencia or None
             logger.info("[INFORME_STORE] Datos de conciliación editados a mano: reclamo=%s", codreclamo)
             return conciliacion
 
-    def actualizar_resolucion(self, codreclamo: str, texto: str) -> bool:
-        """Edita a mano el texto de la resolución. Devuelve False si no hay
-        informe para ese reclamo."""
+    def actualizar_resolucion(self, codreclamo: str, texto: str | None,
+                              se_resuelve: str | None = None) -> bool:
+        """Edita a mano el texto de la resolución (considerandos) y/o la parte
+        resolutiva. Devuelve False si no hay informe para ese reclamo."""
         with self._lock:
             informe = self._data.get(codreclamo)
             if informe is None:
                 return False
-            informe.resolucion = texto
+            if texto is not None:
+                informe.resolucion = texto
+            if se_resuelve is not None:
+                informe.se_resuelve = se_resuelve
             logger.info("[INFORME_STORE] Resolución editada a mano: reclamo=%s", codreclamo)
             return True
 

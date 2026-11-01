@@ -44,7 +44,7 @@ class IndicadoresConsumo(BaseModel):
 class PuntoInspeccion(BaseModel):
     punto: str
     resultado: str
-    estado: str          # "conforme" | "alerta"
+    estado: str          # "conforme" | "alerta" | "info" (dato descriptivo)
 
 
 class PuntoAgua(BaseModel):
@@ -68,6 +68,16 @@ class InspeccionInternaEvidencia(BaseModel):
     total_puntos_agua: int = 0
     unidades_uso: int = 0
     observaciones: list[str] = []
+    alertas: int = 0
+
+
+class InformeTecnicoEvidencia(BaseModel):
+    numero_informe: str | None = None
+    fecha_informe: str | None = None
+    formato: str | None = None
+    puntos: list[PuntoInspeccion] = []
+    conclusiones: str | None = None
+    observaciones: str | None = None
     alertas: int = 0
 
 
@@ -107,6 +117,7 @@ class EvidenciasResponse(BaseModel):
     inspeccion_externa: InspeccionExternaEvidencia | None = None
     inspeccion_interna: InspeccionInternaEvidencia | None = None
     linea_tiempo: list[Hito] = []
+    informe_tecnico: InformeTecnicoEvidencia | None = None
     disponible: DisponibilidadEvidencias
     generado: str
 

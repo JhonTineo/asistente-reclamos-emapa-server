@@ -17,6 +17,9 @@ from app.src.application.usecase.agents.conciliador import ConciliadorAgent
 from app.src.application.services.informe.informe_store import informe_store
 from app.src.application.services.llm.llm_router_service import LlmRouterService
 from app.src.core.model.conciliacion import Conciliacion
+from app.src.application.services.informe.formatos import (
+    propuesta_conciliacion, resultado_conciliacion, DATOS_POR_RESULTADO,
+)
 
 logger = logging.getLogger("services.conciliacion_service")
 
@@ -62,7 +65,14 @@ async def generar_propuesta_conciliacion(request: ConciliacionRequest, llm_route
     # observaciones) se llenan aparte (edición manual / paso posterior).
     if informe.propuesta_conciliacion is None:
         informe.propuesta_conciliacion = Conciliacion()
-    informe.propuesta_conciliacion.propuesta_empresa = resultado["propuesta"]
+    conciliacion = informe.propuesta_conciliacion
+    # La IA solo redacta el sustento; el texto se arma con el formato de EMAPA
+    # (058-2023, DNI, mes reclamado, artículos citados y cierre según el
+    # resultado de la audiencia, si ya se registró).
+    conciliacion.sustento = resultado["propuesta"]
+    conciliacion.propuesta_empresa = propuesta_conciliacion(informe, conciliacion.sustento, conciliacion)
+    conciliacion.propuesta_editada = False
+    resultado["propuesta"] = conciliacion.propuesta_empresa
 
     tiempo = time.perf_counter() - t_inicio
 
@@ -88,30 +98,75 @@ def actualizar_propuesta_conciliacion(request: ActualizarPropuestaRequest) -> Ac
     return ActualizarPropuestaResponse(codreclamo=request.codreclamo, propuesta=request.propuesta)
 
 
-def actualizar_conciliacion(request: ActualizarConciliacionRequest) -> ActualizarConciliacionResponse:
-    """Edita a mano los demás datos de la conciliación (postura del
-    reclamante, puntos de acuerdo/desacuerdo, observaciones), sin invocar al
-    LLM. Solo pisa los campos que vengan en el request; el resto conserva su
-    valor actual (el default de ``Conciliacion``, o lo editado antes)."""
+def _aplicar_resultado(codreclamo: str, request) -> tuple[Conciliacion | None, bool]:
+    """Guarda los datos de la conciliación y, si cambió el resultado de la
+    audiencia, rearma el texto de la propuesta con el cierre que corresponde.
+    No pisa un texto editado a mano, salvo que se pida `reaplicar_formato`.
+    Devuelve (conciliacion, propuesta_regenerada)."""
+    informe = informe_store.obtener(codreclamo)
+    antes = resultado_conciliacion(informe.propuesta_conciliacion) if informe else "pendiente"
     conciliacion = informe_store.actualizar_conciliacion(
-        request.codreclamo,
+        codreclamo,
         propuesta_reclamante=request.propuesta_reclamante,
         puntos_acuerdo=request.puntos_acuerdo,
         puntos_desacuerdo=request.puntos_desacuerdo,
         observaciones=request.observaciones,
+        asistio=getattr(request, "asistio", None),
+        subsiste=getattr(request, "subsiste", None),
+        por_telefono=getattr(request, "por_telefono", None),
+        fecha_audiencia=getattr(request, "fecha_audiencia", None),
     )
+    if conciliacion is None:
+        return None, False
+    despues = resultado_conciliacion(conciliacion)
+    if despues != antes and despues in DATOS_POR_RESULTADO:
+        postura, acuerdo, desacuerdo = DATOS_POR_RESULTADO[despues]
+        if request.propuesta_reclamante is None:
+            conciliacion.propuesta_reclamante = postura
+        if request.puntos_acuerdo is None:
+            conciliacion.puntos_acuerdo = acuerdo
+        if request.puntos_desacuerdo is None:
+            conciliacion.puntos_desacuerdo = desacuerdo
+    regenerar = conciliacion.sustento and (
+        getattr(request, "reaplicar_formato", False)
+        or (despues != antes and not conciliacion.propuesta_editada)
+    )
+    if regenerar:
+        conciliacion.propuesta_empresa = propuesta_conciliacion(informe, conciliacion.sustento, conciliacion)
+        conciliacion.propuesta_editada = False
+    return conciliacion, bool(regenerar)
+
+
+def _respuesta(codreclamo: str, conciliacion: Conciliacion, regenerada: bool) -> ActualizarConciliacionResponse:
+    return ActualizarConciliacionResponse(
+        codreclamo=codreclamo,
+        propuesta_reclamante=conciliacion.propuesta_reclamante,
+        puntos_acuerdo=conciliacion.puntos_acuerdo,
+        puntos_desacuerdo=conciliacion.puntos_desacuerdo,
+        observaciones=conciliacion.observaciones,
+        asistio=conciliacion.asistio,
+        subsiste=conciliacion.subsiste,
+        por_telefono=conciliacion.por_telefono,
+        fecha_audiencia=conciliacion.fecha_audiencia,
+        resultado=resultado_conciliacion(conciliacion),
+        propuesta_empresa=conciliacion.propuesta_empresa,
+        propuesta_editada=conciliacion.propuesta_editada,
+        propuesta_regenerada=regenerada,
+    )
+
+
+def actualizar_conciliacion(request: ActualizarConciliacionRequest) -> ActualizarConciliacionResponse:
+    """Edita a mano los demás datos de la conciliación (postura del
+    reclamante, puntos de acuerdo/desacuerdo, observaciones) y el resultado de
+    la audiencia (asistió, ¿subsiste el reclamo?, por teléfono, fecha), sin
+    invocar al LLM. Solo pisa los campos que vengan en el request."""
+    conciliacion, regenerada = _aplicar_resultado(request.codreclamo, request)
     if not conciliacion:
         raise HTTPException(
             status_code=404,
             detail=f"No hay un informe en curso para el reclamo {request.codreclamo}.",
         )
-    return ActualizarConciliacionResponse(
-        codreclamo=request.codreclamo,
-        propuesta_reclamante=conciliacion.propuesta_reclamante,
-        puntos_acuerdo=conciliacion.puntos_acuerdo,
-        puntos_desacuerdo=conciliacion.puntos_desacuerdo,
-        observaciones=conciliacion.observaciones,
-    )
+    return _respuesta(request.codreclamo, conciliacion, regenerada)
 
 
 def guardar_conciliacion(request: GuardarConciliacionRequest) -> ActualizarConciliacionResponse:
@@ -120,24 +175,17 @@ def guardar_conciliacion(request: GuardarConciliacionRequest) -> ActualizarConci
     if request.propuesta_empresa is not None:
         informe_store.actualizar_propuesta(request.codreclamo, request.propuesta_empresa)
     
-    # Luego los demás datos
-    conciliacion = informe_store.actualizar_conciliacion(
-        request.codreclamo,
-        propuesta_reclamante=request.propuesta_reclamante,
-        puntos_acuerdo=request.puntos_acuerdo,
-        puntos_desacuerdo=request.puntos_desacuerdo,
-        observaciones=request.observaciones,
-    )
-    
+    # Luego los demás datos (y el resultado de la audiencia, si viene)
+    conciliacion, regenerada = _aplicar_resultado(request.codreclamo, request)
+
     if not conciliacion and request.propuesta_empresa is None:
         raise HTTPException(
             status_code=404,
             detail=f"No hay un informe en curso para el reclamo {request.codreclamo}.",
         )
-    return ActualizarConciliacionResponse(
-        codreclamo=request.codreclamo,
-        propuesta_reclamante=conciliacion.propuesta_reclamante if conciliacion else None,
-        puntos_acuerdo=conciliacion.puntos_acuerdo if conciliacion else None,
-        puntos_desacuerdo=conciliacion.puntos_desacuerdo if conciliacion else None,
-        observaciones=conciliacion.observaciones if conciliacion else None,
-    )
+    if conciliacion is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No hay un informe en curso para el reclamo {request.codreclamo}.",
+        )
+    return _respuesta(request.codreclamo, conciliacion, regenerada)

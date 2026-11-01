@@ -152,8 +152,17 @@ INSTRUCCIONES_POR_MEDIO: dict[str, list[str]] = {
         _CIERRE,
     ],
     "tecnico_operacional": [
-        "Redacta UN SOLO párrafo ejecutivo sobre el análisis operacional del informe técnico.",
-        "Incluye únicamente ubicación, horario de abastecimiento, continuidad del servicio y válvula de aire cuando estén expresamente descritos.",
+        "Redacta UN SOLO párrafo sobre lo que el informe técnico operacional acredita respecto del reclamo.",
+        "Usa primero 'campos' (datos ya leídos del informe) y apóyate en 'texto_extraido' para el contexto.",
+        "Menciona, cuando estén presentes: horario de abastecimiento y fuente o sector; si hubo "
+        "interrupciones del servicio en el periodo reclamado y si se adjuntó el reporte; existencia y "
+        "estado de la válvula de purga de aire (VPA) y la zona (alta, media o baja) según el plano de "
+        "curvas de nivel; la presión promedio (m.c.a.); y las observaciones y conclusiones del área operacional.",
+        "Relaciona estos hechos con el reclamo solo hasta donde los datos lo permiten: las interrupciones "
+        "o la falta de una VPA operativa pueden favorecer el ingreso de aire a la red, que el medidor podría "
+        "registrar; si no hubo interrupciones y la VPA está operativa (o el predio está en zona baja), el "
+        "informe no muestra un indicio operacional de ese tipo. No afirmes una causa que el informe no establezca.",
+        "Si un dato es null o figura como 'No determinada', no lo menciones.",
         _REGLA_SOLO_DATOS,
         _CIERRE,
     ],

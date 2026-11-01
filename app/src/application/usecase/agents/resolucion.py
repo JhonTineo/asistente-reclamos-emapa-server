@@ -2,7 +2,18 @@ import time
 import logging
 from app.src.application.ports.provider_port import MensajeLLM
 from app.src.application.services.llm.llm_router_service import LlmRouterService, MODELO_EXTERNO_DEFAULT
+import json
+import re
+
 from app.src.core.model.informe_atencion import InformeAtencion
+from app.src.application.services.informe.formatos import resultado_conciliacion
+
+RESULTADO_AUDIENCIA = {
+    "acepta": "El usuario ASISTIÓ y ACEPTÓ la propuesta de la EPS (el reclamo no subsiste).",
+    "no_acepta": "El usuario ASISTIÓ y NO ACEPTÓ la propuesta de la EPS (el reclamo subsiste).",
+    "no_asistio": "El usuario NO ASISTIÓ a la audiencia de conciliación (el reclamo subsiste).",
+    "pendiente": "No hay registro del resultado de la audiencia.",
+}
 
 logger = logging.getLogger("agent.resolucion")
 
@@ -99,6 +110,7 @@ class ResolucionAgent:
         fecha_recepcion = (r.fecha_recepcion if r else None) or "no especificada"
 
         cliente_texto = propuesta_cliente or "no registrada"
+        resultado_texto = RESULTADO_AUDIENCIA[resultado_conciliacion(informe.propuesta_conciliacion)]
         observaciones_texto = f"\n- Observaciones: {observaciones}" if observaciones else ""
 
         return f"""Eres un agente que redacta los CONSIDERANDOS de una RESOLUCIÓN de reclamo
@@ -143,8 +155,43 @@ comentarios ni el pie legal.
 
 === CONCILIACIÓN ===
 - Propuesta de la empresa: {propuesta_empresa}
+- Resultado de la audiencia: {resultado_texto}
 - Postura del cliente frente a la propuesta: {cliente_texto}{observaciones_texto}
 
 Veredicto ya determinado (NO modificar): {veredicto}
 
 Redacta los considerandos de la resolución."""
+
+    def redactar_procedimiento(self, informe: InformeAtencion) -> list[str]:
+        """Borrador de los pasos del PROCEDIMIENTO DE REFACTURACIÓN de un
+        reclamo FUNDADO, a partir de la conclusión. Los importes no se calculan
+        aquí (dependen de la tarifa vigente): quedan como [S/ ...] para que el
+        analista los complete. Lista vacía si el LLM no responde algo usable."""
+        r = informe.datos_reclamo
+        prompt = (
+            "Eres un analista de reclamos de EMAPA. El reclamo fue declarado FUNDADO. Redacta "
+            "el PROCEDIMIENTO DE REFACTURACIÓN de la resolución como una lista de 1 a 3 pasos, "
+            "EN MAYÚSCULAS, con el estilo de este ejemplo:\n"
+            "1. USUARIO CANCELARÁ EN EL MES DE ENERO DE 2025 EL IMPORTE DE S/42.00 SOLES, PERO POR "
+            "UNA REBAJA A FAVOR DE S/4.40 SOLES, USUARIO CANCELARÁ EL IMPORTE DE S/37.60 SOLES Y SE "
+            "ANULARÁ LA DIFERENCIA DE S/77.90 SOLES.\n"
+            "2. SE REALIZA RECUPERACIÓN POR AGUA NO FACTURADA EN EL MES DE DICIEMBRE 2024 POR 21 M3, "
+            "EXCEPTUANDO EL MONTO DEL CARGO FIJO.\n\n"
+            "Reglas:\n"
+            "- Usa SOLO los meses, consumos (m³) y la forma de refacturar que indique la conclusión.\n"
+            "- NUNCA inventes importes: escribe [S/ IMPORTE] donde iría un monto en soles.\n"
+            "- No incluyas el cuadro de lecturas (se agrega aparte) ni la presentación de recursos.\n"
+            "Responde SOLO con un JSON: una lista de strings, un paso por elemento, sin numerar.\n\n"
+            f"Mes(es) reclamado(s): {(r.meses_reclamados if r else None) or 'no especificado'}\n"
+            f"=== CONCLUSIÓN ===\n{informe.conclusion or ''}"
+        )
+        try:
+            texto = self.llm_router.generar_texto(
+                mensajes=[MensajeLLM(rol="system", contenido=prompt)], modelo_id=self.model_id,
+            ) or ""
+            m = re.search(r"\[.*\]", texto, re.S)
+            pasos = json.loads(m.group(0)) if m else []
+            return [re.sub(r"^\s*\d+[.)]\s*", "", str(p)).strip().upper() for p in pasos if str(p).strip()][:4]
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[RESOLUCION] No se pudo redactar el procedimiento de refacturación: %s", exc)
+            return []
