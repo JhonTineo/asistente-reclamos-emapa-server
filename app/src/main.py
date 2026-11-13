@@ -15,6 +15,12 @@ from app.src.infrastructure.api_rest.normativa_documentos import router as norma
 from app.src.infrastructure.api_rest.normativa_articulos import router as normativa_articulos_router
 from app.src.infrastructure.api_rest.normativa_busqueda import router as normativa_busqueda_router
 from app.src.infrastructure.api_rest.normativa_reconstruccion import router as normativa_reconstruccion_router
+from app.src.infrastructure.api_rest.persistencia_middleware import PersistenciaCasosMiddleware
+from app.src.infrastructure.adapters.persistencia.sqlite_caso_repository import SqliteCasoRepository
+from app.src.infrastructure.config.settings import settings
+from app.src.application.services.informe.informe_store import informe_store
+from contextlib import asynccontextmanager
+from pathlib import Path
 
 
 logging.basicConfig(
@@ -40,11 +46,38 @@ logging.getLogger("agent.resolucion").setLevel(logging.DEBUG)
 logging.getLogger("tools.llm.openai_compat").setLevel(logging.DEBUG)
 logging.getLogger("tools.llm.ollama").setLevel(logging.DEBUG)
 
+_RUTA_DB_POR_DEFECTO = Path(__file__).resolve().parents[2] / "volumes" / "yumi_db" / "yumi.db"
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Activa la memoria del caso persistente y recupera las atenciones que
+    quedaron abiertas antes del último reinicio."""
+    repo = None
+    if settings.yumi_db_path.strip().lower() != "desactivado":
+        ruta = settings.yumi_db_path.strip() or str(_RUTA_DB_POR_DEFECTO)
+        repo = SqliteCasoRepository(ruta)
+        recuperados = informe_store.configurar_persistencia(repo)
+        logging.getLogger("main").info(
+            "Memoria del caso en %s | atenciones abiertas recuperadas=%d", ruta, recuperados,
+        )
+    try:
+        yield
+    finally:
+        if repo is not None:
+            informe_store.persistir_cambios()
+            informe_store.configurar_persistencia(None)
+            repo.cerrar_conexion()
+
+
 app = FastAPI(
     title="Asistente Reclamos EMAPA",
     description="API para análisis de reclamos de EMAPA",
     version="1.0.0",
+    lifespan=lifespan,
 )
+
+app.add_middleware(PersistenciaCasosMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

@@ -34,3 +34,4 @@ services:
     working_dir: /code
     volumes:
       - ./volumes/operacional_data:/code/volumes/operacional_data
+      - ./volumes/yumi_db:/code/volumes/yumi_db

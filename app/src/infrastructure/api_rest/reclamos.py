@@ -308,7 +308,7 @@ async def iniciar_investigacion(
         # validar o proveedor LLM caído), no se deja un informe fantasma en la
         # cola. Un informe que ya existía sí se conserva intacto.
         if not ya_existia:
-            informe_store.eliminar(request.codreclamo)
+            informe_store.eliminar(request.codreclamo, descartar=True)
         raise
 
     tiempo = time.perf_counter() - t_inicio
@@ -460,6 +460,7 @@ async def obtener_informe_completo(codreclamo: str) -> InformeCompletoResponse:
             resumen=b.resumen,
             datos=b.entidad,
             problemas=[ProblemaNormadoSchema(**vars(p)) for p in b.problemas],
+            constataciones=[ProblemaNormadoSchema(**vars(c)) for c in b.constataciones],
         )
         for b in informe.bloques
     ]
@@ -468,12 +469,18 @@ async def obtener_informe_completo(codreclamo: str) -> InformeCompletoResponse:
             medio_id=b.medio_id,
             tipo=p.tipo,
             detalle=p.detalle,
+            id=p.id,
+            clase=p.clase,
+            seleccionado=p.seleccionado,
+            articulos=p.articulos or [],
             accion=p.accion,
             responsable=p.responsable,
             base_legal=p.base_legal,
         )
         for b in informe.bloques
-        for p in b.problemas
+        # Todos los problemas, y de las constataciones solo las que sustentan la
+        # fundamentación (seleccionadas): el resto ya va en `resumenes`.
+        for p in [*b.problemas, *(c for c in b.constataciones if c.seleccionado)]
     ]
 
     return InformeCompletoResponse(

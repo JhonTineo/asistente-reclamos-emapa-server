@@ -71,6 +71,8 @@ services:
     working_dir: /code
     volumes:
       - /opt/yumi-data/operacional_data:/code/volumes/operacional_data
+      # Memoria del caso (SQLite): sobrevive a reinicios y redespliegues.
+      - /opt/yumi-data/yumi_db:/code/volumes/yumi_db
     cpus: 1.00
     mem_limit: 1536m
     pids_limit: 256

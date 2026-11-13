@@ -21,6 +21,9 @@ from app.src.application.usecase.agents.analista_medio import AnalistaMedioAgent
 from app.src.application.services.llm.llm_router_service import LlmRouterService
 from app.src.application.ports.emapa_api_port import PuertoEmapaAPI
 from app.src.application.services.informe.informe_store import informe_store
+from app.src.application.services.informe.artefactos import ORIGEN_SYSCO
+from app.src.application.services.informe.evidencias import periodos_reclamados
+from app.src.application.services.pre_proces.constataciones import constatar
 from app.src.core.model.informe_atencion import BloqueMedio
 
 logger = logging.getLogger("services.investigacion_service")
@@ -47,6 +50,14 @@ def codigo_inspeccion_para_medio(informe, medio_id: str) -> str | None:
     if medio_id == "inspeccion_externa":
         return informe.datos_reclamo.codinspeccion_externa
     return None
+
+
+def periodos_del_reclamo(informe) -> list[tuple[int, int]]:
+    """Meses reclamados [(anio, mes)] del reclamo ('SETIEMBRE-2026' -> [(2026, 9)]).
+    Las constataciones los usan para verificar siempre el mes en disputa."""
+    if not informe or not informe.datos_reclamo:
+        return []
+    return periodos_reclamados(informe.datos_reclamo.meses_reclamados)
 
 
 def medios_determinantes(informe) -> set[str]:
@@ -114,6 +125,7 @@ async def analizar_medio_y_registrar(
         fecha_ref=fecha_ref,
         enfoque=enfoque,
         codinspeccion=codinspeccion,
+        periodos_reclamados=periodos_del_reclamo(informe),
     )
 
     informe = informe_store.registrar_bloque(
@@ -140,6 +152,7 @@ async def analizar_medio_y_registrar(
         datos=bloque.entidad,
         resumen=bloque.resumen,
         problemas=[ProblemaNormadoSchema(**vars(p)) for p in bloque.problemas],
+        constataciones=[ProblemaNormadoSchema(**vars(c)) for c in bloque.constataciones],
         tiempo=tiempo_total,
     )
 
@@ -186,6 +199,7 @@ async def _analizar_un_medio_en_threadpool(
             fecha_ref=fecha_ref,
             enfoque=enfoque,
             codinspeccion=codinspeccion,
+            periodos_reclamados=periodos_del_reclamo(informe),
         )
     else:
         # Rehidratación: se consultan nuevamente los datos y se recalculan los
@@ -206,6 +220,7 @@ async def _analizar_un_medio_en_threadpool(
             entidad=datos,
             resumen=resumenes_existentes.get(medio_id, ""),
             problemas=problemas,
+            constataciones=constatar(medio_id, datos, periodos_del_reclamo(informe)),
         )
 
     # Se ejecuta de vuelta en el event-loop (tras el await anterior), sin
@@ -217,6 +232,7 @@ async def _analizar_un_medio_en_threadpool(
         suministro=request.codcliente,
         clasificacion=request.clasificacion,
         preservar_decision=resumenes_existentes is not None,
+        origen_resumen=ORIGEN_SYSCO if resumenes_existentes is not None else None,
     )
     if ventana:
         informe.ventana_meses = ventana
@@ -233,6 +249,7 @@ async def _analizar_un_medio_en_threadpool(
         datos=bloque.entidad,
         resumen=bloque.resumen,
         problemas=[ProblemaNormadoSchema(**vars(p)) for p in bloque.problemas],
+        constataciones=[ProblemaNormadoSchema(**vars(c)) for c in bloque.constataciones],
         tiempo=tiempo_total,
     )
 
@@ -350,12 +367,16 @@ def stream_analisis_medio(
                 request.meses, fecha_ref, codinspeccion,
             )
             problemas_schema = [ProblemaNormadoSchema(**vars(p)) for p in problemas]
+            constataciones = constatar(medio_id, datos, periodos_del_reclamo(informe))
             evento_pre = {
                 "evento": "preprocesamiento",
                 "medio_id": medio_id,
                 "medio_nombre": medio_nombre,
                 "datos": datos,
                 "problemas": [p.model_dump() for p in problemas_schema],
+                "constataciones": [
+                    ProblemaNormadoSchema(**vars(c)).model_dump() for c in constataciones
+                ],
                 "tiempo": time.perf_counter() - t_inicio,
             }
             yield json.dumps(evento_pre, ensure_ascii=False) + "\n"
@@ -364,6 +385,7 @@ def stream_analisis_medio(
             resumen = await run_in_threadpool(
                 analista.interpretar,
                 medio_id, medio_nombre, datos, problemas, request.clasificacion, enfoque,
+                constataciones,
             )
             bloque = BloqueMedio(
                 medio_id=medio_id,
@@ -371,6 +393,7 @@ def stream_analisis_medio(
                 entidad=datos,
                 resumen=resumen,
                 problemas=problemas,
+                constataciones=constataciones,
             )
             informe = informe_store.registrar_bloque(
                 codreclamo=request.codreclamo,

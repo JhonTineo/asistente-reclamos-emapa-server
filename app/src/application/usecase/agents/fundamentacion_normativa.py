@@ -15,6 +15,7 @@ from app.src.application.ports.provider_port import MensajeLLM
 from app.src.application.services.llm.llm_router_service import LlmRouterService, MODELO_EXTERNO_DEFAULT
 from app.src.application.services.rag.retriever import Retriever
 from app.src.core.model.informe_atencion import ProblemaNormado
+from app.src.application.services.pre_proces.constataciones import HECHOS_MES_RECLAMADO, LIMITACIONES
 from app.src.application.ports.vector_db_port import PuertoBaseVectorial
 
 
@@ -80,6 +81,52 @@ CONSULTA_POR_TIPO = {
     "mesesNoPagados": (
         "deuda pendiente de pago, saldos vencidos y facturación de meses "
         "anteriores no cancelados"
+    ),
+    # --- constataciones (hechos neutros o favorables, ver constataciones.py) ---
+    "lecturaMesReclamado": (
+        "facturación del consumo por diferencia de lecturas del medidor; lectura "
+        "real registrada en el periodo reclamado"
+    ),
+    "facturacionMesReclamado": (
+        "facturación por diferencia de lecturas con medidor operativo; consumo "
+        "medido del mes reclamado"
+    ),
+    "sinLecturaMesReclamado": (
+        "ausencia de lectura del medidor en el periodo; facturación por promedio "
+        "o asignación de consumo"
+    ),
+    "sinFacturacionMesReclamado": (
+        "periodo sin registro de facturación; verificación del cobro reclamado"
+    ),
+    "tendenciaCreciente": (
+        "evolución del consumo histórico del predio y variación del consumo "
+        "registrado por el medidor"
+    ),
+    "medidorReciente": (
+        "instalación o cambio de medidor y facturación con el nuevo medidor"
+    ),
+    "rebajaAplicada": (
+        "rebaja o refacturación aplicada al recibo como resultado de un reclamo"
+    ),
+    "estadoMedidorInspeccion": (
+        "verificación del funcionamiento del medidor en la inspección; medidor "
+        "operativo que registra correctamente el consumo"
+    ),
+    "fugasInspeccionExterna": (
+        "inspección externa de la conexión domiciliaria sin fugas"
+    ),
+    "estadoConexionInspeccion": (
+        "estado de la caja del medidor y de la conexión domiciliaria"
+    ),
+    "inspeccionInternaRealizada": (
+        "inspección interna de las instalaciones sanitarias del predio"
+    ),
+    "inspeccionInternaSinAcceso": (
+        "el usuario no permite o no atiende la inspección interna; la empresa "
+        "resuelve el reclamo con los medios probatorios disponibles"
+    ),
+    "prorrogasCorte": (
+        "prórroga del corte del servicio por deuda mientras se tramita el reclamo"
     ),
 }
 
@@ -323,16 +370,27 @@ class FundamentacionNormativaAgent:
                 for medio in o.medios_relacionados}
 
     @staticmethod
-    def pool_determinante(informe) -> list[ProblemaNormado]:
-        """Lista completa de problemas de los medios determinantes, en orden de
-        bloque estable. Es el conjunto de tarjetas que ve el front; la selección
-        marca `seleccionado` sobre estos mismos objetos."""
+    def candidatos(informe) -> list[tuple[str, ProblemaNormado]]:
+        """(medio_id, hecho) candidatos a fundamentar, en orden de bloque estable:
+        todos los hechos de los medios determinantes y, de los demás medios,
+        los hechos del mes reclamado (lectura y facturación). Estos últimos son
+        el núcleo de un reclamo de consumo y no deben depender de que su medio
+        haya quedado marcado como determinante en los objetivos."""
         medios_det = FundamentacionNormativaAgent._medios_determinantes(informe)
-        pool: list[ProblemaNormado] = []
+        if not medios_det:
+            return []
+        pares: list[tuple[str, ProblemaNormado]] = []
         for bloque in informe.bloques:
-            if bloque.medio_id in medios_det:
-                pool.extend(bloque.problemas)
-        return pool
+            for hecho in bloque.hechos:
+                if bloque.medio_id in medios_det or hecho.tipo in HECHOS_MES_RECLAMADO:
+                    pares.append((bloque.medio_id, hecho))
+        return pares
+
+    @staticmethod
+    def pool_determinante(informe) -> list[ProblemaNormado]:
+        """Lista completa de hechos candidatos. Es el conjunto de tarjetas que
+        ve el front; la selección marca `seleccionado` sobre estos mismos objetos."""
+        return [h for _, h in FundamentacionNormativaAgent.candidatos(informe)]
 
     def seleccionar_determinantes(self, informe) -> list[ProblemaNormado]:
         """De la lista de problemas de los medios determinantes (agrupados por
@@ -345,15 +403,11 @@ class FundamentacionNormativaAgent:
             return []
 
         # Pool estable y su medio de origen (para agrupar por objetivo por índice).
-        pool: list[ProblemaNormado] = []
-        medio_de_pool: list[str] = []
-        for bloque in informe.bloques:
-            if bloque.medio_id in medios_det:
-                for p in bloque.problemas:
-                    pool.append(p)
-                    medio_de_pool.append(bloque.medio_id)
+        pares = self.candidatos(informe)
+        pool: list[ProblemaNormado] = [h for _, h in pares]
+        medio_de_pool: list[str] = [m for m, _ in pares]
         if not pool:
-            logger.info("[FUNDAMENTACION] Medios determinantes sin problemas; nada que seleccionar")
+            logger.info("[FUNDAMENTACION] Medios determinantes sin hechos; nada que seleccionar")
             return []
 
         idxs_por_medio: dict[str, list[int]] = {}
@@ -363,6 +417,7 @@ class FundamentacionNormativaAgent:
         # Prompt: motivo + problemas AGRUPADOS POR OBJETIVO determinante (su
         # pregunta como encabezado + los problemas de su medio, indexados).
         grupos: list[str] = []
+        cubiertos: set[int] = set()
         for o in informe.objetivos:
             if not o.determinante:
                 continue
@@ -370,27 +425,43 @@ class FundamentacionNormativaAgent:
             idxs = [i for medio in o.medios_relacionados
                     for i in idxs_por_medio.get(medio, [])]
             if idxs:
-                lineas += [f"  [{i}] {pool[i].detalle}" for i in idxs]
+                lineas += [
+                    f"  [{i}] ({'hecho verificado' if pool[i].clase == 'constatacion' else 'problema'}) "
+                    f"{pool[i].detalle}"
+                    for i in idxs
+                ]
             else:
-                lineas.append("  (sin problemas registrados en este medio)")
+                lineas.append("  (sin hechos registrados en este medio)")
+            cubiertos.update(idxs)
             grupos.append("\n".join(lineas))
+        resto = [i for i in range(len(pool)) if i not in cubiertos]
+        if resto:
+            grupos.append("\n".join(
+                ["Hechos del mes reclamado (de otros medios):"]
+                + [f"  [{i}] (hecho verificado) {pool[i].detalle}" for i in resto]
+            ))
 
         system = (
             "Eres un analista de reclamos de EMAPA. Debes seleccionar, de la lista "
-            "de PROBLEMAS agrupados por objetivo, los 1 a 3 problemas con relación "
+            "de HECHOS agrupados por objetivo, los 1 a 3 hechos con relación "
             "DIRECTA con el motivo del reclamo y que, según el Reglamento de Calidad "
             "SUNASS, deciden si corresponde corregir la facturación.\n"
+            "Cada hecho es un «problema» (anomalía detectada) o un «hecho "
+            "verificado» (dato que confirma que algo está en regla, p. ej. la "
+            "lectura real del mes reclamado). Ambos pueden ser determinantes: si no "
+            "hay anomalías que expliquen el reclamo, los hechos verificados son los "
+            "que sustentan la decisión.\n"
             "Reglas:\n"
             "- Elige los MÍNIMOS que deciden el caso (entre 1 y 3); descarta "
-            "problemas de contexto, de meses lejanos o ajenos al motivo.\n"
-            "- Refiérete a cada problema elegido por su número de índice [n].\n"
+            "hechos de contexto, de meses lejanos o ajenos al motivo.\n"
+            "- Refiérete a cada hecho elegido por su número de índice [n].\n"
             "Responde SOLO con un JSON: una lista de enteros con los índices "
             "elegidos (p. ej. [0, 2])."
         )
         human = (
             f"Motivo del reclamo:\n{informe.motivo or 'no especificado'}\n\n"
-            f"Problemas agrupados por objetivo:\n\n" + "\n\n".join(grupos) + "\n\n"
-            "Devuelve SOLO el JSON con los índices de los 1-3 problemas determinantes."
+            f"Hechos agrupados por objetivo:\n\n" + "\n\n".join(grupos) + "\n\n"
+            "Devuelve SOLO el JSON con los índices de los 1-3 hechos determinantes."
         )
 
         logger.info(
@@ -411,6 +482,12 @@ class FundamentacionNormativaAgent:
 
         indices = self._parse_indices(response_text or "", len(pool))
         seleccionados = [pool[i] for i in indices]
+        # Las limitaciones (p.ej. no se pudo inspeccionar el interior) entran
+        # siempre, por regla: si el LLM las omite, la redacción generaliza los
+        # hechos favorables de la inspección externa a todo el predio.
+        for p in pool:
+            if p.tipo in LIMITACIONES and all(p is not s for s in seleccionados):
+                seleccionados.append(p)
         for p in seleccionados:
             p.seleccionado = True
         logger.info(
@@ -535,6 +612,18 @@ class FundamentacionNormativaAgent:
             "sobre las causas del consumo): no aporta y alarga el párrafo.\n"
             "- Si NINGÚN artículo recuperado regula el hecho, fundaméntalo solo por "
             "los hechos; NO inventes artículos ni cifras que no estén en los datos.\n"
+            "- CONSERVA EL ALCANCE de cada hecho tal como está escrito: lo verificado "
+            "en la inspección EXTERNA (medidor, caja, conexión, fugas externas) no "
+            "acredita el estado de las instalaciones INTERNAS. No escribas «no se "
+            "detectaron fugas» sin decir dónde se verificó.\n"
+            "- Si un hecho indica que no se pudo inspeccionar el interior del predio "
+            "(u otra limitación), menciónalo expresamente como limitación de la "
+            "verificación; nunca lo omitas ni lo contradigas.\n"
+            "- Cita SOLO el inciso o numeral del artículo que regula el hecho y "
+            "relaciónalo con el dato concreto que lo cumple (p. ej. los días entre "
+            "lecturas). No parafrasees incisos que no se relacionan con el caso ni "
+            "enuncies condiciones del artículo que no estén acreditadas por un hecho.\n"
+            "- Máximo cuatro oraciones.\n"
             "- No adelantes el veredicto (FUNDADO/INFUNDADO): eso lo decide la "
             "conclusión."
         )

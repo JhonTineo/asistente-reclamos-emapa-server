@@ -40,22 +40,22 @@ def _crear_agente(llm_router: LlmRouterService, modelo: str | None) -> Fundament
 
 
 def _candidatos_payload(informe) -> list[dict]:
-    """Lista COMPLETA de problemas de los medios determinantes (tarjetas del
-    front), con el flag `seleccionado` ya resuelto por la selección."""
-    medios_det = FundamentacionNormativaAgent._medios_determinantes(informe)
+    """Lista COMPLETA de hechos candidatos (tarjetas del front): los de los
+    medios determinantes y los del mes reclamado, con `seleccionado` ya
+    resuelto por la selección."""
+    nombres = {b.medio_id: b.medio_nombre for b in informe.bloques}
     out: list[dict] = []
-    for bloque in informe.bloques:
-        if bloque.medio_id not in medios_det:
-            continue
-        for p in bloque.problemas:
-            out.append({
-                "medio_id": bloque.medio_id,
-                "medio_nombre": bloque.medio_nombre,
-                "tipo": p.tipo,
-                "detalle": p.detalle,
-                "seleccionado": p.seleccionado,
-                "articulos": p.articulos or [],
-            })
+    for medio_id, p in FundamentacionNormativaAgent.candidatos(informe):
+        out.append({
+            "medio_id": medio_id,
+            "medio_nombre": nombres.get(medio_id, medio_id),
+            "id": p.id,
+            "clase": p.clase,
+            "tipo": p.tipo,
+            "detalle": p.detalle,
+            "seleccionado": p.seleccionado,
+            "articulos": p.articulos or [],
+        })
     return out
 
 
@@ -63,21 +63,19 @@ def _medio_por_problema(informe) -> dict[int, str]:
     """id(problema) -> medio_id, para etiquetar los eventos de artículos."""
     m: dict[int, str] = {}
     for bloque in informe.bloques:
-        for p in bloque.problemas:
+        for p in bloque.hechos:
             m[id(p)] = bloque.medio_id
     return m
 
 
 def _limpiar_seleccion(informe) -> None:
-    """Resetea `seleccionado`/`articulos` de los problemas de medios determinantes
-    antes de re-seleccionar (permite re-fundamentar sin arrastrar una corrida
-    anterior)."""
-    medios_det = FundamentacionNormativaAgent._medios_determinantes(informe)
+    """Resetea `seleccionado`/`articulos` de todos los hechos antes de
+    re-seleccionar (permite re-fundamentar sin arrastrar una corrida anterior,
+    incluso si cambiaron los objetivos determinantes)."""
     for bloque in informe.bloques:
-        if bloque.medio_id in medios_det:
-            for p in bloque.problemas:
-                p.seleccionado = False
-                p.articulos = []
+        for p in bloque.hechos:
+            p.seleccionado = False
+            p.articulos = []
 
 
 def _aplicar_seleccion_manual(informe, seleccion) -> list[tuple]:
@@ -88,7 +86,7 @@ def _aplicar_seleccion_manual(informe, seleccion) -> list[tuple]:
     _limpiar_seleccion(informe)
     idx: dict[tuple[str, str], object] = {}
     for bloque in informe.bloques:
-        for p in bloque.problemas:
+        for p in bloque.hechos:
             idx[(bloque.medio_id, p.detalle)] = p
 
     pares: list[tuple] = []

@@ -89,8 +89,12 @@ class DescensoConsumoTests(unittest.TestCase):
         hallazgos = self.servicio._detectar_descenso_consumo(self._df([60, 20]))
         self.assertEqual(1, len(hallazgos))
         texto = hallazgos[0]
-        for valor in ("60 m³", "01/2026", "20 m³", "02/2026", "promedio 20 m³"):
+        for valor in ("60 m³", "01/2026", "20 m³", "02/2026", "promedio de 20 m³"):
             self.assertIn(valor, texto)
+        # Debe quedar explícito qué mes subió y cuál bajó (la redacción ambigua
+        # llevó al LLM a escribir que un pico estaba "por debajo" del promedio).
+        self.assertIn("subió a 60 m³ en 01/2026", texto)
+        self.assertIn("bajó a 20 m³ en 02/2026", texto)
         for afirmacion_no_acreditada in ("fuga", "repar", "visible"):
             self.assertNotIn(afirmacion_no_acreditada, texto.lower())
 

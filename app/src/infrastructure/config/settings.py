@@ -111,5 +111,12 @@ class Settings(BaseSettings):
     qdrant_collection_name: str = "sunass_reglamento"
 
 
+    # --- Memoria del caso persistente (SQLite) ---
+    # Ruta del archivo de base de datos. Vacío = <repo>/volumes/yumi_db/yumi.db
+    # (en Docker, /code/volumes/yumi_db/yumi.db, montado desde el host).
+    # "desactivado" = sin persistencia (solo memoria, como antes).
+    yumi_db_path: str = ""
+
+
 
 settings = Settings()

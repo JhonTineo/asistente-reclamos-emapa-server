@@ -1,10 +1,24 @@
-"""Almacén en memoria del InformeAtencion, indexado por codreclamo.
+"""Almacén del InformeAtencion, indexado por codreclamo.
 
 El informe se crea al buscar el reclamo (metadatos) y se va llenando con un
-BloqueMedio por cada medio probatorio analizado. Es estado de servidor con
-vida corta (una investigación en curso); no persiste a disco.
+BloqueMedio por cada medio probatorio analizado.
+
+La memoria del proceso sigue siendo la fuente de trabajo, pero si se configura
+un repositorio (``configurar_persistencia``) cada cambio se sincroniza con él y,
+al arrancar, se recuperan las atenciones que quedaron abiertas. Hay dos vías de
+sincronización:
+
+- los métodos de este store guardan al terminar su cambio;
+- ``persistir_cambios`` guarda los informes que los agentes modificaron
+  directamente; lo invoca el middleware al terminar cada petición HTTP.
+
+Solo se escribe cuando la huella del informe cambió. Un fallo de la base de
+datos se registra en el log pero no interrumpe la atención: el siguiente
+intento vuelve a guardar el estado completo.
 """
 
+import hashlib
+import json
 import logging
 import threading
 import shutil
@@ -12,6 +26,11 @@ from dataclasses import asdict
 from pathlib import Path
 from datetime import datetime
 
+from app.src.application.ports.caso_repository_port import PuertoRepositorioCasos
+from app.src.application.services.informe.artefactos import (
+    ORIGEN_ANALISTA, marcar_origen, tipo_resumen,
+)
+from app.src.application.services.informe.hechos import asegurar_ids_hechos, asignar_ids_bloque
 from app.src.core.model.informe_atencion import InformeAtencion, BloqueMedio
 from app.src.core.model.reclamo import Reclamo
 from app.src.core.model.conciliacion import Conciliacion
@@ -44,6 +63,56 @@ class InformeAtencionStore:
         # se atienden en paralelo.
         self._tokens: dict[str, str] = {}
         self._lock = threading.Lock()
+        # Persistencia opcional (sin repositorio, el store funciona solo en
+        # memoria, como en las pruebas). _huellas evita reescribir un informe
+        # que no cambió desde la última vez que se guardó.
+        self._repo: PuertoRepositorioCasos | None = None
+        self._huellas: dict[str, str] = {}
+
+    # ------------------------------------------------------------------ #
+    # Persistencia
+    # ------------------------------------------------------------------ #
+    def configurar_persistencia(self, repo: PuertoRepositorioCasos | None) -> int:
+        """Activa (o desactiva con None) la persistencia y carga en memoria
+        las atenciones abiertas. Devuelve cuántas se recuperaron."""
+        with self._lock:
+            self._repo = repo
+            self._huellas.clear()
+            if repo is None:
+                return 0
+            recuperados = repo.cargar_abiertos()
+            for informe in recuperados:
+                self._data[informe.reclamo] = informe
+                self._huellas[informe.reclamo] = self._huella(informe)
+        logger.info("[INFORME_STORE] Persistencia activa; atenciones recuperadas=%d", len(recuperados))
+        return len(recuperados)
+
+    @staticmethod
+    def _huella(informe: InformeAtencion) -> str:
+        contenido = json.dumps(asdict(informe), ensure_ascii=False, sort_keys=True, default=str)
+        return hashlib.sha256(contenido.encode("utf-8")).hexdigest()
+
+    def _persistir_locked(self, informe: InformeAtencion) -> None:
+        if self._repo is None:
+            return
+        asegurar_ids_hechos(informe)
+        huella = self._huella(informe)
+        if self._huellas.get(informe.reclamo) == huella:
+            return
+        try:
+            self._repo.guardar(informe)
+        except Exception:  # noqa: BLE001
+            logger.exception("[INFORME_STORE] No se pudo persistir el reclamo %s", informe.reclamo)
+            return
+        self._huellas[informe.reclamo] = huella
+
+    def persistir_cambios(self) -> None:
+        """Guarda los informes que cambiaron desde la última sincronización."""
+        if self._repo is None:
+            return
+        with self._lock:
+            for informe in list(self._data.values()):
+                self._persistir_locked(informe)
 
     def _nuevo_informe(
         self,
@@ -97,6 +166,7 @@ class InformeAtencionStore:
                     "sin perder avance (bloques=%d)",
                     codreclamo, len(existente.bloques),
                 )
+                self._persistir_locked(existente)
                 return existente
 
             informe = self._nuevo_informe(
@@ -105,6 +175,7 @@ class InformeAtencionStore:
             informe.sesion_id = sesion_id
             self._data[codreclamo] = informe
             logger.info("[INFORME_STORE] Metadatos creados para reclamo %s", codreclamo)
+            self._persistir_locked(informe)
             return informe
 
     def obtener(self, codreclamo: str) -> InformeAtencion | None:
@@ -148,6 +219,7 @@ class InformeAtencionStore:
             if informe is None:
                 return False
             self._invalidar_decision_locked(informe, motivo)
+            self._persistir_locked(informe)
             return True
 
     def listar_metadatos(self) -> list[dict]:
@@ -172,15 +244,26 @@ class InformeAtencionStore:
                 for codreclamo, informe in self._data.items()
             ]
 
-    def eliminar(self, codreclamo: str) -> bool:
+    def eliminar(self, codreclamo: str, descartar: bool = False) -> bool:
         """Cierra la atención de un reclamo: quita su informe y token de la
         memoria del servidor. Se llama al terminar el flujo completo (tras
         guardar la resolución), para no acumular informes de reclamos ya
-        resueltos indefinidamente. Devuelve True si había algo que borrar."""
+        resueltos indefinidamente. Devuelve True si había algo que borrar.
+
+        En la base de datos la atención queda como ``finalizado`` (se conserva
+        su historial); con ``descartar=True`` (un inicio que falló) se borra."""
         with self._lock:
             informe = self._data.pop(codreclamo, None)
             existia = informe is not None
             self._tokens.pop(codreclamo, None)
+            self._huellas.pop(codreclamo, None)
+            if self._repo is not None:
+                try:
+                    if informe is not None and not descartar:
+                        self._repo.guardar(informe)
+                    self._repo.cerrar(codreclamo, descartar=descartar)
+                except Exception:  # noqa: BLE001
+                    logger.exception("[INFORME_STORE] No se pudo cerrar el reclamo %s en la BD", codreclamo)
         documento = informe.documento_tecnico_operacional if informe else None
         ruta = Path(documento["ruta"]) if documento and documento.get("ruta") else None
         if ruta and ruta.parent.exists():
@@ -194,6 +277,7 @@ class InformeAtencionStore:
             if informe is None:
                 raise KeyError(f"No hay un informe en curso para el reclamo {codreclamo}.")
             informe.documento_tecnico_operacional = documento
+            self._persistir_locked(informe)
 
     def obtener_documento_tecnico_operacional(self, codreclamo: str) -> dict | None:
         informe = self._data.get(codreclamo)
@@ -223,6 +307,8 @@ class InformeAtencionStore:
                 return False
             self._invalidar_decision_locked(informe, f"edición del resumen {medio_id}")
             bloque.resumen = resumen
+            marcar_origen(informe, tipo_resumen(medio_id), ORIGEN_ANALISTA)
+            self._persistir_locked(informe)
             logger.info(
                 "[INFORME_STORE] Resumen editado a mano: reclamo=%s medio=%s",
                 codreclamo, medio_id,
@@ -237,6 +323,8 @@ class InformeAtencionStore:
             if informe is None:
                 return False
             informe.conclusion = texto
+            marcar_origen(informe, "conclusion", ORIGEN_ANALISTA)
+            self._persistir_locked(informe)
             logger.info("[INFORME_STORE] Conclusión editada a mano: reclamo=%s", codreclamo)
             return True
 
@@ -249,6 +337,8 @@ class InformeAtencionStore:
                 return False
             self._invalidar_decision_locked(informe, "edición de la fundamentación")
             informe.fundamentacion_normativa = texto
+            marcar_origen(informe, "fundamentacion", ORIGEN_ANALISTA)
+            self._persistir_locked(informe)
             logger.info("[INFORME_STORE] Fundamentación editada a mano: reclamo=%s", codreclamo)
             return True
 
@@ -262,6 +352,8 @@ class InformeAtencionStore:
             if informe.propuesta_conciliacion is None:
                 informe.propuesta_conciliacion = Conciliacion()
             informe.propuesta_conciliacion.propuesta_empresa = texto
+            marcar_origen(informe, "conciliacion", ORIGEN_ANALISTA)
+            self._persistir_locked(informe)
             logger.info("[INFORME_STORE] Propuesta editada a mano: reclamo=%s", codreclamo)
             return True
 
@@ -292,6 +384,8 @@ class InformeAtencionStore:
                 conciliacion.puntos_desacuerdo = puntos_desacuerdo
             if observaciones is not None:
                 conciliacion.observaciones = observaciones
+            marcar_origen(informe, "conciliacion", ORIGEN_ANALISTA)
+            self._persistir_locked(informe)
             logger.info("[INFORME_STORE] Datos de conciliación editados a mano: reclamo=%s", codreclamo)
             return conciliacion
 
@@ -303,6 +397,8 @@ class InformeAtencionStore:
             if informe is None:
                 return False
             informe.resolucion = texto
+            marcar_origen(informe, "resolucion", ORIGEN_ANALISTA)
+            self._persistir_locked(informe)
             logger.info("[INFORME_STORE] Resolución editada a mano: reclamo=%s", codreclamo)
             return True
 
@@ -313,9 +409,13 @@ class InformeAtencionStore:
         suministro: str | None = None,
         clasificacion: str | None = None,
         preservar_decision: bool = False,
+        origen_resumen: str | None = None,
     ) -> InformeAtencion:
         """Agrega el bloque de un medio. Si el informe no existía (p.ej. no se
-        pasó por la búsqueda del reclamo), lo crea al vuelo."""
+        pasó por la búsqueda del reclamo), lo crea al vuelo.
+
+        ``origen_resumen`` marca de dónde viene el resumen cuando no lo generó
+        Yumi (p.ej. ``"sysco"`` al rehidratar un informe histórico)."""
         with self._lock:
             informe = self._data.get(codreclamo)
             if informe is None:
@@ -338,11 +438,17 @@ class InformeAtencionStore:
                 else:
                     informe.datos_reclamo.clasificacion_reclamo = clasificacion
 
-            # Reemplaza el bloque del mismo medio si ya se había analizado.
+            # Reemplaza el bloque del mismo medio si ya se había analizado. Los
+            # problemas que se repiten conservan su ID de hecho.
+            anterior = next((b for b in informe.bloques if b.medio_id == bloque.medio_id), None)
+            asignar_ids_bloque(informe, bloque, anterior)
             informe.bloques = [
                 b for b in informe.bloques if b.medio_id != bloque.medio_id
             ]
             informe.bloques.append(bloque)
+            if origen_resumen:
+                marcar_origen(informe, tipo_resumen(bloque.medio_id), origen_resumen)
+            self._persistir_locked(informe)
             logger.info(
                 "[INFORME_STORE] Bloque '%s' registrado en reclamo %s (total=%d)",
                 bloque.medio_id, codreclamo, len(informe.bloques),

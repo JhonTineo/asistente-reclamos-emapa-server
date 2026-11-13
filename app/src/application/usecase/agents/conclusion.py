@@ -30,7 +30,10 @@ from app.src.core.model.criterios_especialista import (
     CriterioEvaluacion, obtener_criterios, render_criterios,
 )
 from app.src.core.model.informe_atencion import (
-    InformeAtencion, MotivoEvaluacion, ObjetivoInvestigacion,
+    InformeAtencion, MotivoEvaluacion, ObjetivoInvestigacion, ProblemaNormado,
+)
+from app.src.application.services.pre_proces.constataciones import (
+    HECHOS_MES_RECLAMADO, LIMITACIONES,
 )
 
 logger = logging.getLogger("agent.conclusion")
@@ -180,7 +183,12 @@ class ConclusionAgent:
             lineas = [f"[{bloque.medio_id}] {bloque.medio_nombre}: {bloque.resumen}"]
             for p in bloque.problemas:
                 accion = f" · acción: {p.accion}" if p.accion else ""
-                lineas.append(f"    · {p.detalle}{accion}")
+                lineas.append(f"    · Problema: {p.detalle}{accion}")
+            # Los hechos verificados por reglas (lectura del mes reclamado,
+            # medidor operativo, inspección sin acceso...) son la evidencia más
+            # fiable: tienen prioridad sobre la redacción del resumen.
+            for c in bloque.constataciones:
+                lineas.append(f"    · Hecho verificado: {c.detalle}")
             por_medio[bloque.medio_id] = "\n".join(lineas)
         return por_medio
 
@@ -229,6 +237,9 @@ class ConclusionAgent:
             "Clasifica cada objetivo en uno de estos resultados, según estos "
             "criterios de especialista:\n"
             f"{render_criterios(self.criterios)}\n"
+            "Los «Hechos verificados» provienen de reglas sobre los datos y son "
+            "exactos: si el resumen de un medio los contradice, prevalece el hecho "
+            "verificado.\n"
             "Básate ÚNICAMENTE en los hallazgos listados debajo de cada objetivo. "
             "NUNCA uses hallazgos que no estén listados para el objetivo. "
             "Las inspecciones interna y externa son complementarias: una inspección "
@@ -334,6 +345,20 @@ class ConclusionAgent:
     # ------------------------------------------------------------------ #
     # Redacción de la conclusión (LLM, coherente con la puerta lógica)
     # ------------------------------------------------------------------ #
+    @staticmethod
+    def _hechos_para_conclusion(informe: InformeAtencion) -> list[ProblemaNormado]:
+        """Hechos que la conclusión debe tener a la vista, en orden de bloque y
+        sin duplicados: los que sustentan la fundamentación (seleccionados), las
+        limitaciones de la verificación y los hechos del mes reclamado."""
+        hechos: list[ProblemaNormado] = []
+        for bloque in informe.bloques:
+            for h in bloque.hechos:
+                if (h.seleccionado or h.tipo in LIMITACIONES
+                        or h.tipo in HECHOS_MES_RECLAMADO):
+                    if all(h is not otro for otro in hechos):
+                        hechos.append(h)
+        return hechos
+
     def _redactar_conclusion(
         self,
         informe: InformeAtencion,
@@ -352,6 +377,12 @@ class ConclusionAgent:
             + "]"
             for o in determinantes
         ) or "(sin objetivos determinantes)"
+
+        # Los hechos completos (no solo la evidencia de 12 palabras): así la
+        # redacción no rellena huecos generalizando un hecho más allá de su alcance.
+        hechos = self._hechos_para_conclusion(informe)
+        hechos_texto = "\n".join(f"- {h.detalle}" for h in hechos)
+        limitaciones = [h for h in hechos if h.tipo in LIMITACIONES]
 
         # La base normativa YA NO se reconstruye por-problema: se consume el
         # párrafo de fundamentación normativa ya generado (paso de fundamentación).
@@ -372,11 +403,17 @@ class ConclusionAgent:
             )
         elif any(o.resultado == "no_evaluable" for o in determinantes):
             formula = (
-                "«En consecuencia, con la información disponible [hechos evaluados "
-                "y alcance de la evaluación], no se acreditó un motivo de corrección "
-                "en los objetivos determinantes, por lo tanto se declara INFUNDADO». "
-                "No afirmes que toda la facturación es correcta ni que fue por "
-                "diferencia de lecturas si no hay evidencia que lo confirme"
+                "«En consecuencia, toda vez que [hechos verificados con sus cifras, "
+                "p.ej. 'el consumo de setiembre de 2026 (151 m³) corresponde a la "
+                "lectura real del medidor, que funciona correctamente'], y que "
+                "[limitación concreta de la verificación, p.ej. 'no fue posible "
+                "inspeccionar el interior del predio porque no hubo respuesta del "
+                "usuario'], no se acreditó un error atribuible a la empresa en la "
+                f"facturación de {meses_reclamados}, por lo tanto se declara INFUNDADO». "
+                "Nombra la limitación tal como figura en los hechos; no la "
+                "sustituyas por una fórmula genérica como «con la información "
+                "disponible». No afirmes que toda la facturación es correcta ni que "
+                "fue por diferencia de lecturas si no hay un hecho que lo confirme"
             )
         else:
             formula = (
@@ -395,10 +432,11 @@ class ConclusionAgent:
         # cambia por esto: lo fijó la puerta lógica).
         if hay_norma:
             regla_norma = (
-                "- Como sustento normativo, apóyate en la FUNDAMENTACIÓN NORMATIVA "
-                "ya establecida (abajo) y sé coherente con ella: cita el "
-                "artículo/numeral que ahí figure y úsalo tal cual; NO inventes otros "
-                "ni cifras que no estén ahí.\n"
+                "- Sé coherente con la FUNDAMENTACIÓN NORMATIVA ya establecida "
+                "(abajo), que precede a esta conclusión en el informe. NO repitas su "
+                "contenido ni vuelvas a explicar el artículo: como mucho, menciona "
+                "una vez el número del artículo que ahí figura. NO cites otros "
+                "artículos ni cifras que no estén en los hechos.\n"
             )
         else:
             regla_norma = (
@@ -423,6 +461,13 @@ class ConclusionAgent:
             "verificaciones satisfactorias. Si todos son no_evaluable, explica "
             "que la decisión se basa en que no se acreditó una causa de corrección "
             "con la información disponible.\n"
+            "- Los HECHOS VERIFICADOS (abajo) son la fuente de verdad y prevalecen "
+            "sobre cualquier otro texto. CONSERVA SU ALCANCE: lo verificado en la "
+            "inspección EXTERNA (medidor, caja, conexión, fugas externas) no acredita "
+            "el estado de las instalaciones INTERNAS; nunca escribas que no hubo "
+            "fugas o problemas «en las instalaciones» si el interior no se inspeccionó.\n"
+            + ("- Hay una LIMITACIÓN de la verificación entre los hechos: menciónala "
+               "expresamente en la conclusión.\n" if limitaciones else "")
             + regla_norma +
             "Responde SOLO con el párrafo de conclusión, sin encabezados."
         )
@@ -431,6 +476,7 @@ class ConclusionAgent:
             f"Meses reclamados: {meses_reclamados}\n\n"
             f"Motivo del reclamo:\n{informe.motivo or 'no especificado'}\n\n"
             f"Verificaciones determinantes y su resultado:\n{determinantes_texto}\n\n"
+            + (f"Hechos verificados del caso:\n{hechos_texto}\n\n" if hechos_texto else "")
             + (f"Fundamentación normativa ya establecida:\n{norma_aplicable}\n\n"
                if hay_norma else "")
             + "Redacta la conclusión."

@@ -280,12 +280,15 @@ class PreTargetaLecturasService:
         def _fecha(r) -> str:
             return f"{int(r['mes']):02d}/{int(r['anio'])}"
 
+        # La redacción dice explícitamente qué mes subió y cuál bajó: la versión
+        # anterior ("152 m³ en 05/2026 (promedio 74 m³) y 88 m³ en 06/2026")
+        # llevaba al LLM a escribir que 152 m³ estaba "por debajo" del promedio.
         msg = (
             f"Descenso de consumo posterior a un consumo elevado: "
-            f"{float(pico['consumo']):.0f} m³ en {_fecha(pico)} "
-            f"(promedio {float(pico['lecturapromedio']):.0f} m³) y "
-            f"{float(post['consumo']):.0f} m³ en {_fecha(post)} "
-            f"(promedio {float(post['lecturapromedio']):.0f} m³)."
+            f"el consumo subió a {float(pico['consumo']):.0f} m³ en {_fecha(pico)} "
+            f"(por encima del promedio de {float(pico['lecturapromedio']):.0f} m³) y "
+            f"luego bajó a {float(post['consumo']):.0f} m³ en {_fecha(post)} "
+            f"(promedio de {float(post['lecturapromedio']):.0f} m³)."
         )
         logger.info("[PRE_TARGETA_LECTURAS] Descenso de consumo detectado: %s", msg)
         return [msg]

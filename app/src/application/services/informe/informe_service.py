@@ -19,6 +19,7 @@ from app.src.infrastructure.adapters.http_client import EmapaSinDatosError
 from app.src.application.services.informe.informe_store import informe_store, ReclamoEnAtencionError
 from app.src.application.services.investigacion.reclamo_service import campo_reclamo, codigo_inspeccion
 from app.src.application.services.informe.medios_probatorios import obtener_medios_probatorios
+from app.src.application.services.informe.artefactos import ORIGEN_SYSCO, marcar_origen
 from app.src.application.services.llm.llm_router_service import LlmRouterService, MODELO_EXTERNO_DEFAULT
 from app.src.core.model.reclamo import Reclamo
 from app.src.core.model.informe_atencion import InformeAtencion
@@ -314,6 +315,16 @@ def rehidratar_informe_desde_sysco(
 
     if texto_resolucion and texto_resolucion.upper() not in _VALORES_PENDIENTES:
         informe.resolucion = texto_resolucion
+
+    # Estos textos no los generó Yumi: quedan registrados con origen SYSCO en
+    # la memoria del caso (el origen se pierde solo si luego se regeneran).
+    tipos_sysco = ["fundamentacion", "conclusion"]
+    if propuesta and propuesta.upper() not in _VALORES_PENDIENTES:
+        tipos_sysco.append("conciliacion")
+    if texto_resolucion and texto_resolucion.upper() not in _VALORES_PENDIENTES:
+        tipos_sysco.append("resolucion")
+    for tipo in tipos_sysco:
+        marcar_origen(informe, tipo, ORIGEN_SYSCO)
 
     logger.info(
         "[rehidratacion SYSCO] reclamo=%s | origen=%s | veredicto=%s | propuesta=%s | resolucion=%s",

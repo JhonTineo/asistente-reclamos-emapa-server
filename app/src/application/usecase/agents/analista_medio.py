@@ -13,6 +13,7 @@ from app.src.application.services.pre_proces.pre_record_facturacion_service impo
 from app.src.application.services.pre_proces.pre_saldo_detalle_service import PreSaldoDetalleService
 from app.src.application.services.pre_proces.pre_tecnico_operacional import PreTecnicoOperacionalService
 from app.src.application.services.pre_proces.problemas_normalizer import extraer_problemas
+from app.src.application.services.pre_proces.constataciones import constatar
 from app.src.application.ports.emapa_api_port import PuertoEmapaAPI
 from app.src.core.model.informe_atencion import BloqueMedio
 
@@ -178,13 +179,17 @@ class AnalistaMedioAgent:
         enfoque: str | None = None,
         codinspeccion: str | None = None,
         ruta_pdf: Path | None = None,
+        periodos_reclamados: list[tuple[int, int]] | None = None,
     ) -> tuple[BloqueMedio, list[tuple[int, int]]]:
         t_inicio = time.perf_counter()
         logger.info("Iniciando análisis para medio: %s | codsuc=%s | codcliente=%s", medio_nombre, codsuc, codcliente)
         datos, problemas, ventana = self.preprocesar(
             medio_id, medio_nombre, codsuc, codcliente, meses, fecha_ref, codinspeccion, ruta_pdf,
         )
-        resumen = self.interpretar(medio_id, medio_nombre, datos, problemas, clasificacion, enfoque)
+        constataciones = self.constatar(medio_id, datos, periodos_reclamados)
+        resumen = self.interpretar(
+            medio_id, medio_nombre, datos, problemas, clasificacion, enfoque, constataciones,
+        )
         logger.info("Análisis completado | medio=%s | tiempo=%.2fs", medio_nombre, time.perf_counter() - t_inicio)
         bloque = BloqueMedio(
             medio_id=medio_id,
@@ -192,8 +197,16 @@ class AnalistaMedioAgent:
             entidad=datos,
             resumen=resumen,
             problemas=problemas,
+            constataciones=constataciones,
         )
         return bloque, ventana
+
+    @staticmethod
+    def constatar(medio_id: str, datos: dict,
+                  periodos_reclamados: list[tuple[int, int]] | None) -> list:
+        """Hechos neutros o favorables del medio (ver constataciones.py). Nunca
+        interrumpe el análisis: si una regla falla, el medio sigue sin ellos."""
+        return constatar(medio_id, datos, periodos_reclamados)
 
     def preprocesar(
         self, medio_id: str, medio_nombre: str, codsuc: str, codcliente: str,
@@ -235,7 +248,7 @@ class AnalistaMedioAgent:
         return {"registros"}
 
     def _resumen_llm(self, medio_id: str, medio_nombre: str, datos: dict, clasificacion: str,
-                     enfoque: str | None = None) -> str:
+                     enfoque: str | None = None, constataciones: list | None = None) -> str:
         omitir = self._campos_a_omitir(medio_id)
         datos_para_prompt = {k: v for k, v in datos.items() if k not in omitir}
         datos_texto = json.dumps(datos_para_prompt, ensure_ascii=False, indent=2)
@@ -256,6 +269,17 @@ class AnalistaMedioAgent:
                 "en una disculpa: igual describe brevemente los hechos que SÍ "
                 "muestran los datos (como haría el resumen normal sin este enfoque)."
             )
+        if constataciones:
+            # Hechos ya verificados por reglas (incluyen el mes reclamado aunque
+            # los registros mensuales no vayan en el prompt). Son la fuente de
+            # verdad: el modelo los redacta, no los recalcula ni los contradice.
+            human += (
+                "\n\nHECHOS VERIFICADOS por el sistema (son exactos; úsalos con sus "
+                "cifras y no los contradigas):\n"
+                + "\n".join(f"- {c.detalle}" for c in constataciones)
+                + "\nSi hay un hecho sobre el mes reclamado, empieza el resumen por él. "
+                "No afirmes que falta información de un mes que aparece en estos hechos."
+            )
 
         logger.info(
             "Consultando al modelo | medio=%s | system_chars=%d | human_chars=%d | datos_chars=%d",
@@ -274,7 +298,8 @@ class AnalistaMedioAgent:
         return response_text
 
     def interpretar(self, medio_id: str, medio_nombre: str, datos: dict, problemas: list,
-                    clasificacion: str, enfoque: str | None = None) -> str:
+                    clasificacion: str, enfoque: str | None = None,
+                    constataciones: list | None = None) -> str:
         """genera el resumen en lenguaje natural. Si el medio no
         halló ningún problema y tiene una frase base (no aplica a inspecciones),
         `enfoque` (opcional) son las preguntas del/los objetivo(s) de
@@ -287,12 +312,17 @@ class AnalistaMedioAgent:
                 # verificar en el log qué trajo EMAPA aunque no haya prompt real.
                 datos_sin_omitir = {k: v for k, v in datos.items()
                                     if k not in self._campos_a_omitir(medio_id)}
+                # La frase fija se completa con los hechos verificados (p.ej. la
+                # lectura del mes reclamado), que son deterministas y no
+                # necesitan al LLM para redactarse.
+                if constataciones:
+                    frase = " ".join([frase, *(c.detalle for c in constataciones)])
                 logger.info(
                     "Sin llamada al LLM (frase base) | medio=%s | frase=%r | datos_que_se_hubieran_mandado=%s",
                     medio_nombre, frase, json.dumps(datos_sin_omitir, ensure_ascii=False),
                 )
                 return frase
-        return self._resumen_llm(medio_id, medio_nombre, datos, clasificacion, enfoque)
+        return self._resumen_llm(medio_id, medio_nombre, datos, clasificacion, enfoque, constataciones)
 
     @staticmethod
     def _frase_base_sin_problemas(medio_id: str, datos: dict) -> str | None:
@@ -312,7 +342,7 @@ class AnalistaMedioAgent:
             return "Revisado el record de facturación del cliente no se encontraron problemas."
 
         if medio_id == "corte_reapertura":
-            return "Revisados los cortes y reaperturas del cliente no se encontrarón problemas."
+            return "Revisados los cortes y reaperturas del cliente no se encontraron problemas."
 
         if medio_id == "saldo_detalle":
             servicio = (datos.get("tipoServicio") or "").strip()

@@ -40,6 +40,21 @@ class ProblemaNormado:
     responsable: str | None = None     # "cliente" | "empresa" | "no_determinable"
     base_legal: str | None = None
 
+    # Identificador estable en el registro de hechos del caso ("H-tl-01"). Lo
+    # asigna el store al registrar el bloque (ver services/informe/hechos.py);
+    # es lo que citarán los artefactos generados y permite saber qué partes del
+    # informe dependen de cada hecho.
+    id: str | None = None
+    # "problema": anomalía detectada (lo que hoy se muestra como tarjeta).
+    # "constatacion": hecho neutro o favorable verificado por reglas (p.ej. "en
+    # 09/2026 se facturó por lectura real"). Ambos son evidencia del caso; solo
+    # los problemas cuentan como "hallazgos" del medio.
+    clase: str = "problema"
+    # Mes al que se refiere el hecho ("2026-09"), si aplica, y el dato duro que
+    # lo sustenta (cifras), para que los pasos posteriores no dependan del texto.
+    periodo: str | None = None
+    valor: dict | None = None
+
 
 @dataclass
 class ObjetivoInvestigacion:
@@ -70,10 +85,18 @@ class BloqueMedio:
     entidad: dict                      # asdict() de la entidad de dominio
     resumen: str                       # resumen general (LLM) o frase predefinida
     problemas: list[ProblemaNormado] = field(default_factory=list)
+    # Hechos neutros o favorables (clase="constatacion"), ver
+    # services/pre_proces/constataciones.py.
+    constataciones: list[ProblemaNormado] = field(default_factory=list)
 
     @property
     def tiene_problemas(self) -> bool:
         return len(self.problemas) > 0
+
+    @property
+    def hechos(self) -> list[ProblemaNormado]:
+        """Toda la evidencia del medio: problemas y constataciones."""
+        return [*self.problemas, *self.constataciones]
 
 
 @dataclass
@@ -121,6 +144,14 @@ class InformeAtencion:
     # Usuario de EMAPA que inició la atención. Se usa solo para organizar la
     # cola en la interfaz; no constituye una regla de autorización.
     creado_por: str | None = None
+    # --- memoria del caso (persistencia) ---
+    # Último número de hecho usado por medio ({"tarjeta_lectura": 3}). Nunca
+    # retrocede, para que un ID de hecho reemplazado no se reutilice.
+    secuencia_hechos: dict[str, int] = field(default_factory=dict)
+    # Origen de los textos editados o recuperados: tipo de artefacto ->
+    # (origen, firma del texto). El origen solo vale mientras el texto siga
+    # siendo el mismo; si un agente lo regenera, vuelve a ser "generado".
+    marcas_origen: dict[str, tuple[str, str]] = field(default_factory=dict)
 
     @property
     def clasificacion(self) -> str | None:

@@ -21,6 +21,10 @@ class ProblemaNormadoSchema(BaseModel):
     accion: str | None = None
     responsable: str | None = None
     base_legal: str | None = None
+    id: str | None = None              # ID del hecho en el registro del caso
+    clase: str = "problema"            # "problema" | "constatacion"
+    periodo: str | None = None
+    valor: dict | None = None
 
 
 class ResumenMedio(BaseModel):
@@ -29,6 +33,8 @@ class ResumenMedio(BaseModel):
     resumen: str
     datos: dict | None = None
     problemas: list[ProblemaNormadoSchema] = Field(default_factory=list)
+    # Hechos neutros o favorables verificados por reglas (clase="constatacion").
+    constataciones: list[ProblemaNormadoSchema] = Field(default_factory=list)
     tiempo: float | None = None
     estado: str = "ok"
     error: str | None = None
@@ -93,6 +99,8 @@ class ProblemaInforme(BaseModel):
     medio_id: str
     tipo: str
     detalle: str
+    id: str | None = None
+    clase: str = "problema"            # "problema" | "constatacion"
     seleccionado: bool = False
     articulos: list[dict] = Field(default_factory=list)
     accion: str | None = None
