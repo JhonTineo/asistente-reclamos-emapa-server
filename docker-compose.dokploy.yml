@@ -1,0 +1,81 @@
+# Compose de PRODUCCION para Dokploy (VPS).
+# En desarrollo se sigue usando docker-compose.yml + docker-compose.dev.yml
+# (make up / make run); este archivo solo lo lee Dokploy.
+#
+# - Sin container_name: Dokploy asigna sus propios nombres.
+# - Sin ports: el trafico entra por Traefik (dominio configurado en Dokploy,
+#   servicio "agent", puerto 8000).
+# - Los datos viven en /opt/yumi-data del VPS, fuera del repo, porque Dokploy
+#   vuelve a clonar el repositorio en cada despliegue.
+# - .env lo genera Dokploy desde la pestana "Environment".
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.18.0
+    restart: unless-stopped
+    expose:
+      - "6333"
+      - "6334"
+    volumes:
+      - /opt/yumi-data/qdrant_storage:/qdrant/storage
+    cpus: 0.50
+    mem_limit: 768m
+    pids_limit: 256
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging: &logs
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    expose:
+      - "11434"
+    volumes:
+      - /opt/yumi-data/ollama:/root/.ollama
+    environment:
+      OLLAMA_HOST: "0.0.0.0:11434"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_NUM_PARALLEL: "1"
+    cpus: 1.50
+    # Solo carga el modelo de embeddings (nomic-embed-text, ~300 MB).
+    mem_limit: 1g
+    pids_limit: 512
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging: *logs
+
+  agent:
+    build:
+      context: ./app
+    restart: unless-stopped
+    init: true
+    depends_on:
+      - qdrant
+      - ollama
+    expose:
+      - "8000"
+    env_file:
+      - .env
+    environment:
+      OLLAMA_BASE_URL: "http://ollama:11434"
+      QDRANT_URL: "http://qdrant:6333"
+      PYTHONDONTWRITEBYTECODE: "1"
+    working_dir: /code
+    volumes:
+      - /opt/yumi-data/operacional_data:/code/volumes/operacional_data
+    cpus: 1.00
+    mem_limit: 1536m
+    pids_limit: 256
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging: *logs
