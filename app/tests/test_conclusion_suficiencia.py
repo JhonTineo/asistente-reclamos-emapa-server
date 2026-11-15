@@ -12,7 +12,7 @@ from app.src.application.services.investigacion.conciliacion_service import (
 from app.src.application.services.investigacion.resolucion_service import (
     generar_resolucion_final,
 )
-from app.src.application.usecase.agents.conclusion import ConclusionAgent
+from app.src.application.usecase.pasos.conclusion import PasoConclusion
 from app.src.core.model.informe_atencion import InformeAtencion, ObjetivoInvestigacion
 from app.src.infrastructure.api_rest.schemas.investigacion import (
     ConciliacionRequest,
@@ -59,7 +59,7 @@ class ConclusionSuficienciaTests(unittest.TestCase):
     def evaluar(self, respuesta, *objetivos):
         router = RouterFalso(respuesta)
         informe = informe_con_objetivos(*objetivos)
-        veredicto = ConclusionAgent(router).concluir_y_asignar(informe)
+        veredicto = PasoConclusion(router, modo="objetivos").concluir_y_asignar(informe)
         return informe, router, veredicto
 
     def test_procede_con_sustento_es_fundado(self):
@@ -124,7 +124,7 @@ class ConclusionSuficienciaTests(unittest.TestCase):
             {"id": 1, "resultado": "no_evaluable", "evidencia": "sin acceso"},
         ])
         informe = informe_con_objetivos(objetivo(1))
-        self.assertEqual("INFUNDADO", ConclusionAgent(router).concluir_y_asignar(informe))
+        self.assertEqual("INFUNDADO", PasoConclusion(router, modo="objetivos").concluir_y_asignar(informe))
         self.assertEqual("completada", informe.estado_evaluacion)
         self.assertIn("no se acreditó", informe.conclusion)
         self.assertNotIn("no corresponde corregir", informe.conclusion)
@@ -164,7 +164,7 @@ class ConclusionSuficienciaTests(unittest.TestCase):
     def test_error_proveedor_es_explicito(self):
         router = RouterFalso(error=RuntimeError("sin conexión"))
         informe = informe_con_objetivos(objetivo(1))
-        self.assertIsNone(ConclusionAgent(router).concluir_y_asignar(informe))
+        self.assertIsNone(PasoConclusion(router, modo="objetivos").concluir_y_asignar(informe))
         self.assertEqual("ERROR_PROVEEDOR", informe.motivos_evaluacion[0].codigo)
         self.assertIsNone(informe.veredicto)
 
@@ -174,7 +174,7 @@ class ConclusionSuficienciaTests(unittest.TestCase):
         informe.conclusion = "Conclusión anterior"
         informe.estado_evaluacion = "completada"
         router = RouterFalso("")
-        ConclusionAgent(router).concluir_y_asignar(informe)
+        PasoConclusion(router, modo="objetivos").concluir_y_asignar(informe)
         self.assertIsNone(informe.veredicto)
         self.assertIsNone(informe.conclusion)
         self.assertEqual("FUNDADO", informe.historial_decisiones[-1]["veredicto"])

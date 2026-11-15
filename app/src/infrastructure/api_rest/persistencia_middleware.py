@@ -1,6 +1,6 @@
 """Middleware ASGI que sincroniza la memoria del caso al terminar cada petición.
 
-Varios agentes modifican el InformeAtencion directamente (objetivos,
+Varios pasos modifican el InformeAtencion directamente (objetivos,
 veredicto, conclusión, artículos de un problema...) sin pasar por un método
 del store. En vez de instrumentar cada uno de esos puntos, al terminar cada
 petición se guardan los informes cuya huella cambió.

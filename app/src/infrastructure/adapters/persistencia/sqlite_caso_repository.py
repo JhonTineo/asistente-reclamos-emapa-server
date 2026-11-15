@@ -184,6 +184,11 @@ MIGRACIONES: list[str] = [
     """
     ALTER TABLE hechos ADD COLUMN clase TEXT NOT NULL DEFAULT 'problema';
     """,
+    # 3: qué proveedor respondió cada llamada ("modelo" guarda el modelo real,
+    # no el "auto" pedido).
+    """
+    ALTER TABLE llamadas_llm ADD COLUMN proveedor TEXT;
+    """,
 ]
 
 
@@ -452,12 +457,34 @@ class SqliteCasoRepository:
                 (caso_id, tipo, version, texto, datos_json, origen,
                  informe.creado_por if origen != ORIGEN_GENERADO else None),
             )
+            if tipo == "dictamen":
+                SqliteCasoRepository._citar_hechos(cur, caso_id, cur.lastrowid, datos)
         # Un artefacto que desapareció del informe (p.ej. la conclusión se
         # invalidó) deja de estar vigente, pero su historial se conserva.
         condicion, params = _en("tipo", list(actuales))
         cur.execute(
             f"UPDATE artefactos SET vigente = 0 WHERE caso_id = ? AND vigente = 1 AND {condicion}",
             (caso_id, *params),
+        )
+
+    @staticmethod
+    def _citar_hechos(cur, caso_id: int, artefacto_id: int, dictamen: dict | None) -> None:
+        """Registra en artefacto_hechos los hechos de medios que cita el
+        dictamen (los hechos H-caso-NN se recalculan y viven en el propio
+        dictamen). Es lo que permite saber qué dictamen rehacer si un hecho cambia."""
+        citados = sorted({
+            h for f in (dictamen or {}).get("factores") or []
+            if f.get("aplica") == "aplica" for h in f.get("hechos") or []
+        })
+        if not citados:
+            return
+        marcas = ", ".join("?" for _ in citados)
+        existentes = [fila[0] for fila in cur.execute(
+            f"SELECT id FROM hechos WHERE caso_id = ? AND id IN ({marcas})", (caso_id, *citados),
+        )]
+        cur.executemany(
+            "INSERT OR IGNORE INTO artefacto_hechos (artefacto_id, caso_id, hecho_id) VALUES (?, ?, ?)",
+            [(artefacto_id, caso_id, h) for h in existentes],
         )
 
     @staticmethod
@@ -502,6 +529,38 @@ class SqliteCasoRepository:
                  entrada.get("estado_evaluacion") or "pendiente",
                  entrada.get("invalidada_por"), entrada.get("origen_decision"),
                  _dumps(entrada), entrada.get("fecha") or datetime.now().isoformat()),
+            )
+
+    def registrar_llamada(
+        self,
+        *,
+        codreclamo: str | None,
+        paso: str,
+        skill: str | None,
+        skill_version: str | None,
+        modelo: str | None,
+        capas: dict,
+        system: str,
+        usuario: str,
+        respuesta: str | None,
+        duracion_ms: int,
+        error: str | None,
+        proveedor: str | None = None,
+    ) -> None:
+        """Guarda qué contexto recibió el modelo y qué respondió. Se asocia a la
+        atención abierta del reclamo; si no hay una (p.ej. el caso aún no se
+        guardó), la llamada se registra sin caso."""
+        with self._tx() as cur:
+            caso = cur.execute(
+                "SELECT id FROM casos WHERE codreclamo = ? AND estado = ?",
+                (codreclamo, ESTADO_ABIERTO),
+            ).fetchone() if codreclamo else None
+            cur.execute(
+                "INSERT INTO llamadas_llm (caso_id, paso, skill, skill_version, modelo, proveedor, "
+                "capas, system, usuario, respuesta, duracion_ms, error) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (caso["id"] if caso else None, paso, skill, skill_version, modelo, proveedor,
+                 _dumps(capas), system, usuario, respuesta, duracion_ms, error),
             )
 
     def cerrar(self, codreclamo: str, descartar: bool = False) -> None:
@@ -631,6 +690,7 @@ class SqliteCasoRepository:
             historial_decisiones=historial,
             veredicto=decision["veredicto"] if decision else None,
             conclusion=texto("conclusion"),
+            dictamen=_loads(artefactos["dictamen"]["datos"]) if "dictamen" in artefactos else None,
             informe_texto_original=caso["informe_original"],
             propuesta_conciliacion=conciliacion,
             resolucion=texto("resolucion"),

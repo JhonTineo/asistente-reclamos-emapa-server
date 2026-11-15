@@ -110,7 +110,7 @@ class EliminarArticuloResponse(BaseModel):
     id_calculado: str
 
 
-# --- Búsqueda (consulta usada por frontend/agentes) ---
+# --- Búsqueda (consulta usada por frontend/pasos) ---
 
 class BuscarNormativaRequest(BaseModel):
     texto: str = Field(

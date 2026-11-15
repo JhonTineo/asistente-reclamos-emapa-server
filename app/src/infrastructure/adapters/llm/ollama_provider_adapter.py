@@ -38,7 +38,7 @@ def modelos_chat_instalados(base_url: str) -> list[str]:
 
 def _log_respuesta_cruda(etiqueta: str, modelo_id: str, response: BaseMessage) -> None:
     """Deja rastro del texto crudo que devolvió el modelo, antes de que el
-    agente lo parsee. Sin esto, cuando el parseo falla solo queda el error y no
+    paso lo parsee. Sin esto, cuando el parseo falla solo queda el error y no
     se sabe qué escribió realmente el modelo."""
     contenido = str(response.content)
     meta = response.response_metadata or {}
@@ -85,7 +85,8 @@ class OllamaProviderAdapter(PuertoProveedorLLM):
         if not apto:
             raise InferenciaLocalNoDisponibleError("Hardware local insuficiente para Ollama.")
 
-    def _crear_cliente(self, modelo_id: str, temperatura: float) -> ChatOllama:
+    def _crear_cliente(self, modelo_id: str, temperatura: float,
+                       max_tokens: int | None = None) -> ChatOllama:
         self._validar_hardware()
         return ChatOllama(
             model=modelo_id,
@@ -94,11 +95,12 @@ class OllamaProviderAdapter(PuertoProveedorLLM):
             max_retries=2,
             # Techo de seguridad equivalente a max_tokens: evita que una
             # generación descarrilada ocupe la GPU/CPU indefinidamente.
-            num_predict=MAX_TOKENS_RESPUESTA,
+            num_predict=max_tokens or MAX_TOKENS_RESPUESTA,
         )
 
-    def generar_texto(self, mensajes: list[MensajeLLM], modelo_id: str, temperatura: float = 0.0) -> str:
-        llm = self._crear_cliente(modelo_id, temperatura)
+    def generar_texto(self, mensajes: list[MensajeLLM], modelo_id: str, temperatura: float = 0.0,
+                      max_tokens: int | None = None) -> str:
+        llm = self._crear_cliente(modelo_id, temperatura, max_tokens)
         lc_mensajes = _convertir_mensajes(mensajes)
 
         logger.info(f"[Ollama] Generando texto con modelo: {modelo_id}")
@@ -106,13 +108,14 @@ class OllamaProviderAdapter(PuertoProveedorLLM):
         _log_respuesta_cruda("texto", modelo_id, response)
         return str(response.content)
 
-    def generar_json(self, mensajes: list[MensajeLLM], modelo_id: str, esquema: dict[str, Any] | None = None, temperatura: float = 0.0) -> str:
+    def generar_json(self, mensajes: list[MensajeLLM], modelo_id: str, esquema: dict[str, Any] | None = None,
+                     temperatura: float = 0.0, max_tokens: int | None = None) -> str:
         # NO se usa bind(format="json") por el mismo motivo que en el adaptador
         # OpenAI-compat: fuerza un objeto JSON de nivel superior mientras los
-        # prompts de los agentes piden una lista, y el modelo acaba generando
+        # prompts de los pasos piden una lista, y el modelo acaba generando
         # relleno hasta agotar el presupuesto de tokens. El _parse() de cada
-        # agente extrae el JSON por regex y tolera texto alrededor.
-        llm = self._crear_cliente(modelo_id, temperatura)
+        # paso extrae el JSON por regex y tolera texto alrededor.
+        llm = self._crear_cliente(modelo_id, temperatura, max_tokens)
         lc_mensajes = _convertir_mensajes(mensajes)
 
         logger.info(f"[Ollama] Generando JSON con modelo: {modelo_id}")

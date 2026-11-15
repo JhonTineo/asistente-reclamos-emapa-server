@@ -1,4 +1,4 @@
-"""Agente de conclusión del informe de atención.
+"""Paso de conclusión del informe de atención.
 
 Evalúa cada OBJETIVO de investigación (derivado del motivo del reclamo) contra
 los HALLAZGOS de los medios probatorios y decide el veredicto con una REGLA
@@ -24,7 +24,7 @@ import logging
 from dataclasses import asdict
 from datetime import datetime
 
-from app.src.application.ports.provider_port import MensajeLLM
+from app.src.application.services.contexto.constructor import constructor_contexto
 from app.src.application.services.llm.llm_router_service import LlmRouterService, MODELO_EXTERNO_DEFAULT
 from app.src.core.model.criterios_especialista import (
     CriterioEvaluacion, obtener_criterios, render_criterios,
@@ -35,8 +35,14 @@ from app.src.core.model.informe_atencion import (
 from app.src.application.services.pre_proces.constataciones import (
     HECHOS_MES_RECLAMADO, LIMITACIONES,
 )
+from app.src.application.usecase.pasos.dictamen import PasoDictamen
 
-logger = logging.getLogger("agent.conclusion")
+logger = logging.getLogger("paso.conclusion")
+
+
+def _modo_configurado() -> str:
+    from app.src.infrastructure.config.settings import settings
+    return settings.yumi_veredicto or "dictamen"
 
 RESULTADOS_VALIDOS = {"procede_correccion", "sin_correccion", "no_evaluable"}
 
@@ -57,19 +63,99 @@ def _formatear_meses_reclamados(informe: InformeAtencion) -> str:
     return (crudo or "el mes en reclamo").replace("-", " ").lower()
 
 
-class ConclusionAgent:
+class PasoConclusion:
 
     def __init__(self, llm_router: LlmRouterService, model: str | None = None,
-                 criterios: list[CriterioEvaluacion] | None = None):
+                 criterios: list[CriterioEvaluacion] | None = None,
+                 modo: str | None = None):
         self.llm_router = llm_router
         self.model_id = model or MODELO_EXTERNO_DEFAULT
-        # Criterios de especialista que guían la clasificación de cada objetivo.
+        # Criterios de especialista que guían la clasificación de cada objetivo
+        # (solo en el modo "objetivos").
         self.criterios = criterios if criterios is not None else obtener_criterios()
+        # "dictamen" (criterios de las skills contra los hechos) u "objetivos"
+        # (método anterior). Se elige con YUMI_VEREDICTO para poder volver al
+        # método anterior en producción sin redesplegar.
+        self.modo = (modo or _modo_configurado()).strip().lower()
 
     # ------------------------------------------------------------------ #
     # Metodo principal que se expone con la api /conclusion
     # ------------------------------------------------------------------ #
     def concluir_y_asignar(self, informe: InformeAtencion) -> str | None:
+        """Calcula veredicto + conclusión sobre el informe (in-place).
+        Devuelve el veredicto ("FUNDADO"/"INFUNDADO") o None si no hay decisión."""
+        if self.modo == "dictamen":
+            return self._concluir_con_dictamen(informe)
+        return self._concluir_con_objetivos(informe)
+
+    # ------------------------------------------------------------------ #
+    # Modo dictamen
+    # ------------------------------------------------------------------ #
+    def _concluir_con_dictamen(self, informe: InformeAtencion) -> str | None:
+        self._iniciar_nueva_evaluacion(informe)
+        try:
+            dictamen = PasoDictamen(self.llm_router, self.model_id).dictaminar(informe)
+        except Exception as exc:
+            logger.exception("[CONCLUSION] Falló el proveedor durante el dictamen")
+            return self._dejar_sin_decision(
+                informe, "error_evaluacion", "ERROR_PROVEEDOR", [],
+                f"Falló la comunicación con el proveedor de evaluación: {exc}",
+                "Reintentar cuando el proveedor esté disponible.",
+            )
+        informe.dictamen = dictamen.a_dict()
+
+        if dictamen.veredicto is None:
+            informe.estado_evaluacion = dictamen.estado
+            informe.veredicto = None
+            informe.conclusion = None
+            informe.motivos_evaluacion = dictamen.motivos
+            informe.mensaje_evaluacion = (
+                dictamen.motivos[0].descripcion if dictamen.motivos else "El caso requiere revisión."
+            )
+            return None
+
+        informe.veredicto = dictamen.veredicto
+        informe.estado_evaluacion = "completada"
+        informe.motivos_evaluacion = dictamen.motivos     # advertencias, si las hay
+        informe.mensaje_evaluacion = (
+            "Veredicto del dictamen con advertencias: revisar los motivos."
+            if dictamen.motivos else "Veredicto y conclusión generados a partir del dictamen."
+        )
+        informe.origen_decision = "automatica"
+        verificaciones, a_favor = self._verificaciones_del_dictamen(dictamen)
+        informe.conclusion = self._redactar_conclusion(
+            informe, dictamen.veredicto, verificaciones, a_favor,
+        )
+        return dictamen.veredicto
+
+    @staticmethod
+    def _verificaciones_del_dictamen(dictamen) -> tuple[list[ObjetivoInvestigacion], list[ObjetivoInvestigacion]]:
+        """Presenta los factores del dictamen como las "verificaciones
+        determinantes" que ya sabe usar la redacción de la conclusión:
+        - un criterio que aplica a favor del usuario → procede_correccion;
+        - uno que aplica a favor de la empresa → sin_correccion;
+        - uno decisivo que no se pudo determinar → no_evaluable (limitación)."""
+        verificaciones: list[ObjetivoInvestigacion] = []
+        for factor in dictamen.factores:
+            if factor.aplica == "aplica" and factor.favorece in ("usuario", "empresa"):
+                resultado = "procede_correccion" if factor.favorece == "usuario" else "sin_correccion"
+            elif factor.aplica == "no_determinable" and factor.fuerza == "decisivo":
+                resultado = "no_evaluable"
+            else:
+                continue
+            verificaciones.append(ObjetivoInvestigacion(
+                id=len(verificaciones) + 1,
+                descripcion=f"{factor.criterio} · {factor.nombre}",
+                determinante=True, resultado=resultado,
+                evidencia=factor.explicacion or None,
+            ))
+        a_favor = [v for v in verificaciones if v.resultado == "procede_correccion"]
+        return verificaciones, a_favor
+
+    # ------------------------------------------------------------------ #
+    # Modo objetivos (método anterior)
+    # ------------------------------------------------------------------ #
+    def _concluir_con_objetivos(self, informe: InformeAtencion) -> str | None:
         """Evalúa objetivos vs hallazgos, fija el resultado de cada objetivo y
         calcula veredicto + conclusión sobre el informe (in-place).
         Devuelve el veredicto ("FUNDADO"/"INFUNDADO") o None si no hay objetivos."""
@@ -149,6 +235,7 @@ class ConclusionAgent:
         informe.motivos_evaluacion = []
         informe.mensaje_evaluacion = None
         informe.origen_decision = None
+        informe.dictamen = None
         for objetivo in informe.objetivos:
             objetivo.resultado = None
             objetivo.evidencia = None
@@ -228,29 +315,12 @@ class ConclusionAgent:
             )
         objetivos_texto = "\n\n".join(bloques_objetivo)
 
-        system = (
-            "Eres un analista de reclamos de EMAPA. Evalúas cada objetivo de la "
-            "investigación contra LOS HALLAZGOS QUE SE LISTAN DEBAJO DE ESE MISMO "
-            "OBJETIVO (no contra los de otros objetivos).\n"
-            "La pregunta de fondo es: según los hallazgos de sus medios, ¿CORRESPONDE "
-            "CORREGIR la facturación a favor del usuario respecto de ese objetivo?\n"
+        # Lo fijo está en skills/pasos/evaluacion_objetivos.md; los criterios de
+        # especialista se añaden aquí porque son configurables por instancia.
+        instrucciones = (
             "Clasifica cada objetivo en uno de estos resultados, según estos "
             "criterios de especialista:\n"
-            f"{render_criterios(self.criterios)}\n"
-            "Los «Hechos verificados» provienen de reglas sobre los datos y son "
-            "exactos: si el resumen de un medio los contradice, prevalece el hecho "
-            "verificado.\n"
-            "Básate ÚNICAMENTE en los hallazgos listados debajo de cada objetivo. "
-            "NUNCA uses hallazgos que no estén listados para el objetivo. "
-            "Las inspecciones interna y externa son complementarias: una inspección "
-            "externa no acredita que se revisó el interior del predio. Distingue una "
-            "visita sin acceso de una inspección interna realizada. No inventes.\n"
-            "Responde SOLO con un JSON: una lista de objetos con las claves "
-            "\"id\" (número del objetivo), \"resultado\" y \"evidencia\".\n"
-            "\"evidencia\" debe ser una frase MUY BREVE (máximo 12 palabras) citando el "
-            "dato puntual que sustenta el resultado, NUNCA el resumen completo del medio. "
-            "Ejemplo de evidencia válida: \"medidor con número incorrecto en 12/2025\". "
-            "Si no hay evidencia puntual, usa \"\"."
+            f"{render_criterios(self.criterios)}"
         )
         human = (
             f"Motivo del reclamo:\n{informe.motivo or 'no especificado'}\n\n"
@@ -259,15 +329,9 @@ class ConclusionAgent:
             "Devuelve SOLO el JSON."
         )
 
-        logger.debug("[PROMPT conclusion][SYSTEM]\n%s", system)
-        logger.debug("[PROMPT conclusion][HUMAN]\n%s", human)
-
-        response_text = self.llm_router.generar_json(
-            mensajes=[
-                MensajeLLM(rol="system", contenido=system),
-                MensajeLLM(rol="user", contenido=human)
-            ],
-            modelo_id=self.model_id
+        response_text = constructor_contexto.llamar(
+            "evaluacion_objetivos", self.llm_router, self.model_id,
+            entrada=human, instrucciones=instrucciones, codreclamo=informe.reclamo,
         )
         return self._parse_evaluaciones(response_text or "", {o.id for o in determinantes})
 
@@ -394,22 +458,26 @@ class ConclusionAgent:
 
         # La fórmula distingue los hechos acreditados de una evaluación parcial.
         # Un INFUNDADO con no_evaluable no certifica que la facturación sea correcta.
+        # Estructura: lo verificado → lo que de ahí se sigue → el veredicto. Los
+        # corchetes describen qué va en cada hueco SIN cifras ni fechas de
+        # ejemplo (el modelo las copia como si fueran del caso). Se evita «toda
+        # vez que [hecho], se procedió a la facturación…»: quedaba circular (se
+        # facturó por lectura, luego se facturó por lectura) y no respondía al
+        # reclamo.
         if veredicto == "FUNDADO":
             formula = (
-                "«En consecuencia, toda vez que [hecho decisivo verificado con su "
-                "cifra, p.ej. la fuga no visible fue reparada], corresponde [lo que "
-                "manda la norma, p.ej. refacturar los meses reclamados por el "
-                "promedio histórico], por lo tanto se declara FUNDADO»"
+                "«En consecuencia, se ha verificado que [el hecho decisivo, con su "
+                "cifra o su fecha]; por ello corresponde [lo que manda la norma "
+                "sobre la facturación de los meses reclamados], y el reclamo se "
+                "declara FUNDADO.»"
             )
         elif any(o.resultado == "no_evaluable" for o in determinantes):
             formula = (
-                "«En consecuencia, toda vez que [hechos verificados con sus cifras, "
-                "p.ej. 'el consumo de setiembre de 2026 (151 m³) corresponde a la "
-                "lectura real del medidor, que funciona correctamente'], y que "
-                "[limitación concreta de la verificación, p.ej. 'no fue posible "
-                "inspeccionar el interior del predio porque no hubo respuesta del "
-                "usuario'], no se acreditó un error atribuible a la empresa en la "
-                f"facturación de {meses_reclamados}, por lo tanto se declara INFUNDADO». "
+                "«En consecuencia, se ha verificado que [los hechos comprobados, con "
+                "sus cifras]; sin embargo, [la limitación concreta de la "
+                "verificación, tal como figura en los hechos]. Al no haberse "
+                "acreditado un error atribuible a la empresa en la facturación de "
+                f"{meses_reclamados}, el reclamo se declara INFUNDADO.» "
                 "Nombra la limitación tal como figura en los hechos; no la "
                 "sustituyas por una fórmula genérica como «con la información "
                 "disponible». No afirmes que toda la facturación es correcta ni que "
@@ -417,13 +485,13 @@ class ConclusionAgent:
             )
         else:
             formula = (
-                f"«En consecuencia, toda vez que [hecho verificado concreto que "
-                f"sustenta el INFUNDADO; usa la evidencia de las verificaciones "
-                f"determinantes — p.ej. 'el usuario tuvo fuga visible en un inodoro' "
-                f"o 'la facturación del mes reclamado corresponde a lectura real del "
-                f"medidor sin error atribuible a la empresa'], se procedió a la "
-                f"facturación por diferencias de lectura del reclamo del mes de "
-                f"{meses_reclamados}, por lo tanto se declara INFUNDADO»"
+                "«En consecuencia, se ha verificado que [los dos o tres hechos que "
+                "responden a lo que el usuario reclama, con sus cifras: el consumo "
+                "del mes reclamado frente al promedio, la validez de la lectura y el "
+                "resultado de las inspecciones, según los que existan], sin que se "
+                "haya encontrado [la causa que el usuario alega u otra que "
+                "justifique corregir el recibo]; por ello, la facturación de "
+                f"{meses_reclamados} se mantiene y el reclamo se declara INFUNDADO.»"
             )
 
         # Cita de la norma: condicional. Si la búsqueda vectorial halló un
@@ -444,32 +512,18 @@ class ConclusionAgent:
                 "hechos verificados; NO cites ni inventes artículos.\n"
             )
 
-        system = (
-            "Eres un analista de reclamos de EMAPA que redacta la CONCLUSIÓN de un "
-            "informe de atención, según el Reglamento de Calidad SUNASS.\n"
-            "IMPORTANTE: el veredicto ya fue determinado por una regla y NO puedes "
-            "cambiarlo; tu tarea es redactar el párrafo que lo fundamenta.\n"
-            "Reglas de redacción:\n"
-            "- Escribe UN SOLO párrafo formal y conciso (sin viñetas ni JSON) y "
-            "SIN título ni encabezado.\n"
-            "- El párrafo DEBE empezar con «En consecuencia,» y seguir EXACTAMENTE "
-            f"esta estructura del informe real: {formula}.\n"
-            "- Usa lenguaje llano y directo; NO uses expresiones vagas como «dentro "
-            "de los parámetros establecidos». Nombra el hecho concreto.\n"
-            "- Los objetivos no_evaluable no bloquean el veredicto, pero tampoco "
-            "acreditan hechos ni la corrección de un cobro. No los presentes como "
-            "verificaciones satisfactorias. Si todos son no_evaluable, explica "
-            "que la decisión se basa en que no se acreditó una causa de corrección "
-            "con la información disponible.\n"
-            "- Los HECHOS VERIFICADOS (abajo) son la fuente de verdad y prevalecen "
-            "sobre cualquier otro texto. CONSERVA SU ALCANCE: lo verificado en la "
-            "inspección EXTERNA (medidor, caja, conexión, fugas externas) no acredita "
-            "el estado de las instalaciones INTERNAS; nunca escribas que no hubo "
-            "fugas o problemas «en las instalaciones» si el interior no se inspeccionó.\n"
+        # Lo fijo está en skills/pasos/conclusion_redaccion.md; aquí solo lo que
+        # depende del caso: la fórmula del veredicto, la limitación y la norma.
+        instrucciones = (
+            "- El párrafo DEBE empezar con «En consecuencia,» y seguir esta "
+            f"estructura, sustituyendo cada corchete por los datos del caso: {formula}\n"
+            "- Resume en una frase lo comprobado; no repitas uno por uno los datos "
+            "de la fundamentación normativa. No uses «toda vez que» ni «se procedió "
+            "a la facturación». Lo que el usuario afirma en el motivo es una "
+            "alegación: no la presentes como un hecho.\n"
             + ("- Hay una LIMITACIÓN de la verificación entre los hechos: menciónala "
                "expresamente en la conclusión.\n" if limitaciones else "")
-            + regla_norma +
-            "Responde SOLO con el párrafo de conclusión, sin encabezados."
+            + regla_norma
         )
         human = (
             f"Veredicto ya determinado (NO modificar): {veredicto}\n\n"
@@ -482,16 +536,10 @@ class ConclusionAgent:
             + "Redacta la conclusión."
         )
 
-        logger.debug("[PROMPT conclusion_redaccion][SYSTEM]\n%s", system)
-        logger.debug("[PROMPT conclusion_redaccion][HUMAN]\n%s", human)
-
         try:
-            texto = self.llm_router.generar_texto(
-                mensajes=[
-                    MensajeLLM(rol="system", contenido=system),
-                    MensajeLLM(rol="user", contenido=human)
-                ],
-                modelo_id=self.model_id
+            texto = constructor_contexto.llamar(
+                "conclusion_redaccion", self.llm_router, self.model_id,
+                entrada=human, instrucciones=instrucciones, codreclamo=informe.reclamo,
             )
             texto = (texto or "").strip()
         except Exception as e:

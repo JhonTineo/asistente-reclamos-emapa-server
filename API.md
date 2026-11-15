@@ -344,7 +344,7 @@ Pruebas que respaldan el veredicto, para el panel «Evidencias» del frontend y 
 | PUT | `/normativa/articulos` | Crea o actualiza (upsert) un artículo. Body: `{ article, numeral?, text, palabras_clave?, titulo?, capitulo?, subcapitulo?, norma?, coleccion? }`. |
 | DELETE | `/normativa/articulos?article=...&numeral=...&coleccion=...` (o `?point_id=...`) | Elimina (lógicamente) un artículo. |
 
-#### `normativa-busqueda` — `/normativa/busqueda` (consulta, usada por el frontend y por `FundamentacionNormativaAgent`)
+#### `normativa-busqueda` — `/normativa/busqueda` (consulta, usada por el frontend y por `PasoFundamentacion`)
 
 | Método | Ruta | Descripción |
 |---|---|---|
@@ -392,7 +392,7 @@ tras un refresh.
 
 La **Gestión de Normativa** (sección 4.6) es independiente de este flujo — se
 usa para mantener la base de conocimiento que consume
-`FundamentacionNormativaAgent` en el paso de conclusión.
+`PasoFundamentacion` en el paso de conclusión.
 
 ---
 

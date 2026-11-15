@@ -6,9 +6,9 @@ nueva versión cada vez que su contenido cambia, sin sobrescribir la anterior.
 
 El origen de un texto (``generado``, ``analista`` o ``sysco``) se registra con
 ``marcar_origen`` en el momento en que ocurre la edición o la recuperación. La
-marca guarda una firma del contenido: si después un agente regenera el texto,
+marca guarda una firma del contenido: si después un paso regenera el texto,
 la firma deja de coincidir y el origen vuelve a ser ``generado`` sin que el
-agente tenga que saber nada de esto.
+paso tenga que saber nada de esto.
 """
 
 import json
@@ -34,6 +34,8 @@ def artefactos_actuales(informe: InformeAtencion) -> dict[str, tuple[str, dict |
             actuales[tipo_resumen(bloque.medio_id)] = (bloque.resumen, None)
     if informe.fundamentacion_normativa:
         actuales["fundamentacion"] = (informe.fundamentacion_normativa, None)
+    if informe.dictamen:
+        actuales["dictamen"] = (informe.dictamen.get("razonamiento") or "", informe.dictamen)
     if informe.conclusion:
         actuales["conclusion"] = (informe.conclusion, None)
     if informe.propuesta_conciliacion is not None:

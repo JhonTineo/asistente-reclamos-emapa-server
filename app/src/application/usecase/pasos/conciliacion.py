@@ -1,15 +1,15 @@
 import time
 import logging
-from app.src.application.ports.provider_port import MensajeLLM
+from app.src.application.services.contexto.constructor import constructor_contexto
 from app.src.application.services.llm.llm_router_service import LlmRouterService, MODELO_EXTERNO_DEFAULT
 
-logger = logging.getLogger("agent.conciliador")
+logger = logging.getLogger("paso.conciliacion")
 
 
-class ConciliadorAgent:
+class PasoConciliacion:
     """Redacta la propuesta de conciliación a partir de la CONCLUSIÓN del informe
     de atención (que ya describe los hallazgos frente a los objetivos y declara
-    FUNDADO/INFUNDADO). El agente no re-analiza el informe completo: solo reformula
+    FUNDADO/INFUNDADO). El paso no re-analiza el informe completo: solo reformula
     la conclusión como propuesta formal de la empresa y cierra con la declaración
     del veredicto. El veredicto lo fija el informe; el LLM no puede cambiarlo."""
 
@@ -29,13 +29,12 @@ class ConciliadorAgent:
         logger.info("=" * 60)
         logger.info("[CONCILIADOR] INICIO | codreclamo=%s | veredicto=%s", codreclamo, veredicto)
 
-        prompt = self._construir_prompt(veredicto, conclusion, numero_informe)
-        logger.debug("[PROMPT conciliador][SYSTEM]\n%s", prompt)
+        instrucciones, entrada = self._construir_prompt(veredicto, conclusion, numero_informe)
         logger.info("[CONCILIADOR] Invocando LLM...")
 
-        response_text = self.llm_router.generar_texto(
-            mensajes=[MensajeLLM(rol="system", contenido=prompt)],
-            modelo_id=self.model_id
+        response_text = constructor_contexto.llamar(
+            "conciliacion", self.llm_router, self.model_id,
+            entrada=entrada, instrucciones=instrucciones, codreclamo=codreclamo,
         )
         contenido = response_text.strip() if response_text else ""
 
@@ -49,24 +48,17 @@ class ConciliadorAgent:
         }
 
     @staticmethod
-    def _construir_prompt(veredicto: str, conclusion: str, numero_informe: str) -> str:
+    def _construir_prompt(veredicto: str, conclusion: str, numero_informe: str) -> tuple[str, str]:
+        """Devuelve (instrucciones del caso, entrada). Lo fijo de la propuesta
+        está en skills/pasos/conciliacion.md."""
         veredicto = (veredicto or "").strip().upper() or "INFUNDADO"
         cierre = (
             f"Por tanto, la empresa propone declarar {veredicto} el presente "
             f"reclamo, en base al Informe de Atención N° {numero_informe}."
         )
-        return (
-            "Eres un agente de conciliación de EMAPA. Redactas la PROPUESTA DE "
-            "CONCILIACIÓN que la empresa presenta al usuario, a partir de la "
-            "conclusión del informe de atención.\n\n"
-            f"El veredicto ya fue determinado y NO puedes cambiarlo: {veredicto}.\n\n"
-            "La propuesta debe:\n"
-            "1. Explicar de forma clara y formal, en uno o dos párrafos, los "
-            "hallazgos de la investigación respecto a lo reclamado, tomándolos de "
-            "la conclusión (no inventes cifras ni artículos que no estén en ella).\n"
-            f"2. Cerrar EXACTAMENTE con esta oración: \"{cierre}\"\n\n"
-            "=== CONCLUSIÓN DEL INFORME DE ATENCIÓN ===\n"
-            f"{conclusion}\n\n"
-            "Responde ÚNICAMENTE con la propuesta redactada, sin encabezados ni "
-            "comentarios adicionales."
+        instrucciones = (
+            f"El veredicto ya fue determinado y NO puedes cambiarlo: {veredicto}.\n"
+            f"Oración de cierre (cópiala EXACTAMENTE al final): \"{cierre}\""
         )
+        entrada = f"=== CONCLUSIÓN DEL INFORME DE ATENCIÓN ===\n{conclusion}"
+        return instrucciones, entrada

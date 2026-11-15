@@ -13,7 +13,7 @@ from app.src.infrastructure.api_rest.schemas.investigacion import (
     ActualizarConciliacionRequest, ActualizarConciliacionResponse,
     GuardarConciliacionRequest,
 )
-from app.src.application.usecase.agents.conciliador import ConciliadorAgent
+from app.src.application.usecase.pasos.conciliacion import PasoConciliacion
 from app.src.application.services.informe.informe_store import informe_store
 from app.src.application.services.llm.llm_router_service import LlmRouterService
 from app.src.core.model.conciliacion import Conciliacion
@@ -51,7 +51,7 @@ async def generar_propuesta_conciliacion(request: ConciliacionRequest, llm_route
             ),
         )
 
-    conciliador = ConciliadorAgent(llm_router=llm_router, model=request.modelo)
+    conciliador = PasoConciliacion(llm_router=llm_router, model=request.modelo)
     resultado = await run_in_threadpool(
         conciliador.generar_propuesta,
         request.codreclamo, informe.veredicto, informe.conclusion, informe.numero,

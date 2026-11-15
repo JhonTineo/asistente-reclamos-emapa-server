@@ -19,6 +19,8 @@ from app.src.infrastructure.api_rest.persistencia_middleware import Persistencia
 from app.src.infrastructure.adapters.persistencia.sqlite_caso_repository import SqliteCasoRepository
 from app.src.infrastructure.config.settings import settings
 from app.src.application.services.informe.informe_store import informe_store
+from app.src.application.services.contexto.constructor import constructor_contexto
+from app.src.infrastructure.adapters.skills.skill_file_repository import repositorio_skills
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -33,15 +35,17 @@ logging.basicConfig(
 # de Qdrant al arrancar). Es ruido, no error: se sube a WARNING.
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-# Ver el prompt completo enviado a los agentes (nivel DEBUG solo en estos loggers).
-logging.getLogger("agent.analista_medio").setLevel(logging.DEBUG)
-logging.getLogger("agent.fundamentacion_normativa").setLevel(logging.DEBUG)
-logging.getLogger("agent.objetivos").setLevel(logging.DEBUG)
-logging.getLogger("agent.conclusion").setLevel(logging.DEBUG)
-logging.getLogger("agent.conciliador").setLevel(logging.DEBUG)
-logging.getLogger("agent.resolucion").setLevel(logging.DEBUG)
+# Ver el prompt completo enviado en cada paso (nivel DEBUG solo en estos loggers).
+logging.getLogger("paso.analisis_medio").setLevel(logging.DEBUG)
+logging.getLogger("paso.fundamentacion").setLevel(logging.DEBUG)
+logging.getLogger("paso.objetivos").setLevel(logging.DEBUG)
+logging.getLogger("paso.conclusion").setLevel(logging.DEBUG)
+logging.getLogger("paso.conciliacion").setLevel(logging.DEBUG)
+logging.getLogger("paso.resolucion").setLevel(logging.DEBUG)
+# Contexto completo de los pasos que ya usan el constructor de contexto.
+logging.getLogger("contexto").setLevel(logging.DEBUG)
 
-# Ver el texto crudo que devuelve el modelo antes de que el agente lo parsee.
+# Ver el texto crudo que devuelve el modelo antes de que el paso lo parsee.
 # Es lo que permite diagnosticar un parseo fallido: sin esto solo queda el error.
 logging.getLogger("tools.llm.openai_compat").setLevel(logging.DEBUG)
 logging.getLogger("tools.llm.ollama").setLevel(logging.DEBUG)
@@ -51,8 +55,15 @@ _RUTA_DB_POR_DEFECTO = Path(__file__).resolve().parents[2] / "volumes" / "yumi_d
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """Activa la memoria del caso persistente y recupera las atenciones que
-    quedaron abiertas antes del último reinicio."""
+    """Activa la memoria del caso persistente, recupera las atenciones que
+    quedaron abiertas antes del último reinicio y conecta el constructor de
+    contexto con las skills y con el registro de llamadas al LLM."""
+    skills = repositorio_skills()
+    errores_skills = skills.errores()
+    logging.getLogger("main").info(
+        "Skills: %d cargadas | reemplazos en %s | errores=%d",
+        len(skills.todas()), skills.directorio_reemplazos or "(desactivados)", len(errores_skills),
+    )
     repo = None
     if settings.yumi_db_path.strip().lower() != "desactivado":
         ruta = settings.yumi_db_path.strip() or str(_RUTA_DB_POR_DEFECTO)
@@ -61,9 +72,12 @@ async def lifespan(_app: FastAPI):
         logging.getLogger("main").info(
             "Memoria del caso en %s | atenciones abiertas recuperadas=%d", ruta, recuperados,
         )
+    # Sin base de datos no se registran las llamadas (registro=None).
+    constructor_contexto.configurar(skills=skills, registro=repo)
     try:
         yield
     finally:
+        constructor_contexto.configurar(registro=None)
         if repo is not None:
             informe_store.persistir_cambios()
             informe_store.configurar_persistencia(None)

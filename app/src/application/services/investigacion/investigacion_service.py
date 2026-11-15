@@ -17,7 +17,7 @@ from app.src.infrastructure.api_rest.deps import asegurar_token_emapa
 from app.src.infrastructure.api_rest.schemas.investigacion import (
     BuscarReclamoRequest, ResumenMedio, ProblemaNormadoSchema, MedioDisponible,
 )
-from app.src.application.usecase.agents.analista_medio import AnalistaMedioAgent
+from app.src.application.usecase.pasos.analisis_medio import PasoAnalisisMedio
 from app.src.application.services.llm.llm_router_service import LlmRouterService
 from app.src.application.ports.emapa_api_port import PuertoEmapaAPI
 from app.src.application.services.informe.informe_store import informe_store
@@ -114,7 +114,7 @@ async def analizar_medio_y_registrar(
             detail=f"No se encontró inspección {etiqueta} para este reclamo.",
         )
 
-    analista = AnalistaMedioAgent(emapa_api=api, llm_router=llm_router, model=request.modelo)
+    analista = PasoAnalisisMedio(emapa_api=api, llm_router=llm_router, model=request.modelo)
     bloque, ventana = analista.analizar(
         medio_id=medio_id,
         medio_nombre=medio_nombre,
@@ -126,6 +126,7 @@ async def analizar_medio_y_registrar(
         enfoque=enfoque,
         codinspeccion=codinspeccion,
         periodos_reclamados=periodos_del_reclamo(informe),
+        informe=informe,
     )
 
     informe = informe_store.registrar_bloque(
@@ -186,7 +187,7 @@ async def _analizar_un_medio_en_threadpool(
             detail=f"No se encontró inspección {etiqueta} para este reclamo.",
         )
 
-    analista = AnalistaMedioAgent(emapa_api=api, llm_router=llm_router, model=request.modelo)
+    analista = PasoAnalisisMedio(emapa_api=api, llm_router=llm_router, model=request.modelo)
     if resumenes_existentes is None:
         bloque, ventana = await run_in_threadpool(
             analista.analizar,
@@ -200,6 +201,7 @@ async def _analizar_un_medio_en_threadpool(
             enfoque=enfoque,
             codinspeccion=codinspeccion,
             periodos_reclamados=periodos_del_reclamo(informe),
+            informe=informe,
         )
     else:
         # Rehidratación: se consultan nuevamente los datos y se recalculan los
@@ -358,7 +360,7 @@ def stream_analisis_medio(
             }, ensure_ascii=False) + "\n"
             return
 
-        analista = AnalistaMedioAgent(emapa_api=api, llm_router=llm_router, model=request.modelo)
+        analista = PasoAnalisisMedio(emapa_api=api, llm_router=llm_router, model=request.modelo)
         try:
             # --- Fase 1: preprocesamiento  ---------------------------
             datos, problemas, ventana = await run_in_threadpool(
@@ -385,7 +387,7 @@ def stream_analisis_medio(
             resumen = await run_in_threadpool(
                 analista.interpretar,
                 medio_id, medio_nombre, datos, problemas, request.clasificacion, enfoque,
-                constataciones,
+                constataciones, informe,
             )
             bloque = BloqueMedio(
                 medio_id=medio_id,

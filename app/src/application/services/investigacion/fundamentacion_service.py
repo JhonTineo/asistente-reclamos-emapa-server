@@ -28,15 +28,15 @@ from starlette.concurrency import run_in_threadpool
 
 from app.src.application.services.llm.llm_router_service import LlmRouterService
 from app.src.application.services.informe.informe_store import informe_store
-from app.src.application.usecase.agents.fundamentacion_normativa import FundamentacionNormativaAgent
+from app.src.application.usecase.pasos.fundamentacion import PasoFundamentacion
 from app.src.infrastructure.adapters.qdrant_adapter import QdrantAdapter
 from app.src.infrastructure.api_rest.schemas.investigacion import InformeRequest
 
 logger = logging.getLogger("services.fundamentacion_service")
 
 
-def _crear_agente(llm_router: LlmRouterService, modelo: str | None) -> FundamentacionNormativaAgent:
-    return FundamentacionNormativaAgent(qdrant=QdrantAdapter(), llm_router=llm_router, model=modelo)
+def _crear_paso(llm_router: LlmRouterService, modelo: str | None) -> PasoFundamentacion:
+    return PasoFundamentacion(qdrant=QdrantAdapter(), llm_router=llm_router, model=modelo)
 
 
 def _candidatos_payload(informe) -> list[dict]:
@@ -45,7 +45,7 @@ def _candidatos_payload(informe) -> list[dict]:
     resuelto por la selección."""
     nombres = {b.medio_id: b.medio_nombre for b in informe.bloques}
     out: list[dict] = []
-    for medio_id, p in FundamentacionNormativaAgent.candidatos(informe):
+    for medio_id, p in PasoFundamentacion.candidatos(informe):
         out.append({
             "medio_id": medio_id,
             "medio_nombre": nombres.get(medio_id, medio_id),
@@ -107,7 +107,7 @@ def _aplicar_seleccion_manual(informe, seleccion) -> list[tuple]:
     return pares
 
 
-def _rag_y_marcar(fundamentador: FundamentacionNormativaAgent, problema, clasificacion: str, motivo: str) -> list[dict]:
+def _rag_y_marcar(fundamentador: PasoFundamentacion, problema, clasificacion: str, motivo: str) -> list[dict]:
     """RAG de los artículos + relevancia (`marcar_aplica`) en un solo paso
     bloqueante (para un único run_in_threadpool)."""
     raw = fundamentador.buscar_articulos(problema, motivo)
@@ -164,7 +164,7 @@ def fundamentar_normativa_stream(
 
         clasificacion = request.clasificacion or informe.clasificacion or ""
         motivo = informe.motivo or ""
-        fundamentador = _crear_agente(llm_router, request.modelo)
+        fundamentador = _crear_paso(llm_router, request.modelo)
 
         try:
             # --- Paso 1: selección (auto por LLM o manual del front) ----------
@@ -258,7 +258,7 @@ async def fundamentar_normativa_sync(
 
     clasificacion = request.clasificacion or informe.clasificacion or ""
     motivo = informe.motivo or ""
-    fundamentador = _crear_agente(llm_router, request.modelo)
+    fundamentador = _crear_paso(llm_router, request.modelo)
 
     pares = await _resolver_seleccion(informe, request, fundamentador)
     seleccionados = [p for p, _ in pares]

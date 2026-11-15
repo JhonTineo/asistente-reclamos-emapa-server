@@ -11,8 +11,8 @@ from app.src.application.services.pre_proces.problemas_normalizer import (
     problemas_de_inspeccion_externa,
     problemas_de_targeta,
 )
-from app.src.application.usecase.agents.conclusion import ConclusionAgent
-from app.src.application.usecase.agents.fundamentacion_normativa import CONSULTA_POR_TIPO
+from app.src.application.usecase.pasos.conclusion import PasoConclusion
+from app.src.application.usecase.pasos.fundamentacion import CONSULTA_POR_TIPO
 from app.src.core.model.informe_atencion import BloqueMedio, InformeAtencion
 from app.src.core.model.inspeccion_externa import InspeccionExterna
 from app.src.core.model.targeta_lecturas import TargetaLecturas
@@ -134,7 +134,7 @@ class DescensoConsumoTests(unittest.TestCase):
             numero="1", fecha=pd.Timestamp("2026-01-01").to_pydatetime(),
             asunto="prueba", reclamo="1", suministro="1", bloques=[bloque],
         )
-        contexto = ConclusionAgent._hallazgos_por_medio(informe)["tarjeta_lectura"]
+        contexto = PasoConclusion._hallazgos_por_medio(informe)["tarjeta_lectura"]
         self.assertIn("Descenso cuantitativo de prueba.", contexto)
         self.assertNotIn("fuga", contexto.lower())
 

@@ -13,7 +13,7 @@ MAX_TOKENS_RESPUESTA = 1500
 
 def _log_respuesta_cruda(etiqueta: str, modelo_id: str, response: BaseMessage) -> None:
     """Deja rastro del texto crudo que devolvió el modelo, antes de que el
-    agente lo parsee. Sin esto, cuando el parseo falla solo queda el error y no
+    paso lo parsee. Sin esto, cuando el parseo falla solo queda el error y no
     se sabe qué escribió realmente el modelo."""
     contenido = str(response.content)
     meta = response.response_metadata or {}
@@ -53,7 +53,8 @@ class OpenAiCompatProviderAdapter(PuertoProveedorLLM):
         # esa key es del proveedor que el usuario eligió, NO del resto.
         self.provider_id = (provider_id or "").strip().lower()
 
-    def _crear_cliente(self, modelo_id: str, temperatura: float) -> ChatOpenAI:
+    def _crear_cliente(self, modelo_id: str, temperatura: float,
+                       max_tokens: int | None = None) -> ChatOpenAI:
         from app.src.infrastructure.config.llm_context import get_llm_ctx
         ctx = get_llm_ctx()
 
@@ -82,13 +83,15 @@ class OpenAiCompatProviderAdapter(PuertoProveedorLLM):
             request_timeout=60,  # 60s en vez del default de 600s
             # Techo de seguridad: sin él, una generación descarrilada corre hasta
             # el límite del modelo (16k tokens ≈ 3 min y ~1 centavo por llamada).
-            # Las salidas de los agentes (objetivos, dictamen, conclusión) no
-            # pasan de unos cientos de tokens.
-            max_tokens=MAX_TOKENS_RESPUESTA,
+            # Casi todas las salidas de los pasos caben en unos cientos de
+            # tokens; el paso que necesita más (el dictamen, un factor por
+            # criterio) pide su propio tope en su especificación de contexto.
+            max_tokens=max_tokens or MAX_TOKENS_RESPUESTA,
         )
 
-    def generar_texto(self, mensajes: list[MensajeLLM], modelo_id: str, temperatura: float = 0.0) -> str:
-        llm = self._crear_cliente(modelo_id, temperatura)
+    def generar_texto(self, mensajes: list[MensajeLLM], modelo_id: str, temperatura: float = 0.0,
+                      max_tokens: int | None = None) -> str:
+        llm = self._crear_cliente(modelo_id, temperatura, max_tokens)
         lc_mensajes = _convertir_mensajes(mensajes)
         
         logger.info(f"[OpenAI Compat] Generando texto con modelo: {modelo_id}")
@@ -98,15 +101,16 @@ class OpenAiCompatProviderAdapter(PuertoProveedorLLM):
         # response es un AIMessage
         return str(response.content)
 
-    def generar_json(self, mensajes: list[MensajeLLM], modelo_id: str, esquema: dict[str, Any] | None = None, temperatura: float = 0.0) -> str:
+    def generar_json(self, mensajes: list[MensajeLLM], modelo_id: str, esquema: dict[str, Any] | None = None,
+                     temperatura: float = 0.0, max_tokens: int | None = None) -> str:
         # NO se usa response_format={"type": "json_object"}: ese modo obliga a que
         # la respuesta sea un objeto JSON de nivel superior, pero los prompts de
-        # los agentes piden una LISTA (`[{...}, {...}]`). Ese conflicto hacía que
+        # los pasos piden una LISTA (`[{...}, {...}]`). Ese conflicto hacía que
         # el modelo generase sin parar hasta agotar max_tokens, devolviendo un
         # JSON truncado ("Could not parse response content as the length limit
-        # was reached"). El _parse() de cada agente ya extrae el JSON por regex y
+        # was reached"). El _parse() de cada paso ya extrae el JSON por regex y
         # tolera texto alrededor, así que basta con pedirlo en el prompt.
-        llm = self._crear_cliente(modelo_id, temperatura)
+        llm = self._crear_cliente(modelo_id, temperatura, max_tokens)
         lc_mensajes = _convertir_mensajes(mensajes)
 
         logger.info(f"[OpenAI Compat] Generando JSON con modelo: {modelo_id}")

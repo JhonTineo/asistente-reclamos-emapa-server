@@ -2,7 +2,7 @@
 
 Son la lógica de negocio con la que se clasifica cada objetivo de investigación
 en `procede_correccion`, `sin_correccion` o `no_evaluable` (los consume el
-ConclusionAgent al evaluar los objetivos contra los hallazgos).
+PasoConclusion al evaluar los objetivos contra los hallazgos).
 
 Se administran HOY EN CÓDIGO (editando CRITERIOS_DEFECTO), pero se consumen a
 través de `obtener_criterios()`: ese es el único punto a cambiar para leerlos

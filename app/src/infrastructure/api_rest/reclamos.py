@@ -4,7 +4,7 @@ from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from starlette.concurrency import run_in_threadpool
-from app.src.application.usecase.agents.clasificador_rapido import clasificar_rapido
+from app.src.application.usecase.pasos.clasificador_rapido import clasificar_rapido
 from app.src.infrastructure.api_rest.schemas.investigacion import (
     BuscarReclamoResponse, InformeMetadata, ReclamoSchema,
     InformeCompletoResponse, ObjetivoInvestigacionSchema,
@@ -505,6 +505,7 @@ async def obtener_informe_completo(codreclamo: str) -> InformeCompletoResponse:
         origen_decision=informe.origen_decision,
         historial_decisiones=informe.historial_decisiones,
         veredicto=informe.veredicto,
+        dictamen=informe.dictamen,
         conclusion=informe.conclusion,
         problemas=problemas,
         propuesta_conciliacion=(

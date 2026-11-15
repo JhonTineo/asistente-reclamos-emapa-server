@@ -14,9 +14,9 @@ from pathlib import Path
 
 from app.src.application.services.informe.hechos import asignar_ids_bloque
 from app.src.application.services.pre_proces.constataciones import extraer_constataciones
-from app.src.application.usecase.agents.analista_medio import AnalistaMedioAgent
-from app.src.application.usecase.agents.conclusion import ConclusionAgent
-from app.src.application.usecase.agents.fundamentacion_normativa import FundamentacionNormativaAgent
+from app.src.application.usecase.pasos.analisis_medio import PasoAnalisisMedio
+from app.src.application.usecase.pasos.conclusion import PasoConclusion
+from app.src.application.usecase.pasos.fundamentacion import PasoFundamentacion
 from app.src.core.model.informe_atencion import (
     BloqueMedio, InformeAtencion, ObjetivoInvestigacion, ProblemaNormado,
 )
@@ -217,10 +217,10 @@ class UsoDeLasConstatacionesTest(unittest.TestCase):
 
     def test_el_resumen_recibe_el_mes_reclamado_como_hecho_verificado(self):
         router = RouterCaptura()
-        agente = AnalistaMedioAgent(emapa_api=None, llm_router=router)
+        paso = PasoAnalisisMedio(emapa_api=None, llm_router=router)
         constataciones = extraer_constataciones("tarjeta_lectura", TARJETA, SETIEMBRE)
         problemas = [ProblemaNormado(tipo="errorConsumo", detalle="Consumo excesivo: detectado en 05/2026")]
-        agente.interpretar("tarjeta_lectura", "Tarjeta de Lecturas", TARJETA, problemas,
+        paso.interpretar("tarjeta_lectura", "Tarjeta de Lecturas", TARJETA, problemas,
                            "A1. CONSUMO MEDIDO", None, constataciones)
         humano = router.mensajes[1].contenido
         self.assertIn("HECHOS VERIFICADOS", humano)
@@ -228,9 +228,9 @@ class UsoDeLasConstatacionesTest(unittest.TestCase):
         self.assertIn("No afirmes que falta información", humano)
 
     def test_frase_fija_se_completa_con_los_hechos(self):
-        agente = AnalistaMedioAgent(emapa_api=None, llm_router=None)  # no debe usar el LLM
+        paso = PasoAnalisisMedio(emapa_api=None, llm_router=None)  # no debe usar el LLM
         constataciones = extraer_constataciones("corte_reapertura", CORTE)
-        texto = agente.interpretar("corte_reapertura", "Cortes y Reaperturas", CORTE, [],
+        texto = paso.interpretar("corte_reapertura", "Cortes y Reaperturas", CORTE, [],
                                    "A1. CONSUMO MEDIDO", None, constataciones)
         self.assertEqual(
             texto,
@@ -261,7 +261,7 @@ class UsoDeLasConstatacionesTest(unittest.TestCase):
         return informe
 
     def test_el_evaluador_ve_los_hechos_verificados(self):
-        hallazgos = ConclusionAgent._hallazgos_por_medio(self._informe())
+        hallazgos = PasoConclusion._hallazgos_por_medio(self._informe())
         self.assertIn("Hecho verificado: En setiembre de 2026 se facturó por la lectura del medidor",
                       hallazgos["record_facturacion"])
         self.assertIn("no hubo respuesta del usuario", hallazgos["inspeccion_interna"])
@@ -272,14 +272,44 @@ class UsoDeLasConstatacionesTest(unittest.TestCase):
         # Pool: [0] interna sin acceso, [1-3] externa (complementa a la interna
         # en el mismo objetivo), [4] facturación de setiembre, [5-6] rebajas.
         router = RouterCaptura("[0, 1, 4]")
-        agente = FundamentacionNormativaAgent.__new__(FundamentacionNormativaAgent)
-        agente.llm_router, agente.model_id = router, "falso"
-        elegidos = agente.seleccionar_determinantes(informe)
+        paso = PasoFundamentacion.__new__(PasoFundamentacion)
+        paso.llm_router, paso.model_id = router, "falso"
+        elegidos = paso.seleccionar_determinantes(informe)
+        # Primero los que entran por regla (mes reclamado, luego limitaciones)
+        # y después lo que eligió el modelo.
         self.assertEqual([h.tipo for h in elegidos],
-                         ["inspeccionInternaSinAcceso", "estadoMedidorInspeccion",
-                          "facturacionMesReclamado"])
+                         ["facturacionMesReclamado", "inspeccionInternaSinAcceso",
+                          "estadoMedidorInspeccion"])
         self.assertTrue(all(h.seleccionado for h in elegidos))
         self.assertIn("(hecho verificado)", router.mensajes[1].contenido)
+
+    def test_los_hechos_del_mes_reclamado_entran_aunque_el_modelo_los_omita(self):
+        """252629: el selector eligió la facturación y la inspección externa y
+        dejó fuera la lectura del mes, el hecho que responde al reclamo."""
+        informe = self._informe()
+        router = RouterCaptura("[1, 2, 3]")          # solo hechos de la inspección externa
+        paso = PasoFundamentacion.__new__(PasoFundamentacion)
+        paso.llm_router, paso.model_id = router, "falso"
+        elegidos = paso.seleccionar_determinantes(informe)
+
+        tipos = [h.tipo for h in elegidos]
+        self.assertEqual(tipos[:2], ["facturacionMesReclamado", "inspeccionInternaSinAcceso"])
+        self.assertEqual(len(tipos), 4)              # 2 por regla + como máximo 2 elegidos
+        usuario = router.mensajes[1].contenido
+        self.assertIn("SIEMPRE INCLUIDO", usuario)
+        self.assertIn("lo que el usuario alega; no está verificado", usuario)
+
+    def test_el_parrafo_recibe_el_motivo_como_alegacion(self):
+        informe = self._informe()
+        router = RouterCaptura("Párrafo.")
+        paso = PasoFundamentacion.__new__(PasoFundamentacion)
+        paso.llm_router, paso.model_id = router, "falso"
+        hechos = [h for b in informe.bloques for h in b.hechos][:1]
+        paso.redactar_parrafo(hechos, motivo="MIS CONSUMOS SON DE 35 M3", clasificacion="A1")
+        usuario = router.mensajes[1].contenido
+        self.assertIn("ALEGACIÓN del usuario", usuario)
+        self.assertIn("NO está verificada", usuario)
+        self.assertNotIn("[H-", usuario)             # la redacción no recibe códigos de hechos
 
 
 class AlcanceYLimitacionesTest(unittest.TestCase):
@@ -300,9 +330,9 @@ class AlcanceYLimitacionesTest(unittest.TestCase):
         return informe
 
     def _fundamentador(self, respuesta: str):
-        agente = FundamentacionNormativaAgent.__new__(FundamentacionNormativaAgent)
-        agente.llm_router, agente.model_id = RouterCaptura(respuesta), "falso"
-        return agente
+        paso = PasoFundamentacion.__new__(PasoFundamentacion)
+        paso.llm_router, paso.model_id = RouterCaptura(respuesta), "falso"
+        return paso
 
     # --- C: días entre lecturas ------------------------------------------
     def test_lectura_del_mes_incluye_los_dias_entre_lecturas(self):
@@ -322,29 +352,29 @@ class AlcanceYLimitacionesTest(unittest.TestCase):
 
     # --- A: limitaciones obligatorias + hechos del mes reclamado ----------
     def test_la_limitacion_se_selecciona_aunque_el_llm_la_omita(self):
-        agente = self._fundamentador("[1, 4]")   # medidor + facturación, SIN la interna
-        elegidos = agente.seleccionar_determinantes(self._informe())
+        paso = self._fundamentador("[1, 4]")   # medidor + facturación, SIN la interna
+        elegidos = paso.seleccionar_determinantes(self._informe())
         self.assertIn("inspeccionInternaSinAcceso", [h.tipo for h in elegidos])
 
     def test_la_lectura_del_mes_es_candidata_aunque_su_medio_no_sea_determinante(self):
         informe = self._informe()
-        candidatos = FundamentacionNormativaAgent.candidatos(informe)
+        candidatos = PasoFundamentacion.candidatos(informe)
         tipos_tarjeta = [h.tipo for medio, h in candidatos if medio == "tarjeta_lectura"]
         # Solo los hechos del mes reclamado, no la tendencia ni el medidor.
         self.assertEqual(tipos_tarjeta, ["lecturaMesReclamado"])
 
-        agente = self._fundamentador("[]")
-        agente.seleccionar_determinantes(informe)
-        humano = agente.llm_router.mensajes[1].contenido
+        paso = self._fundamentador("[]")
+        paso.seleccionar_determinantes(informe)
+        humano = paso.llm_router.mensajes[1].contenido
         self.assertIn("Hechos del mes reclamado (de otros medios)", humano)
         self.assertIn("transcurrieron 30 días", humano)
 
     # --- B: alcance en la fundamentación ------------------------------------
     def test_la_fundamentacion_conserva_el_alcance(self):
-        agente = self._fundamentador("Párrafo.")
+        paso = self._fundamentador("Párrafo.")
         hechos = extraer_constataciones("inspeccion_externa", INSP_EXTERNA)
-        agente.redactar_parrafo(hechos, "Consumo elevado", "A1. CONSUMO MEDIDO")
-        sistema = agente.llm_router.mensajes[0].contenido
+        paso.redactar_parrafo(hechos, "Consumo elevado", "A1. CONSUMO MEDIDO")
+        sistema = paso.llm_router.mensajes[0].contenido
         self.assertIn("CONSERVA EL ALCANCE", sistema)
         self.assertIn("no acredita el estado de las instalaciones INTERNAS", sistema)
         self.assertIn("Cita SOLO el inciso", sistema)
@@ -357,8 +387,8 @@ class AlcanceYLimitacionesTest(unittest.TestCase):
         determinantes[0].resultado = "no_evaluable"
         determinantes[1].resultado = "sin_correccion"
         router = RouterCaptura("En consecuencia, ... se declara INFUNDADO.")
-        agente = ConclusionAgent(llm_router=router, criterios=[])
-        agente._redactar_conclusion(informe, "INFUNDADO", determinantes, [])
+        paso = PasoConclusion(llm_router=router, criterios=[])
+        paso._redactar_conclusion(informe, "INFUNDADO", determinantes, [])
 
         sistema, humano = router.mensajes[0].contenido, router.mensajes[1].contenido
         self.assertIn("no hubo respuesta del usuario", humano)

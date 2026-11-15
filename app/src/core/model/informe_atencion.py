@@ -127,6 +127,9 @@ class InformeAtencion:
     origen_decision: str | None = None  # "automatica" | "historica_sysco"
     historial_decisiones: list[dict] = field(default_factory=list)
     veredicto: str | None = None       # "FUNDADO" | "INFUNDADO" (puerta lógica)
+    # Dictamen que sustenta el veredicto (pasos/dictamen.py, Dictamen.a_dict()):
+    # factores por criterio, hechos citados, regla que decidió y motivos.
+    dictamen: dict | None = None
     conclusion: str | None = None      # texto de la conclusión (paso final)
     # Texto completo recuperado de SYSCO. Cuando existe, es la fuente original
     # que debe devolverse al frontend; los tres campos anteriores son su vista
@@ -150,7 +153,7 @@ class InformeAtencion:
     secuencia_hechos: dict[str, int] = field(default_factory=dict)
     # Origen de los textos editados o recuperados: tipo de artefacto ->
     # (origen, firma del texto). El origen solo vale mientras el texto siga
-    # siendo el mismo; si un agente lo regenera, vuelve a ser "generado".
+    # siendo el mismo; si un paso lo regenera, vuelve a ser "generado".
     marcas_origen: dict[str, tuple[str, str]] = field(default_factory=dict)
 
     @property

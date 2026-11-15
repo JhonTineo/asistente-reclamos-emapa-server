@@ -11,7 +11,7 @@ from app.src.infrastructure.api_rest.schemas.investigacion import (
     ResolucionRequest, ResolucionResponse,
     ActualizarResolucionTextoRequest, ActualizarResolucionTextoResponse,
 )
-from app.src.application.usecase.agents.resolucion import ResolucionAgent
+from app.src.application.usecase.pasos.resolucion import PasoResolucion
 from app.src.application.services.informe.informe_store import informe_store
 from app.src.application.services.llm.llm_router_service import LlmRouterService
 
@@ -71,9 +71,9 @@ async def generar_resolucion_final(request: ResolucionRequest, llm_router: LlmRo
     propuesta_reclamante = request.propuesta_reclamante or (conciliacion.propuesta_reclamante if conciliacion else None)
     observaciones = request.observaciones or (conciliacion.observaciones if conciliacion else None)
 
-    resolucion_agent = ResolucionAgent(llm_router=llm_router, model=request.modelo)
+    paso_resolucion = PasoResolucion(llm_router=llm_router, model=request.modelo)
     resultado = await run_in_threadpool(
-        resolucion_agent.generar_resolucion,
+        paso_resolucion.generar_resolucion,
         informe, propuesta_empresa, propuesta_reclamante, observaciones,
     )
     # Se guarda en el informe (no solo se devuelve) para poder recuperarla si

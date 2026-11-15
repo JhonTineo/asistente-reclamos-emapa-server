@@ -35,3 +35,4 @@ services:
     volumes:
       - ./volumes/operacional_data:/code/volumes/operacional_data
       - ./volumes/yumi_db:/code/volumes/yumi_db
+      - ./volumes/skills:/code/volumes/skills

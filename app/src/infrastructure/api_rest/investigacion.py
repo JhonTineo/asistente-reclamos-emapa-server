@@ -27,8 +27,8 @@ from app.src.infrastructure.api_rest.schemas.investigacion import (
     ActualizarFundamentacionResponse,
 )
 from app.src.infrastructure.adapters.emapa_http_adapter import EmapaHttpAdapter
-from app.src.application.usecase.agents.objetivos import ObjetivosAgent
-from app.src.application.usecase.agents.conclusion import ConclusionAgent
+from app.src.application.usecase.pasos.objetivos import PasoObjetivos
+from app.src.application.usecase.pasos.conclusion import PasoConclusion
 
 from app.src.application.services.informe.informe_store import informe_store
 from app.src.application.services.informe.render import construir_texto_informe
@@ -73,8 +73,10 @@ async def generar_objetivos(
         len(motivo), informe.clasificacion,
     )
     if motivo:
-        agente = ObjetivosAgent(llm_router=llm_router, model=request.modelo)
-        objetivos = await run_in_threadpool(agente.generar, motivo, informe.clasificacion or "")
+        paso = PasoObjetivos(llm_router=llm_router, model=request.modelo)
+        objetivos = await run_in_threadpool(
+            paso.generar, motivo, informe.clasificacion or "", informe.reclamo,
+        )
         informe_store.invalidar_decision(request.codreclamo, "regeneración de objetivos")
         informe.objetivos = objetivos
     else:
@@ -207,7 +209,7 @@ async def re_generar_conclusion(request: InformeRequest, llm_router: LlmRouterSe
     ]
 
     # Conclusión: veredicto FUNDADO/INFUNDADO por regla sobre los objetivos.
-    veredicto = ConclusionAgent(llm_router=llm_router, model=request.modelo).concluir_y_asignar(informe)
+    veredicto = PasoConclusion(llm_router=llm_router, model=request.modelo).concluir_y_asignar(informe)
 
     texto = construir_texto_informe(informe)
 

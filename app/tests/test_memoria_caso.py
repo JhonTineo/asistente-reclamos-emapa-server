@@ -257,7 +257,7 @@ class MiddlewarePersistenciaTest(BaseSqlite):
 
         @app.post("/mutar")
         def mutar():
-            # Simula a un agente que modifica el informe sin pasar por el store.
+            # Simula a un paso que modifica el informe sin pasar por el store.
             informe_store.obtener("R-mw").conclusion = "Conclusión directa"
             return {"ok": True}
 

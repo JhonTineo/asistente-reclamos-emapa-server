@@ -486,6 +486,9 @@ class InformeCompletoResponse(BaseModel):
     origen_decision: str | None = None
     historial_decisiones: list[dict] = Field(default_factory=list)
     veredicto: str | None = None
+    # Dictamen que sustenta el veredicto: factores por criterio, hechos citados,
+    # regla aplicada y motivos (None si se usó el método por objetivos).
+    dictamen: dict | None = None
     conclusion: str | None = None
     problemas: list[ProblemaInforme] = Field(default_factory=list)
     propuesta_conciliacion: str | None = None

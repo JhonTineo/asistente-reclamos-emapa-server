@@ -1,10 +1,10 @@
 import time
 import logging
-from app.src.application.ports.provider_port import MensajeLLM
+from app.src.application.services.contexto.constructor import constructor_contexto
 from app.src.application.services.llm.llm_router_service import LlmRouterService, MODELO_EXTERNO_DEFAULT
 from app.src.core.model.informe_atencion import InformeAtencion
 
-logger = logging.getLogger("agent.resolucion")
+logger = logging.getLogger("paso.resolucion")
 
 MESES_ES = (
     "enero", "febrero", "marzo", "abril", "mayo", "junio",
@@ -29,7 +29,7 @@ def _fecha_es(fecha) -> str:
     return f"{fecha.day:02d} DE {MESES_ES[fecha.month - 1].upper()} DEL {fecha.year}"
 
 
-class ResolucionAgent:
+class PasoResolucion:
     """Redacta los considerandos de la resolución final del reclamo, a partir
     de los datos del reclamo (entidad Reclamo) y la CONCLUSIÓN del informe de
     atención (ambos ya en el store), más la propuesta de conciliación de la
@@ -57,14 +57,15 @@ class ResolucionAgent:
             informe.reclamo, veredicto,
         )
 
-        prompt = self._construir_prompt(informe, veredicto, propuesta_empresa, propuesta_cliente, observaciones)
-        logger.debug("[PROMPT resolucion][SYSTEM]\n%s", prompt)
+        instrucciones, entrada = self._construir_prompt(
+            informe, veredicto, propuesta_empresa, propuesta_cliente, observaciones,
+        )
         logger.info("[RESOLUCION] Invocando LLM...")
         t_llm_inicio = time.perf_counter()
 
-        response_text = self.llm_router.generar_texto(
-            mensajes=[MensajeLLM(rol="system", contenido=prompt)],
-            modelo_id=self.model_id
+        response_text = constructor_contexto.llamar(
+            "resolucion", self.llm_router, self.model_id,
+            informe=informe, entrada=entrada, instrucciones=instrucciones,
         )
         considerandos = (response_text or "").strip()
 
@@ -90,7 +91,9 @@ class ResolucionAgent:
         propuesta_empresa: str,
         propuesta_cliente: str | None,
         observaciones: str | None,
-    ) -> str:
+    ) -> tuple[str, str]:
+        """Devuelve (instrucciones del caso, entrada). La estructura fija de los
+        considerandos está en skills/pasos/resolucion.md."""
         r = informe.datos_reclamo
         motivo = (r.motivo_reclamo if r else None) or informe.motivo or "no especificado"
         clasificacion = (r.clasificacion_reclamo if r else None) or informe.clasificacion or "no especificada"
@@ -101,34 +104,14 @@ class ResolucionAgent:
         cliente_texto = propuesta_cliente or "no registrada"
         observaciones_texto = f"\n- Observaciones: {observaciones}" if observaciones else ""
 
-        return f"""Eres un agente que redacta los CONSIDERANDOS de una RESOLUCIÓN de reclamo
-de EMAPA, según el Reglamento General de Reclamos de Usuarios de Servicios de
-Saneamiento y el Reglamento de Calidad SUNASS.
-
-IMPORTANTE: el veredicto YA fue determinado por el informe de atención y NO
-puedes cambiarlo: {veredicto}. Tu única tarea es redactar los considerandos que
-lo fundamentan, con el mismo estilo formal de una resolución administrativa.
-
-ESTRUCTURA A SEGUIR (no repitas literalmente el ejemplo, redacta con los datos
-reales de este caso):
-1. Un considerando "QUE, SEGÚN INFORME N.º {informe.numero} DE FECHA
-   {_fecha_es(informe.fecha)}, INFORMA EN ATENCIÓN AL RECLAMO PRESENTADO POR EL
-   SUMINISTRO N.º {informe.suministro}, SE HA REALIZADO EL PROCEDIMIENTO
-   ESTABLECIDO EN LA NORMATIVA, EL MISMO QUE NOS CONLLEVA AL SIGUIENTE
-   RESULTADO:" seguido de un resumen técnico de los hallazgos de la
-   investigación (usa SOLO la conclusión de la investigación que se te da
-   abajo; no inventes cifras, lecturas ni hechos que no estén ahí).
-3. Menciona brevemente la conciliación: si el cliente aceptó
-   la propuesta de la empresa dilo así; si no la aceptó, no asistio o no hay registro,
-   indica que se resuelve conforme a lo determinado técnicamente en la
-   investigación.
-4. Cierra el último considerando declarando expresamente que el reclamo SE
-   DECLARA {veredicto}.
-
-NO agregues el pie de atribuciones legales (SUNASS 066/088/011): se agrega
-aparte, fuera de tu respuesta.
-Responde ÚNICAMENTE con los considerandos redactados, sin encabezados, sin
-comentarios ni el pie legal.
+        instrucciones = (
+            f"Veredicto ya determinado (NO modificar): {veredicto}. El último "
+            f"considerando debe declarar expresamente que el reclamo SE DECLARA {veredicto}."
+        )
+        entrada = f"""=== DATOS DEL INFORME DE ATENCIÓN ===
+- Número del informe: {informe.numero}
+- Fecha del informe: {_fecha_es(informe.fecha)}
+- Suministro: {informe.suministro}
 
 === DATOS DEL RECLAMO ===
 - Reclamante: {reclamante}
@@ -145,6 +128,5 @@ comentarios ni el pie legal.
 - Propuesta de la empresa: {propuesta_empresa}
 - Postura del cliente frente a la propuesta: {cliente_texto}{observaciones_texto}
 
-Veredicto ya determinado (NO modificar): {veredicto}
-
 Redacta los considerandos de la resolución."""
+        return instrucciones, entrada

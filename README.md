@@ -30,7 +30,7 @@ app/
     ├── application/
     │   ├── ports/            # Interfaces (EMAPA, vector DB, proveedor LLM, ...)
     │   ├── services/         # Lógica de negocio (rag, informe, investigación, ...)
-    │   └── usecase/agents/   # Agentes de IA (ver abajo)
+    │   └── usecase/pasos/    # Pasos del workflow (ver abajo)
     ├── infrastructure/
     │   ├── api_rest/         # Routers FastAPI (endpoints)
     │   ├── adapters/         # Implementaciones: EMAPA HTTP, Qdrant, Ollama, OpenAI
@@ -48,16 +48,16 @@ app/
 | **Embeddings** | Ollama `nomic-embed-text` (768 dimensiones). |
 | **Qdrant** | Vector store del RAG normativo (colección `sunass_reglamento`). |
 
-### Agentes (`app/src/application/usecase/agents/`)
+### Pasos del workflow (`app/src/application/usecase/pasos/`)
 
 1. **clasificador_rapido** — Clasifica el tipo de reclamo por reglas (sin LLM).
 2. **objetivos** — Genera los objetivos de investigación a partir del motivo.
-3. **analista_medio** — Analiza cada medio probatorio (preproceso por reglas +
+3. **analisis_medio** — Analiza cada medio probatorio (preproceso por reglas +
    interpretación del LLM).
-4. **recuperador_rag** / **fundamentacion_normativa** — Recuperan la normativa
-   SUNASS aplicable en Qdrant y fundamentan los hallazgos determinantes.
+4. **fundamentacion** — Recupera la normativa SUNASS aplicable en Qdrant y
+   fundamenta los hallazgos determinantes.
 5. **conclusion** — Evalúa objetivos vs. hallazgos y fija el veredicto.
-6. **conciliador** — Redacta la propuesta de conciliación.
+6. **conciliacion** — Redacta la propuesta de conciliación.
 7. **resolucion** — Redacta la resolución final.
 
 El estado de cada atención (`InformeAtencion`) se mantiene **en memoria** del

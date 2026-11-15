@@ -1,4 +1,5 @@
 import logging
+import threading
 from typing import Any
 from app.src.application.ports.model_port import PuertoCatalogoModelos
 from app.src.application.ports.provider_port import PuertoProveedorLLM, MensajeLLM
@@ -6,7 +7,7 @@ from app.src.application.ports.provider_port import PuertoProveedorLLM, MensajeL
 logger = logging.getLogger("services.llm_router")
 
 # Sentinela: "sin preferencia de modelo, usa lo mejor disponible". Es lo que
-# usan los agentes por defecto cuando el frontend no especifica `modelo`.
+# usan los pasos por defecto cuando el frontend no especifica `modelo`.
 #
 # Con un id FIJO (p.ej. "openai/gpt-4o-mini") el fallback entre proveedores no
 # cruza proveedores distintos: ese id solo lo declara OpenRouter en el
@@ -23,7 +24,7 @@ MODELO_EXTERNO_DEFAULT = MODELO_AUTO
 class LlmRouterService:
     """
     Orquestador principal (OmniRouter interno) para interactuar con los LLMs.
-    Desacopla a los Agentes de los proveedores específicos.
+    Desacopla a los pasos del workflow de los proveedores específicos.
     """
     def __init__(
         self,
@@ -44,6 +45,29 @@ class LlmRouterService:
         self.catalogo = catalogo
         self.providers = providers
         self.orden_proveedores = orden_proveedores or list(providers.keys())
+        # Quién respondió la última llamada hecha desde este hilo.
+        self._local = threading.local()
+
+    @property
+    def ultimo_uso(self) -> tuple[str, str] | None:
+        """(proveedor, modelo) que respondió la última llamada de este hilo, o
+        None si falló. Con "auto" o con respaldo entre proveedores, el modelo
+        pedido no dice quién respondió; el registro de llamadas lo lee de aquí."""
+        return getattr(self._local, "ultimo_uso", None)
+
+    def _invocar(self, provider: PuertoProveedorLLM, pid: str, operacion: str,
+                 mensajes: list[MensajeLLM], modelo_id: str,
+                 esquema: dict[str, Any] | None, temperatura: float,
+                 max_tokens: int | None) -> str:
+        # max_tokens solo se pasa cuando la llamada lo define, para no exigirlo
+        # a proveedores que no lo declaren.
+        extras = {"max_tokens": max_tokens} if max_tokens else {}
+        if operacion == "texto":
+            respuesta = provider.generar_texto(mensajes, modelo_id, temperatura, **extras)
+        else:
+            respuesta = provider.generar_json(mensajes, modelo_id, esquema, temperatura, **extras)
+        self._local.ultimo_uso = (pid, modelo_id)
+        return respuesta
 
     def _ejecutar_con_fallback(
         self,
@@ -51,10 +75,12 @@ class LlmRouterService:
         operacion: str,
         mensajes: list[MensajeLLM],
         esquema: dict[str, Any] | None = None,
-        temperatura: float = 0.0
+        temperatura: float = 0.0,
+        max_tokens: int | None = None,
     ) -> str:
+        self._local.ultimo_uso = None
         if modelo_id == MODELO_AUTO:
-            return self._ejecutar_auto(operacion, mensajes, esquema, temperatura)
+            return self._ejecutar_auto(operacion, mensajes, esquema, temperatura, max_tokens)
 
         # `orden_proveedores` acota el modo (externo / local). El catálogo acota
         # quién declara este modelo estáticamente.
@@ -92,10 +118,8 @@ class LlmRouterService:
 
             provider = self.providers[pid]
             try:
-                if operacion == "texto":
-                    return provider.generar_texto(mensajes, modelo_id, temperatura)
-                elif operacion == "json":
-                    return provider.generar_json(mensajes, modelo_id, esquema, temperatura)
+                return self._invocar(provider, pid, operacion, mensajes, modelo_id,
+                                     esquema, temperatura, max_tokens)
             except Exception as e:
                 logger.error(f"[LlmRouter] Error con proveedor '{pid}' para modelo '{modelo_id}': {e}")
                 last_error = e
@@ -114,6 +138,7 @@ class LlmRouterService:
         mensajes: list[MensajeLLM],
         esquema: dict[str, Any] | None,
         temperatura: float,
+        max_tokens: int | None = None,
     ) -> str:
         """Recorre orden_proveedores probando, en CADA proveedor, su propio
         modelo preferido (el primero de su lista configurada) — no un id fijo.
@@ -135,10 +160,8 @@ class LlmRouterService:
             intentos += 1
             provider = self.providers[pid]
             try:
-                if operacion == "texto":
-                    return provider.generar_texto(mensajes, modelo_id, temperatura)
-                elif operacion == "json":
-                    return provider.generar_json(mensajes, modelo_id, esquema, temperatura)
+                return self._invocar(provider, pid, operacion, mensajes, modelo_id,
+                                     esquema, temperatura, max_tokens)
             except Exception as e:
                 logger.error(
                     "[LlmRouter] (auto) Error con proveedor '%s' modelo '%s': %s", pid, modelo_id, e,
@@ -154,10 +177,14 @@ class LlmRouterService:
             f"Último error: {last_error}"
         )
 
-    def generar_texto(self, mensajes: list[MensajeLLM], modelo_id: str, temperatura: float = 0.0) -> str:
+    def generar_texto(self, mensajes: list[MensajeLLM], modelo_id: str, temperatura: float = 0.0,
+                      max_tokens: int | None = None) -> str:
         """Genera texto delegando al mejor proveedor disponible."""
-        return self._ejecutar_con_fallback(modelo_id, "texto", mensajes, temperatura=temperatura)
+        return self._ejecutar_con_fallback(modelo_id, "texto", mensajes, temperatura=temperatura,
+                                           max_tokens=max_tokens)
 
-    def generar_json(self, mensajes: list[MensajeLLM], modelo_id: str, esquema: dict[str, Any] | None = None, temperatura: float = 0.0) -> str:
+    def generar_json(self, mensajes: list[MensajeLLM], modelo_id: str, esquema: dict[str, Any] | None = None,
+                     temperatura: float = 0.0, max_tokens: int | None = None) -> str:
         """Genera JSON delegando al mejor proveedor disponible."""
-        return self._ejecutar_con_fallback(modelo_id, "json", mensajes, esquema=esquema, temperatura=temperatura)
+        return self._ejecutar_con_fallback(modelo_id, "json", mensajes, esquema=esquema,
+                                           temperatura=temperatura, max_tokens=max_tokens)

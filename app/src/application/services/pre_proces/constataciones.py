@@ -143,6 +143,39 @@ def _hecho(tipo: str, detalle: str, *, periodo: str | None = None, valor: dict |
 # --------------------------------------------------------------------------- #
 # Reglas por medio
 # --------------------------------------------------------------------------- #
+CODIGO_CONSUMO_ATIPICO = "008"
+
+
+def _marca_atipico(fila: dict) -> bool:
+    codigo = str(fila.get("estadolectura") or "").strip()
+    texto = (fila.get("desestadolectura") or fila.get("estadolectura_texto") or "").upper()
+    return codigo == CODIGO_CONSUMO_ATIPICO or "ATIPICO" in texto or "ATÍPICO" in texto
+
+
+def _supera_doble(fila: dict) -> bool:
+    consumo, promedio = _num(fila.get("consumo")), _num(fila.get("lecturapromedio"))
+    return bool(consumo is not None and promedio and consumo > 2 * promedio)
+
+
+def _es_atipico(fila: dict) -> bool:
+    return _marca_atipico(fila) or _supera_doble(fila)
+
+
+def _racha_atipica(registros: list[dict], pos: int) -> tuple[int, bool]:
+    """Meses atípicos consecutivos que terminan en ``pos`` (0 si ese mes no lo
+    es) y si hubo otro episodio atípico en los 12 meses anteriores a la racha
+    (RC Art. 92.3: el promedio solo procede una vez cada 12 meses y como máximo
+    por 2 meses consecutivos)."""
+    consecutivos = 0
+    i = pos
+    while i >= 0 and _es_atipico(registros[i]):
+        consecutivos += 1
+        i -= 1
+    inicio_racha = pos - consecutivos + 1
+    previos = registros[max(0, inicio_racha - 12):max(0, inicio_racha)]
+    return consecutivos, any(_es_atipico(r) for r in previos) if consecutivos else False
+
+
 def _tarjeta_lectura(datos: dict, periodos: list[tuple[int, int]]) -> list[ProblemaNormado]:
     hechos: list[ProblemaNormado] = []
     registros = _ordenados(datos.get("registros") or [])
@@ -196,12 +229,31 @@ def _tarjeta_lectura(datos: dict, periodos: list[tuple[int, int]]) -> list[Probl
                 texto += (f". Entre la lectura anterior ({previa:%d/%m/%Y}) y esta "
                           f"transcurrieron {dias} días, {rango} del periodo de "
                           f"{DIAS_LECTURA_MIN} a {DIAS_LECTURA_MAX} días")
+        # Atípico (RC Art. 92.1): se registra la parte calculable (supera en más
+        # del 100% al promedio) y la marca del propio sistema de EMAPA. La otra
+        # condición (al menos 2 asignaciones de consumo) requiere la tabla de
+        # asignaciones, que aún no está en los datos.
+        atipico = _es_atipico(fila)
+        consecutivos, episodio_previo = _racha_atipica(registros, pos)
+        if atipico:
+            texto += (". Es un consumo atípico ("
+                      + ("supera en más del 100% al promedio" if _supera_doble(fila)
+                         else "figura como consumo atípico en el sistema")
+                      + (f"; {consecutivos} meses atípicos consecutivos" if consecutivos > 1 else "")
+                      + (", con otro episodio atípico en los 12 meses anteriores" if episodio_previo else "")
+                      + ")")
         hechos.append(_hecho(
             "lecturaMesReclamado", texto + ".",
             periodo=_periodo(anio, mes), fuente="tarjeta_lectura.registros",
             valor={"consumo_m3": consumo, "promedio_m3": promedio, "lectura_anterior": anterior,
                    "lectura_ultima": ultima, "estado_lectura": estado or None,
-                   "estado_medidor": medidor or None, "dias_entre_lecturas": dias},
+                   "estado_medidor": medidor or None, "dias_entre_lecturas": dias,
+                   "veces_promedio": round(consumo / promedio, 2) if consumo is not None and promedio else None,
+                   "supera_100_pct": _supera_doble(fila),
+                   "marca_atipico_emapa": _marca_atipico(fila),
+                   "atipico": atipico,
+                   "meses_atipicos_consecutivos": consecutivos,
+                   "episodio_atipico_previo_12m": episodio_previo},
         ))
 
         # Tendencia: los 3 meses previos y el reclamado con consumo creciente.
@@ -307,9 +359,20 @@ def _inspeccion_externa(datos: dict) -> list[ProblemaNormado]:
         tipo_fuga = (datos.get("tipofugas") or "").strip()
         detalle_tipo = (f" (tipo {tipo_fuga.lower()})"
                         if tipo_fuga and tipo_fuga.lower() not in ("no hay", "ninguna") else "")
+        # Dónde está la fuga decide de quién es la responsabilidad (RC Art. 8.2:
+        # la empresa responde hasta la conexión domiciliaria, caja incluida).
+        tipo_norm = tipo_fuga.lower()
+        ubicacion = ("caja" if "caja" in tipo_norm else
+                     "antes_medidor" if "antes del medidor" in tipo_norm else
+                     "despues_medidor" if "despues del medidor" in tipo_norm
+                     or "después del medidor" in tipo_norm else None)
+        # Ojo: "No se detectaron fugas" contiene "se detectaron fugas"; se mira
+        # el inicio de la frase traducida (ver INDICADORES_INSPECCION_EXTERNA).
+        hay_fuga = fugas.lower().startswith("se detectaron fugas") or ubicacion is not None
         hechos.append(_hecho(
             "fugasInspeccionExterna", f"{en}, {_oracion(fugas)}{detalle_tipo}.",
             fuente="inspeccion_externa.fugas",
+            valor={"hay_fuga": hay_fuga, "ubicacion": ubicacion},
         ))
     estados = [_oracion(t) for t in (datos.get("estadocaja"), datos.get("estconexion")) if t]
     if estados:
@@ -348,7 +411,11 @@ def _inspeccion_interna(datos: dict) -> list[ProblemaNormado]:
                 "inspeccionInternaSinAcceso",
                 f"{el} no se pudo inspeccionar el interior del predio porque {razon}.",
                 fuente="inspeccion_interna.obsinsinteriores", texto_original=obs,
-                valor={"razon": razon},
+                # Quién causó que no se hiciera decide el caso (RC Art. 92.4,
+                # RGR Art. 14.4-14.6). Solo una negativa explícita se atribuye
+                # al usuario; una ausencia depende de si fue bien notificado.
+                valor={"razon": razon,
+                       "causa": "usuario" if "no permitió" in razon else "no_determinada"},
             )]
     return []
 

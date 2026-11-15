@@ -5,9 +5,9 @@ from datetime import datetime
 from app.src.application.services.investigacion.investigacion_service import (
     enfoque_para_medio, medios_determinantes,
 )
-from app.src.application.usecase.agents.analista_medio import AnalistaMedioAgent
-from app.src.application.usecase.agents.conclusion import ConclusionAgent
-from app.src.application.usecase.agents.fundamentacion_normativa import FundamentacionNormativaAgent
+from app.src.application.usecase.pasos.analisis_medio import PasoAnalisisMedio
+from app.src.application.usecase.pasos.conclusion import PasoConclusion
+from app.src.application.usecase.pasos.fundamentacion import PasoFundamentacion
 from app.src.core.model.informe_atencion import (
     BloqueMedio, InformeAtencion, ObjetivoInvestigacion, ProblemaNormado,
 )
@@ -26,7 +26,7 @@ class RouterCaptura:
 class ContextoObjetivosTests(unittest.TestCase):
     def test_facturacion_conserva_septiembre_y_analiza_aun_sin_problemas(self):
         router = RouterCaptura()
-        agente = AnalistaMedioAgent(emapa_api=None, llm_router=router)
+        paso = PasoAnalisisMedio(emapa_api=None, llm_router=router)
         datos = {
             "categoria": "COMERCIAL", "formaPredominante": "MEDIDO",
             "mesesPromediados": ["julio de 2026"],
@@ -35,15 +35,16 @@ class ContextoObjetivosTests(unittest.TestCase):
         }
         for problemas in ([], [ProblemaNormado(tipo="mesesPromediados", detalle="julio")]):
             with self.subTest(problemas=bool(problemas)):
-                resumen = agente.interpretar(
+                resumen = paso.interpretar(
                     "record_facturacion", "Facturación", datos, problemas, "A1",
                     "¿Septiembre de 2026 se facturó por lectura o promedio?",
                 )
                 self.assertIn("Septiembre", resumen)
-                system = router.mensajes[0].contenido
-                self.assertIn('"registros"', system)
-                self.assertIn('"mes": 9', system)
-                self.assertIn('"tipopromedio_texto": "MEDIDO"', system)
+                # Los datos del medio son caso: van en el mensaje del usuario.
+                usuario = router.mensajes[1].contenido
+                self.assertIn('"registros"', usuario)
+                self.assertIn('"mes": 9', usuario)
+                self.assertIn('"tipopromedio_texto": "MEDIDO"', usuario)
                 self.assertEqual(1, len(datos["registros"]))
 
     def test_ambas_inspecciones_en_analisis_fundamentacion_y_evaluacion(self):
@@ -64,10 +65,10 @@ class ContextoObjetivosTests(unittest.TestCase):
                     self.assertEqual(obj.descripcion, enfoque_para_medio(informe, medio))
                 self.assertIsNone(enfoque_para_medio(informe, "saldo_detalle"))
                 self.assertEqual({"inspeccion_interna", "inspeccion_externa"}, medios_determinantes(informe))
-                self.assertEqual([problema], FundamentacionNormativaAgent.pool_determinante(informe))
+                self.assertEqual([problema], PasoFundamentacion.pool_determinante(informe))
                 router = RouterCaptura()
-                agente = ConclusionAgent(router)
-                agente._evaluar_objetivos(informe, agente._hallazgos_por_medio(informe))
+                paso = PasoConclusion(router)
+                paso._evaluar_objetivos(informe, paso._hallazgos_por_medio(informe))
                 human = router.mensajes[1].contenido
                 self.assertIn("Sin acceso al interior", human)
                 self.assertIn("Medidor nublado", human)
@@ -80,7 +81,7 @@ class ContextoObjetivosTests(unittest.TestCase):
             objetivos=[ObjetivoInvestigacion(1, "¿Cómo se facturó septiembre?", "record_facturacion", True)],
         )
         router = RouterCaptura()
-        ConclusionAgent(router)._evaluar_objetivos(informe, {
+        PasoConclusion(router)._evaluar_objetivos(informe, {
             "record_facturacion": "Septiembre por lectura",
             "inspeccion_externa": "DATO AJENO",
         })

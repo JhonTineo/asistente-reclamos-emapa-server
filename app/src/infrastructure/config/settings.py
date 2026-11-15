@@ -117,6 +117,18 @@ class Settings(BaseSettings):
     # "desactivado" = sin persistencia (solo memoria, como antes).
     yumi_db_path: str = ""
 
+    # --- Skills editables en producción ---
+    # Carpeta de reemplazos: un .md aquí con la misma ruta relativa que una
+    # skill del repositorio (p.ej. base/reglas_generales.md) la reemplaza sin
+    # redesplegar. Vacío = <repo>/volumes/skills (en Docker, /code/volumes/skills).
+    # "desactivado" = solo las skills del repositorio.
+    yumi_skills_path: str = ""
+
+    # --- Método del veredicto ---
+    # "dictamen": evalúa los criterios de las skills contra los hechos del caso.
+    # "objetivos": método anterior (clasifica los objetivos determinantes).
+    yumi_veredicto: str = "dictamen"
+
 
 
 settings = Settings()

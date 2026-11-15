@@ -9,7 +9,7 @@ al arrancar, se recuperan las atenciones que quedaron abiertas. Hay dos vías de
 sincronización:
 
 - los métodos de este store guardan al terminar su cambio;
-- ``persistir_cambios`` guarda los informes que los agentes modificaron
+- ``persistir_cambios`` guarda los informes que los pasos modificaron
   directamente; lo invoca el middleware al terminar cada petición HTTP.
 
 Solo se escribe cuando la huella del informe cambió. Un fallo de la base de
@@ -212,6 +212,7 @@ class InformeAtencionStore:
             if tenia_resultado else None
         )
         informe.origen_decision = None
+        informe.dictamen = None
 
     def invalidar_decision(self, codreclamo: str, motivo: str) -> bool:
         with self._lock:

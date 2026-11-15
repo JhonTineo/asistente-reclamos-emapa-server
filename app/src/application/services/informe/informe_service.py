@@ -14,7 +14,7 @@ import unicodedata
 from fastapi import HTTPException
 
 from app.src.application.ports.emapa_api_port import PuertoEmapaAPI
-from app.src.application.ports.provider_port import MensajeLLM
+from app.src.application.services.contexto.constructor import constructor_contexto
 from app.src.infrastructure.adapters.http_client import EmapaSinDatosError
 from app.src.application.services.informe.informe_store import informe_store, ReclamoEnAtencionError
 from app.src.application.services.investigacion.reclamo_service import campo_reclamo, codigo_inspeccion
@@ -180,25 +180,13 @@ def _parsear_json_extraccion(respuesta: str) -> dict:
 def _extraer_texto_libre(
     texto: str,
     llm_router: LlmRouterService,
+    codreclamo: str | None = None,
 ) -> dict[str, str | None]:
     """Extrae campos literales de un informe manual sin pedir una nueva decisión."""
-    system = """Eres un extractor de datos de informes de atención de reclamos de EMAPA.
-Tu tarea es COPIAR fragmentos literales del documento, no resumir, completar ni
-reescribir. Devuelve exclusivamente un objeto JSON con estas claves:
-- "fundamentacion": párrafo o párrafos literales que contienen el sustento
-  normativo o técnico; usa null si no se distinguen claramente.
-- "conclusion": párrafo literal que contiene la decisión final sobre el reclamo
-  y su declaración FUNDADO o INFUNDADO. No confundas el cierre de atribuciones
-  legales ni las constancias posteriores con la conclusión.
-- "veredicto": "FUNDADO", "INFUNDADO" o null. Solo puede informarse si aparece
-  expresamente en el documento.
-No inventes una fundamentación ni decidas por tu cuenta el veredicto."""
-    respuesta = llm_router.generar_json(
-        mensajes=[
-            MensajeLLM(rol="system", contenido=system),
-            MensajeLLM(rol="user", contenido=f"DOCUMENTO:\n{texto}"),
-        ],
-        modelo_id=MODELO_EXTERNO_DEFAULT,
+    # Instrucciones en skills/pasos/extraccion_sysco.md.
+    respuesta = constructor_contexto.llamar(
+        "extraccion_sysco", llm_router, MODELO_EXTERNO_DEFAULT,
+        entrada=f"DOCUMENTO:\n{texto}", codreclamo=codreclamo,
     )
     data = _parsear_json_extraccion(respuesta)
 
@@ -286,7 +274,7 @@ def rehidratar_informe_desde_sysco(
     extraido = _extraer_formato_generado(considerando, informe.medios_probatorios)
     origen = "formato_generado"
     if extraido is None:
-        extraido = _extraer_texto_libre(considerando, llm_router)
+        extraido = _extraer_texto_libre(considerando, llm_router, informe.reclamo)
         origen = "texto_libre"
     resumenes = extraido.get("resumenes", {})
 

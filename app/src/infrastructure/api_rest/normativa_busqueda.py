@@ -14,7 +14,7 @@ from app.src.infrastructure.api_rest.schemas.normativa import (
 
 logger = logging.getLogger("api.normativa.busqueda")
 
-# Consulta de normativa ya indexada, usada por el frontend y por los agentes
+# Consulta de normativa ya indexada, usada por el frontend y por los pasos
 # (fundamentación normativa). Para cargar/mantener normativas, ver
 # normativa_documentos.py y normativa_articulos.py.
 router = APIRouter(prefix="/normativa/busqueda", tags=["normativa-busqueda"])

@@ -223,7 +223,7 @@ class RecalculoMediosTests(unittest.IsolatedAsyncioTestCase):
                 ),
                 patch(
                     "app.src.application.services.investigacion.investigacion_service."
-                    "AnalistaMedioAgent",
+                    "PasoAnalisisMedio",
                     AnalistaFalso,
                 ),
             ):

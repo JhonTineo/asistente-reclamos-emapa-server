@@ -24,6 +24,7 @@ from starlette.concurrency import run_in_threadpool
 from app.src.infrastructure.api_rest.deps import usar_token_emapa, usar_config_llm, get_llm_router
 from app.src.application.services.llm.llm_router_service import LlmRouterService
 from app.src.application.services.investigacion.investigacion_service import (
+    enfoque_para_medio,
     stream_analisis_medio,
 )
 from app.src.application.services.investigacion.fundamentacion_service import (
@@ -33,10 +34,11 @@ from app.src.infrastructure.api_rest.schemas.investigacion import (
     BuscarReclamoRequest,
     InformeRequest,
     ProblemaInforme,
+    ProblemaNormadoSchema,
 )
 from app.src.infrastructure.adapters.emapa_http_adapter import EmapaHttpAdapter
-from app.src.application.usecase.agents.conclusion import ConclusionAgent
-from app.src.application.usecase.agents.analista_medio import AnalistaMedioAgent
+from app.src.application.usecase.pasos.conclusion import PasoConclusion
+from app.src.application.usecase.pasos.analisis_medio import PasoAnalisisMedio
 from app.src.application.services.informe.informe_store import informe_store
 from app.src.application.services.informe.render import construir_texto_informe
 from app.src.core.model.informe_atencion import BloqueMedio
@@ -109,7 +111,7 @@ async def tecnico_operacional_stream(
         medio_id = "tecnico_operacional"
         medio_nombre = "Informe Técnico Operacional"
         try:
-            analista = AnalistaMedioAgent(EmapaHttpAdapter(), llm_router, model=modelo)
+            analista = PasoAnalisisMedio(EmapaHttpAdapter(), llm_router, model=modelo)
             datos, problemas, _ = await run_in_threadpool(
                 analista.preprocesar,
                 medio_id, medio_nombre, codsuc, codcliente, meses, None, None, ruta_pdf,
@@ -120,17 +122,29 @@ async def tecnico_operacional_stream(
                 "nombre_archivo": file.filename,
                 "texto_extraido": datos["texto_extraido"],
             })
+            # Hechos de continuidad, interrupciones y VPA (reglas + extractor
+            # con cita literal): los usan los criterios VPA/INT/OPE del dictamen.
+            constataciones = await run_in_threadpool(
+                analista.constatar_tecnico_operacional, datos, codreclamo,
+            )
             yield json.dumps({
                 "evento": "preprocesamiento",
                 "medio_id": medio_id,
                 "medio_nombre": medio_nombre,
                 "datos": datos,
                 "problemas": [],
+                "constataciones": [
+                    ProblemaNormadoSchema(**vars(c)).model_dump() for c in constataciones
+                ],
                 "tiempo": time.perf_counter() - t_inicio,
             }, ensure_ascii=False) + "\n"
 
+            informe = informe_store.obtener(codreclamo)
+            # Si algún objetivo apunta al informe operacional, su pregunta
+            # dirige el énfasis del resumen (como en los demás medios).
             resumen = await run_in_threadpool(
-                analista.interpretar, medio_id, medio_nombre, datos, problemas, clasificacion, None,
+                analista.interpretar, medio_id, medio_nombre, datos, problemas, clasificacion,
+                enfoque_para_medio(informe, medio_id), constataciones, informe,
             )
             bloque = BloqueMedio(
                 medio_id=medio_id,
@@ -138,6 +152,7 @@ async def tecnico_operacional_stream(
                 entidad=datos,
                 resumen=resumen,
                 problemas=problemas,
+                constataciones=constataciones,
             )
             informe_store.registrar_bloque(codreclamo, bloque, suministro=codcliente, clasificacion=clasificacion)
             yield json.dumps({
@@ -252,7 +267,7 @@ async def generar_conclusion_stream(request: InformeRequest, llm_router: LlmRout
 
         try:
             # --- Conclusión: veredicto FUNDADO/INFUNDADO ----------------------
-            conclusionador = ConclusionAgent(llm_router=llm_router, model=request.modelo)
+            conclusionador = PasoConclusion(llm_router=llm_router, model=request.modelo)
             veredicto = await run_in_threadpool(conclusionador.concluir_y_asignar, informe)
             yield json.dumps({
                 "evento": "conclusion",
