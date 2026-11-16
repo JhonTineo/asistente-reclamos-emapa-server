@@ -39,3 +39,6 @@ build/
 # Sistema operativo
 .DS_Store
 Thumbs.db
+
+# Snapshots de Qdrant (se generan para migrar colecciones al VPS)
+*.snapshot
