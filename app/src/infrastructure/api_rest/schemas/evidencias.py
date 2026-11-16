@@ -16,6 +16,10 @@ class MesConsumo(BaseModel):
     fecha_lectura: str | None = None
     estado_lectura: str | None = None
     refacturado: bool = False
+    # Rebaja aplicada al mes al refacturarlo (S/): importe - importe_rebaja es
+    # lo que finalmente correspondía cobrar.
+    importe_rebaja: float | None = None
+    fecha_rebaja: str | None = None
     reclamado: bool = False
 
 
@@ -107,6 +111,11 @@ class EvidenciasResponse(BaseModel):
     inspeccion_externa: InspeccionExternaEvidencia | None = None
     inspeccion_interna: InspeccionInternaEvidencia | None = None
     linea_tiempo: list[Hito] = []
+    # Modelos tal cual (corte, saldo, técnico: entidad + hechos), y los pasos
+    # de fundamentación y conclusión. Forma libre: se muestran en el panel.
+    medios: dict[str, dict] = {}
+    fundamentacion: dict | None = None
+    conclusion: dict | None = None
     disponible: DisponibilidadEvidencias
     generado: str
 

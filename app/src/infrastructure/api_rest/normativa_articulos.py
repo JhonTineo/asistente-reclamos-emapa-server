@@ -6,6 +6,7 @@ from app.src.application.services.rag.legal_chunker import (
     normalizar_numero_articulo,
     calcular_point_id,
     split_numerals,
+    texto_para_embedding,
 )
 from app.src.infrastructure.adapters.qdrant_adapter import QdrantAdapter
 from app.src.infrastructure.api_rest.schemas.normativa import (
@@ -133,13 +134,25 @@ async def reemplazar_articulo(request: ReemplazarArticuloRequest) -> ReemplazarA
     desactivados = qdrant.deactivate_article(art_clean, collection_name=request.coleccion)
 
     # 2) Re-trocear el texto nuevo en numerales y reinsertar.
+    # Mismo troceado y misma composición del texto embebido que el indexado
+    # del PDF (chunk_and_index.py), para que los IDs y vectores coincidan.
     chunks = split_numerals(art_clean, request.text.strip())
 
     points = []
     insertados = []
     for chunk in chunks:
-        point_id = calcular_point_id(chunk["article"], chunk["numeral"])
-        vector = embedder.encode(chunk["text"])
+        point_id = calcular_point_id(chunk["article"], chunk["numeral"], chunk.get("parte", 1))
+        vector = embedder.encode(texto_para_embedding(
+            norma=request.norma,
+            titulo=request.titulo,
+            capitulo=request.capitulo,
+            subcapitulo=request.subcapitulo,
+            encabezado_articulo=f"Artículo {art_clean}",
+            numeral=chunk["numeral"],
+            parte=chunk.get("parte", 1),
+            contexto=chunk.get("contexto", ""),
+            text=chunk["text"],
+        ))
         points.append(
             {
                 "id": point_id,
@@ -151,7 +164,9 @@ async def reemplazar_articulo(request: ReemplazarArticuloRequest) -> ReemplazarA
                     "subcapitulo": request.subcapitulo,
                     "article": art_clean,
                     "numeral": chunk["numeral"],
+                    "parte": chunk.get("parte", 1),
                     "text": chunk["text"],
+                    "texto_articulo": request.text.strip(),
                     "palabras_clave": request.palabras_clave,
                     "estado": "vigente",
                     "modificado_por": request.modificado_por,

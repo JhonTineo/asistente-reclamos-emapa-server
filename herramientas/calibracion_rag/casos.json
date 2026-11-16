@@ -1,0 +1,169 @@
+{
+  "_leeme": [
+    "Set de evaluación de la búsqueda vectorial de normativa (fundamentación).",
+    "Cada caso simula un ProblemaNormado (tipo + detalle) y el motivo del reclamo; la query se arma con PasoFundamentacion.construir_query, igual que en producción.",
+    "esperados: lo que DEBERÍA recuperarse. Prefijo C = Reglamento de Calidad (sunass_reglamento), R = Reglamento de Reclamos (sunass_reclamos).",
+    "  'C92'   -> acierta cualquier chunk del artículo 92 de Calidad.",
+    "  'C92.3' -> acierta solo el numeral 92.3.  'C91 f)' -> solo el literal f) del 91.",
+    "valor / situacion (opcionales): como en producción; situacion es la de situacion_del_caso() y además descarta artículos con premisa no cumplida.",
+    "BORRADOR: armado leyendo ambos reglamentos; debe validarlo alguien del área de reclamos. Si un esperado está mal, la calibración también."
+  ],
+  "casos": [
+    {"id": "consumo_excesivo", "tipo": "errorConsumo",
+     "detalle": "Consumo excesivo: detectado en la tarjeta de lecturas, marzo de 2025 registra 58 m³ frente a un promedio de 14 m³",
+     "motivo": "El usuario reclama que el recibo de marzo llegó muy elevado y no corresponde a su consumo habitual",
+     "esperados": ["C92.1", "C92.2", "C91", "R15", "C115"]},
+
+    {"id": "descenso_consumo", "tipo": "descensoConsumo",
+     "detalle": "Descenso de consumo: abril de 2025 registra 12 m³ tras un mes con 58 m³",
+     "motivo": "Reclamo por consumo elevado en marzo",
+     "esperados": ["C92", "C91"]},
+
+    {"id": "fuga_no_visible_reparada", "tipo": "fugaNoVisible",
+     "detalle": "Fuga no visible: detectado en inspección interna, filtración en tubería empotrada del baño",
+     "motivo": "El usuario indica que reparó la fuga y pide que se le facture según su promedio",
+     "esperados": ["C92.3", "C91"]},
+
+    {"id": "fuga_visible", "tipo": "fugaVisible",
+     "detalle": "Fuga visible: detectado en inspección interna, inodoro con descarga continua",
+     "motivo": "Reclamo por consumo elevado",
+     "esperados": ["C92.3"]},
+
+    {"id": "fugas_generico", "tipo": "fugas",
+     "detalle": "Fuga en instalaciones internas: detectado en inspección interna del predio",
+     "motivo": "Reclamo por consumo elevado en el recibo",
+     "esperados": ["C92.3", "C91", "C45"]},
+
+    {"id": "fuga_no_detectada", "tipo": "fugaNoDetectada",
+     "detalle": "Sin fugas: detectado en inspección interna, no se encontraron fugas en los puntos de agua",
+     "motivo": "Reclamo por consumo elevado",
+     "esperados": ["R14", "C92.3", "C92.2"]},
+
+    {"id": "fuga_sospechada", "tipo": "fugaSospechada",
+     "detalle": "Posible fuga: el inspector observa humedad en la pared sin confirmar la fuga",
+     "motivo": "Reclamo por consumo elevado",
+     "esperados": ["R14", "C92.2", "C92.3"]},
+
+    {"id": "fuga_referida", "tipo": "fugaReferida",
+     "detalle": "Fuga referida por el usuario: el usuario declara haber tenido una fuga en el tanque",
+     "motivo": "Usuario afirma que tuvo una fuga que ya reparó",
+     "esperados": ["R14", "C92.3"]},
+
+    {"id": "error_lecturas", "tipo": "errorLecturas",
+     "detalle": "Lectura inconsistente: la lectura actual es menor que la anterior, consumo negativo",
+     "motivo": "El usuario reclama un cobro que no corresponde a su lectura",
+     "esperados": ["C91", "C92.2", "C93"]},
+
+    {"id": "reinstalacion_medidor", "tipo": "errorReinstalacion",
+     "detalle": "Cambio de medidor: el medidor fue reemplazado en febrero de 2025",
+     "motivo": "Desde que cambiaron el medidor el recibo sube",
+     "esperados": ["C107", "C108", "C109", "C105"]},
+
+    {"id": "servicio_cerrado_facturado", "tipo": "errorServicio",
+     "detalle": "Servicio cerrado: la conexión figura cerrada pero se emitió facturación por consumo",
+     "motivo": "El usuario reclama que le cobran aunque su servicio está cortado",
+     "esperados": ["C122", "C118", "C119"]},
+
+    {"id": "cobro_alcantarillado", "tipo": "cobroIndebido",
+     "detalle": "Cobro de alcantarillado sin conexión: el predio no cuenta con conexión de desagüe",
+     "motivo": "El usuario reclama el cobro de alcantarillado porque no tiene desagüe",
+     "esperados": ["C88", "C96", "C112"]},
+
+    {"id": "intereses_mora", "tipo": "mora",
+     "detalle": "Intereses moratorios: se cobraron intereses por pago fuera de plazo del recibo de enero",
+     "motivo": "El usuario reclama el cobro de intereses",
+     "esperados": ["C102"]},
+
+    {"id": "deuda_pendiente", "tipo": "mesesNoPagados",
+     "detalle": "Deuda pendiente: el suministro registra tres meses sin pagar",
+     "motivo": "Reclamo por facturación",
+     "esperados": ["C99", "C102", "C118", "R32"]},
+
+    {"id": "lectura_mes_reclamado", "tipo": "lecturaMesReclamado",
+     "detalle": "En marzo de 2025 se registró una lectura de 1250 a 1308, con un consumo de 58 m³ frente a un promedio de 14 m³ (4.1 veces el promedio)",
+     "motivo": "Reclamo por consumo elevado del mes de marzo",
+     "valor": {"atipico": true}, "situacion": {"atipico": true, "con_medidor": true},
+     "esperados": ["C91", "C92", "C93.1"]},
+
+    {"id": "facturacion_mes_reclamado", "tipo": "facturacionMesReclamado",
+     "detalle": "En marzo de 2025 se facturó por diferencia de lecturas, con un consumo de 58 m³ y un importe de S/ 185.40",
+     "motivo": "Reclamo por consumo elevado del mes de marzo",
+     "situacion": {"atipico": true, "con_medidor": true},
+     "esperados": ["C91", "C92", "C93"]},
+
+    {"id": "lectura_mes_normal_252629", "tipo": "lecturaMesReclamado",
+     "detalle": "En setiembre de 2026 se registró una lectura de 5747 a 5801 el 20/09/2026, con un consumo de 54 m³ frente a un promedio de 52 m³ (1.0 veces el promedio); la lectura figura como lectura normal y el medidor en buena condicion. Entre la lectura anterior (21/08/2026) y esta transcurrieron 30 días, dentro del periodo de 28 a 32 días.",
+     "motivo": "NO ESTOY CONFORME CON LE COBRO DEL RECIBO DE SETIEMBRE DEL 2026, YA QUE MIS CONSUMOS SON EN BASE A 35 M3 APROXIMADAMENTE Y ESO LO PUEDEN VER EN EL HISTORIAL DE MIS CONSUMOS, RAZON POR LA QUE SOLICITO QUE REALICEN LAS INSPECCIONES QUE CORRESPONDA EN EL HORARIO DE ABASTECIMIENTO.",
+     "valor": {"atipico": false}, "situacion": {"atipico": false, "con_medidor": true},
+     "esperados": ["C91 f)", "C92.1"]},
+
+    {"id": "facturacion_mes_normal_252629", "tipo": "facturacionMesReclamado",
+     "detalle": "En setiembre de 2026 se facturó por la lectura del medidor, con un consumo de 54 m³ y un importe de S/ 199.00.",
+     "motivo": "NO ESTOY CONFORME CON LE COBRO DEL RECIBO DE SETIEMBRE DEL 2026, YA QUE MIS CONSUMOS SON EN BASE A 35 M3 APROXIMADAMENTE Y ESO LO PUEDEN VER EN EL HISTORIAL DE MIS CONSUMOS, RAZON POR LA QUE SOLICITO QUE REALICEN LAS INSPECCIONES QUE CORRESPONDA EN EL HORARIO DE ABASTECIMIENTO.",
+     "valor": {"forma": "MEDIDO"}, "situacion": {"atipico": false, "con_medidor": true},
+     "esperados": ["C91 f)", "C92.1"]},
+
+    {"id": "lectura_mes_normal_252396", "tipo": "lecturaMesReclamado",
+     "detalle": "En setiembre de 2026 se registró una lectura de 2157 a 2172 el 18/09/2026, con un consumo de 15 m³ frente a un promedio de 12 m³ (1.2 veces el promedio); la lectura figura como lectura normal y el medidor en buena condicion. Entre la lectura anterior (19/08/2026) y esta transcurrieron 30 días, dentro del periodo de 28 a 32 días.",
+     "motivo": "NO ESTOY CONFORME CON LO FACTURADO EL MES DE SETIEMBRE YA QUE EN CASA VIVO SOLO Y SOLO REGRESO POR LAS NOCHES A REALIZAR MIS QUE HACERES Y NO CUENTO CON EL SERVICIO DE 24 HORAS COMO DICE MI RECIBO A VECES ME QUEDO DOS DÍAS SIN AGUA",
+     "valor": {"atipico": false}, "situacion": {"atipico": false, "con_medidor": true},
+     "esperados": ["C91 f)", "C92.1"]},
+
+    {"id": "sin_lectura", "tipo": "sinLecturaMesReclamado",
+     "detalle": "La tarjeta de lecturas no tiene registro de lectura para marzo de 2025.",
+     "motivo": "Reclamo por facturación del mes de marzo",
+     "esperados": ["C93", "C91", "C129"]},
+
+    {"id": "tendencia_creciente", "tipo": "tendenciaCreciente",
+     "detalle": "El consumo aumentó de forma sostenida desde octubre de 2024 hasta marzo de 2025 (14, 18, 25, 33 y 58 m³).",
+     "motivo": "Reclamo por consumo elevado",
+     "esperados": ["C92", "C91"]},
+
+    {"id": "medidor_reciente", "tipo": "medidorReciente",
+     "detalle": "El medidor N.º 22A445 fue instalado el 10/01/2025, 2 meses antes de marzo de 2025.",
+     "motivo": "Reclamo por consumo elevado",
+     "esperados": ["C91", "C105", "C107", "C110"]},
+
+    {"id": "rebaja_aplicada", "tipo": "rebajaAplicada",
+     "detalle": "Al recibo de enero de 2025 se le aplicó una rebaja de S/ 45.00, registrada el 15/02/2025.",
+     "motivo": "Reclamo por facturación",
+     "esperados": ["R34", "C93", "R21"]},
+
+    {"id": "medidor_operativo", "tipo": "estadoMedidorInspeccion",
+     "detalle": "En la inspección externa del 12/04/2025, el medidor funciona correctamente.",
+     "motivo": "Reclamo por consumo elevado",
+     "esperados": ["R14", "R15", "C106"]},
+
+    {"id": "inspeccion_externa_sin_fugas", "tipo": "fugasInspeccionExterna",
+     "detalle": "En la inspección externa del 12/04/2025, no se detectaron fugas en la conexión domiciliaria.",
+     "motivo": "Reclamo por consumo elevado",
+     "esperados": ["R14", "C92.2", "C91"]},
+
+    {"id": "estado_conexion", "tipo": "estadoConexionInspeccion",
+     "detalle": "En la inspección externa del 12/04/2025, la caja del medidor en buen estado y la conexión domiciliaria sin daños.",
+     "motivo": "Reclamo por consumo elevado",
+     "esperados": ["R14", "C8", "C45"]},
+
+    {"id": "inspeccion_interna", "tipo": "inspeccionInternaRealizada",
+     "detalle": "El 12/04/2025 se inspeccionaron las instalaciones internas del predio",
+     "motivo": "Reclamo por consumo elevado",
+     "esperados": ["R14", "C45", "C46", "C48"]},
+
+    {"id": "sin_acceso_inspeccion", "tipo": "inspeccionInternaSinAcceso",
+     "detalle": "Inspección interna no realizada: el usuario no permitió el ingreso al predio",
+     "motivo": "Reclamo por consumo elevado",
+     "esperados": ["R14.6", "C92.4", "C46"]},
+
+    {"id": "corte_durante_reclamo", "tipo": "prorrogasCorte",
+     "detalle": "Prórroga de corte: se suspendió el corte del servicio mientras se tramita el reclamo",
+     "motivo": "Reclamo por consumo elevado con deuda pendiente",
+     "esperados": ["R33", "C118"]}
+  ],
+  "basura": [
+    "receta de ceviche con limón y cebolla",
+    "horario de atención de las oficinas y estacionamiento",
+    "resultado del partido de fútbol del domingo",
+    "cómo configurar la impresora de la oficina",
+    "precio del dólar hoy en Lima"
+  ]
+}

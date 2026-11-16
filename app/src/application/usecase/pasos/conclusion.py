@@ -63,6 +63,31 @@ def _formatear_meses_reclamados(informe: InformeAtencion) -> str:
     return (crudo or "el mes en reclamo").replace("-", " ").lower()
 
 
+def _historial_consumos(informe: InformeAtencion) -> str | None:
+    """Rango de consumos de la tarjeta de lecturas SIN el mes reclamado. Es lo
+    que responde a «mis consumos son de unos 35 m³» (252629: el historial va de
+    40 a 66 m³) y no está en ningún hecho seleccionado."""
+    reclamados = {h.periodo for b in informe.bloques for h in b.hechos
+                  if h.tipo in HECHOS_MES_RECLAMADO and h.periodo}
+    for bloque in informe.bloques:
+        if bloque.medio_id != "tarjeta_lectura":
+            continue
+        consumos = []
+        for r in (bloque.entidad or {}).get("registros") or []:
+            try:
+                periodo = f"{int(r.get('anio')):04d}-{int(r.get('mes')):02d}"
+                consumo = float(r.get("consumo"))
+            except (TypeError, ValueError):
+                continue
+            if periodo not in reclamados:
+                consumos.append(consumo)
+        if len(consumos) >= 3:
+            fmt = lambda v: f"{v:g}"
+            return (f"Historial de consumos de la tarjeta de lecturas ({len(consumos)} meses, sin el "
+                    f"mes reclamado): entre {fmt(min(consumos))} y {fmt(max(consumos))} m³.")
+    return None
+
+
 class PasoConclusion:
 
     def __init__(self, llm_router: LlmRouterService, model: str | None = None,
@@ -413,12 +438,15 @@ class PasoConclusion:
     def _hechos_para_conclusion(informe: InformeAtencion) -> list[ProblemaNormado]:
         """Hechos que la conclusión debe tener a la vista, en orden de bloque y
         sin duplicados: los que sustentan la fundamentación (seleccionados), las
-        limitaciones de la verificación y los hechos del mes reclamado."""
+        limitaciones de la verificación, los hechos del mes reclamado y los del
+        informe técnico operacional (descartan o confirman el aire en la red y
+        las interrupciones, que el dictamen sí evalúa con VPA-01/INT-01)."""
         hechos: list[ProblemaNormado] = []
         for bloque in informe.bloques:
             for h in bloque.hechos:
                 if (h.seleccionado or h.tipo in LIMITACIONES
-                        or h.tipo in HECHOS_MES_RECLAMADO):
+                        or h.tipo in HECHOS_MES_RECLAMADO
+                        or bloque.medio_id == "tecnico_operacional"):
                     if all(h is not otro for otro in hechos):
                         hechos.append(h)
         return hechos
@@ -445,7 +473,17 @@ class PasoConclusion:
         # Los hechos completos (no solo la evidencia de 12 palabras): así la
         # redacción no rellena huecos generalizando un hecho más allá de su alcance.
         hechos = self._hechos_para_conclusion(informe)
-        hechos_texto = "\n".join(f"- {h.detalle}" for h in hechos)
+        lineas_hechos = [f"- {h.detalle}" for h in hechos]
+        historial = _historial_consumos(informe)
+        if historial:
+            lineas_hechos.append(f"- {historial}")
+        # Pruebas faltantes (hechos del caso, no de un medio): son el hecho
+        # decisivo de un FUNDADO por PRU-01 y no están en ningún bloque. Sin
+        # ellas, el 252396 se fundamentó con «15 m³ supera el promedio».
+        faltantes = [h.get("detalle") for h in ((informe.dictamen or {}).get("hechos_caso") or [])
+                     if isinstance(h, dict) and h.get("tipo") == "pruebaFaltante" and h.get("detalle")]
+        lineas_hechos += [f"- {d}" for d in faltantes]
+        hechos_texto = "\n".join(lineas_hechos)
         limitaciones = [h for h in hechos if h.tipo in LIMITACIONES]
 
         # La base normativa YA NO se reconstruye por-problema: se consume el
@@ -469,8 +507,16 @@ class PasoConclusion:
                 "«En consecuencia, se ha verificado que [el hecho decisivo, con su "
                 "cifra o su fecha]; por ello corresponde [lo que manda la norma "
                 "sobre la facturación de los meses reclamados], y el reclamo se "
-                "declara FUNDADO.»"
+                "declara FUNDADO.» El hecho decisivo es el de la verificación con "
+                "resultado procede_correccion (su evidencia), NO el consumo del mes "
+                "si este es normal. No escribas que corresponde mantener la "
+                "facturación ni que es correcta: eso contradice el FUNDADO"
             )
+            if faltantes:
+                formula += (
+                    ". Aquí el hecho decisivo es la PRUEBA FALTANTE: nómbrala (qué "
+                    "medio no se actuó y por qué era exigible)"
+                )
         elif any(o.resultado == "no_evaluable" for o in determinantes):
             formula = (
                 "«En consecuencia, se ha verificado que [los hechos comprobados, con "
@@ -521,6 +567,10 @@ class PasoConclusion:
             "de la fundamentación normativa. No uses «toda vez que» ni «se procedió "
             "a la facturación». Lo que el usuario afirma en el motivo es una "
             "alegación: no la presentes como un hecho.\n"
+            "- Si el usuario alega un consumo habitual y hay historial de consumos "
+            "entre los hechos, contrástalo con ese historial (con sus cifras). Si "
+            "hay hechos del informe técnico operacional que descartan o confirman "
+            "la causa alegada (aire en la red, interrupciones), menciónalos.\n"
             + ("- Hay una LIMITACIÓN de la verificación entre los hechos: menciónala "
                "expresamente en la conclusión.\n" if limitaciones else "")
             + regla_norma

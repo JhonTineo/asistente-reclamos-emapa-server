@@ -93,7 +93,11 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://ollama:11434"
     ollama_requiere_gpu: bool = True
     ollama_min_ram_gb: float = 8.0
-    ollama_embedding_model: str = "nomic-embed-text"
+    # Multilingüe (español), 1024 dims. Archivo ~640 MB, pero CARGADO ocupa
+    # ~1.2 GB (medido con `ollama ps`): el contenedor de Ollama necesita
+    # mem_limit >= 1.5g. Cambiarlo obliga a REINDEXAR
+    # (python -m app.src.application.services.rag.chunk_and_index).
+    ollama_embedding_model: str = "qwen3-embedding:0.6b"
 
 
     # --- Configuración de tiempo de espera y reintentos ---

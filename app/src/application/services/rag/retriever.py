@@ -13,14 +13,26 @@ class Retriever:
         self,
         query: str,
         top_k: int = 5,
-        collection_name: str | None = None
+        collection_name: str | None = None,
+        collections: list[str] | tuple[str, ...] | None = None,
     ):
-        vector = self.embedder.encode(query)
-        return self.store.search(
-            vector,
-            top_k=top_k,
-            collection_name=collection_name
-        )
+        """Busca `query` en una colección o en varias (`collections`).
+
+        Con varias colecciones se busca en cada una y se fusiona por score:
+        es comparable porque todas se indexan con el mismo modelo. Cada
+        resultado trae `coleccion` para saber de qué norma viene."""
+        vector = self.embedder.encode_query(query)
+        nombres = list(collections) if collections else [collection_name]
+        resultados = []
+        for nombre in nombres:
+            if collections and not self.store.collection_exists(nombre):
+                logger.warning("Colección %s no existe, se omite en la búsqueda", nombre)
+                continue
+            for r in self.store.search(vector, top_k=top_k, collection_name=nombre):
+                r["coleccion"] = nombre
+                resultados.append(r)
+        resultados.sort(key=lambda r: r.get("score", 0), reverse=True)
+        return resultados[:top_k]
 
     def build_context(
         self,

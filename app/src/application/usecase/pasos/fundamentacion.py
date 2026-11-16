@@ -30,9 +30,21 @@ logger = logging.getLogger("paso.fundamentacion")
 SIEMPRE_INCLUIDOS = LIMITACIONES | HECHOS_MES_RECLAMADO
 MAX_ADICIONALES = 2   # hechos que el modelo puede sumar a los siempre incluidos
 
-COLLECTION = "sunass_reglamento"
-TOP_K = 3
-UMBRAL_SCORE = 0.5   # descarta artículos poco relevantes (calibrar con casos)
+# Reglamento de Calidad + Reglamento General de Reclamos (ver NORMAS en
+# chunk_and_index.py). Se busca en ambas y se fusiona por score.
+COLECCIONES = ("sunass_reglamento", "sunass_reclamos")
+# 5 candidatos para marcar_aplica (recall@3=77% -> recall@5=81% en la
+# evaluación); el LLM descarta los que no regulan el hallazgo.
+TOP_K = 5
+# Calibrado con herramientas/calibracion_rag/evaluar.py (qwen3-embedding:0.6b,
+# 26 casos + 5 consultas basura, TOP_K=5, 2026-11-15): la basura llega como
+# máximo a 0.519 y el acierto más bajo que hay que conservar es 0.537
+# (rebaja_aplicada). 0.53 descarta toda la basura sin perder ningún caso. El
+# margen es estrecho (~0.01 a cada lado): ampliar el set de basura y de casos
+# reales antes de moverlo. OJO: no separa artículos relevantes de irrelevantes
+# DENTRO de la normativa (medianas 0.601 vs 0.580); eso lo decide
+# marcar_aplica. Recalibrar si cambia el modelo, el troceado o las queries.
+UMBRAL_SCORE = 0.53
 
 # Query canónica por tipo de problema (concepto, SIN cifras ni fechas)
 CONSULTA_POR_TIPO = {
@@ -41,8 +53,9 @@ CONSULTA_POR_TIPO = {
         "del medidor"
     ),
     "descensoConsumo": (
-        "descenso de consumo posterior a un consumo elevado, evaluación de la "
-        "serie de lecturas y facturación sin atribuir una causa no acreditada"
+        "diferencia de lecturas atípica que supera el promedio histórico de "
+        "consumo del usuario; facturación por promedio histórico de consumos y "
+        "retorno a la facturación por diferencia de lecturas después del mes atípico"
     ),
     "fugaNoVisible": (
         "fuga no visible detectada en la inspección; si el usuario la repara en "
@@ -60,7 +73,8 @@ CONSULTA_POR_TIPO = {
         "inspección sin detección de fugas; alcance probatorio de la observación"
     ),
     "fugaSospechada": (
-        "sospecha no confirmada de fuga y necesidad de verificación mediante inspección"
+        "inspección interna para descartar la presencia de fugas no visibles "
+        "como factor distorsionante del registro de consumos"
     ),
     "fugaReferida": (
         "fuga referida por el usuario o un tercero, no confirmada por inspección"
@@ -76,8 +90,8 @@ CONSULTA_POR_TIPO = {
         "cambio o reinstalación del medidor y facturación por el nuevo medidor"
     ),
     "errorServicio": (
-        "estado del servicio y del medidor: servicio cortado, inactivo o "
-        "medidor inoperativo"
+        "facturación de conexiones domiciliarias cerradas o inactivas: solo se "
+        "facturan las conexiones activas; cierre del servicio o medidor inoperativo"
     ),
     "cobroIndebido": (
         "cobro indebido por servicio no prestado, facturación de alcantarillado "
@@ -108,36 +122,115 @@ CONSULTA_POR_TIPO = {
         "periodo sin registro de facturación; verificación del cobro reclamado"
     ),
     "tendenciaCreciente": (
-        "evolución del consumo histórico del predio y variación del consumo "
-        "registrado por el medidor"
+        "diferencia de lecturas atípica que supera en más del 100% al promedio "
+        "histórico de consumo del usuario; control de calidad de las "
+        "facturaciones basadas en diferencia de lecturas"
     ),
     "medidorReciente": (
         "instalación o cambio de medidor y facturación con el nuevo medidor"
     ),
     "rebajaAplicada": (
-        "rebaja o refacturación aplicada al recibo como resultado de un reclamo"
+        "devolución o compensación de pagos en exceso mediante notas de abono "
+        "en las facturaciones futuras como resultado del reclamo"
     ),
     "estadoMedidorInspeccion": (
         "verificación del funcionamiento del medidor en la inspección; medidor "
         "operativo que registra correctamente el consumo"
     ),
     "fugasInspeccionExterna": (
-        "inspección externa de la conexión domiciliaria sin fugas"
+        "la inspección realizada para descartar factores distorsionantes del "
+        "registro de consumos no revela la existencia de fugas; facturación "
+        "según el promedio histórico de consumos"
     ),
     "estadoConexionInspeccion": (
-        "estado de la caja del medidor y de la conexión domiciliaria"
+        "responsabilidad de la empresa prestadora en la operatividad y "
+        "mantenimiento de la conexión domiciliaria y la caja del medidor, "
+        "verificada en la inspección externa"
     ),
     "inspeccionInternaRealizada": (
         "inspección interna de las instalaciones sanitarias del predio"
     ),
     "inspeccionInternaSinAcceso": (
-        "el usuario no permite o no atiende la inspección interna; la empresa "
-        "resuelve el reclamo con los medios probatorios disponibles"
+        "la inspección interna no puede realizarse por causa atribuible al "
+        "usuario o titular de la conexión: la empresa prestadora no puede "
+        "acceder al predio, la prueba ya no es necesaria y se factura según la "
+        "diferencia de lecturas"
     ),
+    # Sin la palabra "prórroga": arrastraba al Art. 24 de Reclamos
+    # ("Prórroga para resolver"), que no tiene nada que ver.
     "prorrogasCorte": (
-        "prórroga del corte del servicio por deuda mientras se tramita el reclamo"
+        "prohibición de cierre del servicio por falta de pago de los montos y "
+        "conceptos reclamados mientras el reclamo está en trámite"
     ),
 }
+
+
+# Los hechos del mes reclamado se rigen por normas distintas según el consumo
+# sea atípico o no. Con una sola query, un mes normal (54 m³ vs 52 de promedio)
+# traía el régimen de consumo atípico (92.3) y el de medidores instalados por
+# primera vez (91 e), y el 91 f) (diferencia de lecturas válida) salía tercero.
+CONSULTA_MES_RECLAMADO = {
+    True: (
+        "diferencia de lecturas atípica que supera en más del 100% al promedio "
+        "histórico de consumo del usuario; inspección para descartar factores "
+        "distorsionantes y facturación según el promedio histórico de consumos"
+    ),
+    False: (
+        "diferencia de lecturas válida: lectura mensual del medidor con un período "
+        "entre lecturas no menor a veintiocho ni mayor a treinta y dos días "
+        "calendario para facturar consumos"
+    ),
+}
+TIPOS_SEGUN_ATIPICO = frozenset({"lecturaMesReclamado", "facturacionMesReclamado"})
+
+
+def situacion_del_caso(informe) -> dict:
+    """Datos del caso que deciden qué normas PUEDEN aplicar:
+    - atipico: el consumo del mes reclamado es atípico (True/False) o no se sabe (None);
+    - con_medidor: la conexión tiene medidor (facturada por lectura o con tarjeta de lecturas);
+    - medidor_reciente: hubo instalación o cambio de medidor."""
+    atipico = con_medidor = None
+    medidor_reciente = False
+    for bloque in getattr(informe, "bloques", None) or []:
+        for h in bloque.hechos:
+            valor = h.valor or {}
+            if h.tipo == "lecturaMesReclamado":
+                con_medidor = True
+                if valor.get("atipico") is not None:
+                    atipico = bool(valor["atipico"]) or bool(atipico)
+            elif h.tipo == "facturacionMesReclamado" and str(valor.get("forma", "")).upper() == "MEDIDO":
+                con_medidor = True
+            elif h.tipo in ("medidorReciente", "errorReinstalacion"):
+                medidor_reciente = True
+    return {"atipico": atipico, "con_medidor": con_medidor, "medidor_reciente": medidor_reciente}
+
+
+def premisa_no_cumplida(articulo: dict, situacion: dict | None) -> str | None:
+    """Motivo por el que un artículo recuperado NO puede regular el caso (su
+    supuesto de hecho no se da), o None. Es determinista: el LLM marcaba el
+    93.2 (conexión SIN medidor) en un predio con medidor, y el 92.3 (régimen
+    atípico) en un mes normal."""
+    if not situacion:
+        return None
+    numeral = str(articulo.get("numeral") or "")
+    article = str(articulo.get("article") or "")
+    inicio = " ".join((articulo.get("texto") or "")[:220].lower().split())
+    if (situacion.get("atipico") is False and article == "92"
+            and numeral in ("92.2", "92.3", "92.4")):
+        return "régimen de consumo atípico y el mes reclamado no es atípico"
+    if situacion.get("con_medidor") and "sin medidor" in inicio:
+        return "conexión sin medidor y el predio tiene medidor"
+    if (situacion.get("con_medidor") and not situacion.get("medidor_reciente")
+            and ("por primera vez" in inicio or "nuevas conexiones" in inicio)):
+        return "instalación del medidor por primera vez y no hubo instalación ni cambio"
+    return None
+
+
+def _cita(article, numeral, norma) -> str:
+    """'Art. 93.2 del Reglamento de Calidad de ...'. Con dos reglamentos
+    indexados, el número solo es ambiguo (ambos tienen un artículo 14)."""
+    ref = f"Art. {numeral or article}"
+    return f"{ref} del {norma}" if norma else ref
 
 
 def _concepto(detalle: str) -> str:
@@ -163,18 +256,32 @@ class PasoFundamentacion:
     # ------------------------------------------------------------------ #
     # 1) Búsqueda vectorial
     # ------------------------------------------------------------------ #
-    def buscar_articulos(self, problema: ProblemaNormado, contexto: str = "") -> list[dict]:
+    @staticmethod
+    def construir_query(problema: ProblemaNormado, contexto: str = "", situacion: dict | None = None) -> str:
+        """Texto que se vectoriza para buscar los artículos de un problema.
+        Separado para que la evaluación (herramientas/calibracion_rag) use
+        exactamente la misma query que producción."""
         concepto_general = CONSULTA_POR_TIPO.get(problema.tipo, "")
+        if problema.tipo in TIPOS_SEGUN_ATIPICO:
+            atipico = (problema.valor or {}).get("atipico")
+            if atipico is None and situacion:
+                atipico = situacion.get("atipico")
+            if atipico is not None:
+                concepto_general = CONSULTA_MES_RECLAMADO[bool(atipico)]
         concepto_especifico = _concepto(problema.detalle)
         # El concepto específico va primero (mayor peso semántico); luego el
         # concepto general del grupo, y por último el motivo del reclamo, que
         # aporta el contexto real del caso (p.ej. "fuga reparada") sin el cual
         # no se pueden recuperar los artículos que tratan ese contexto.
-        query = f"{concepto_especifico}. {concepto_general}. {contexto}".strip(". ")
+        return f"{concepto_especifico}. {concepto_general}. {contexto}".strip(". ")
+
+    def buscar_articulos(self, problema: ProblemaNormado, contexto: str = "",
+                         situacion: dict | None = None) -> list[dict]:
+        query = self.construir_query(problema, contexto, situacion)
         resultados = self.retriever.retrieve(
             query=query,
             top_k=TOP_K,
-            collection_name=COLLECTION,
+            collections=COLECCIONES,
         )
         # Qdrant devuelve ordenado por score desc; filtramos por umbral.
         return [r for r in resultados if r.get("score", 0) >= UMBRAL_SCORE]
@@ -191,7 +298,7 @@ class PasoFundamentacion:
     ) -> dict:
 
         articulos_texto = "\n\n".join(
-            f"[Art. {a['payload'].get('numeral') or a['payload'].get('article')}] "
+            f"[{_cita(a['payload'].get('article'), a['payload'].get('numeral'), a['payload'].get('norma'))}] "
             f"{a['payload'].get('text', '')}"
             for a in articulos
         )
@@ -237,6 +344,7 @@ class PasoFundamentacion:
             {
                 "article": a["payload"].get("article"),
                 "numeral": a["payload"].get("numeral"),
+                "norma": a["payload"].get("norma"),
                 "score": round(a.get("score", 0), 4),
                 "texto": a["payload"].get("text"),
             }
@@ -482,26 +590,45 @@ class PasoFundamentacion:
         articulos_raw: list[dict],
         clasificacion: str = "",
         contexto: str = "",
+        situacion: dict | None = None,
     ) -> list[dict]:
         """De los artículos recuperados por RAG, pide al LLM cuáles REGULAN el
         problema y devuelve el payload de artículos con un flag `aplica` por cada
         uno (y `manual=False`). Es la relevancia por artículo que luego el usuario
-        puede curar en el front."""
+        puede curar en el front. Los artículos cuya premisa no se cumple en el
+        caso (premisa_no_cumplida) quedan con aplica=False sin consultar al LLM."""
         payload = self.articulos_a_payload(articulos_raw)
         for a in payload:
             a["aplica"] = False
             a["manual"] = False
-        if not payload:
+        candidatos = []
+        for i, a in enumerate(payload):
+            motivo_descarte = premisa_no_cumplida(a, situacion)
+            if motivo_descarte:
+                logger.info("[FUNDAMENTACION] Descartado %s: %s",
+                            _cita(a.get("article"), a.get("numeral"), None), motivo_descarte)
+            else:
+                candidatos.append(i)
+        if not candidatos:
             return payload
 
         listado = "\n".join(
-            f"[{i}] Art. {a['numeral'] or a['article']}: {a['texto']}"
-            for i, a in enumerate(payload)
+            f"[{j}] {_cita(payload[i].get('article'), payload[i].get('numeral'), payload[i].get('norma'))}: "
+            f"{payload[i]['texto']}"
+            for j, i in enumerate(candidatos)
         )
+        hechos_caso = []
+        if situacion and situacion.get("atipico") is not None:
+            hechos_caso.append("el consumo del mes reclamado ES atípico" if situacion["atipico"]
+                               else "el consumo del mes reclamado NO es atípico")
+        if situacion and situacion.get("con_medidor"):
+            hechos_caso.append("la conexión tiene medidor")
         human = (
             f"Hallazgo: {problema.detalle}\n"
             f"Tipo de reclamo: {clasificacion or 'no especificado'}\n"
             + (f"Motivo (contexto): {contexto}\n" if contexto else "")
+            + (f"Situación verificada del caso: {'; '.join(hechos_caso)}. Un artículo "
+               "cuyo supuesto de hecho no se da en el caso NO aplica.\n" if hechos_caso else "")
             + f"\nArtículos:\n{listado}\n\n"
             "Devuelve SOLO el JSON con los índices de los artículos que aplican."
         )
@@ -512,8 +639,8 @@ class PasoFundamentacion:
             "fundamentacion_aplicabilidad", self.llm_router, self.model_id, entrada=human,
         )
         logger.info("RESPUESTA LLM marcar_aplica (raw): %s", response_text)
-        for i in self._parse_indices(response_text or "", len(payload)):
-            payload[i]["aplica"] = True
+        for j in self._parse_indices(response_text or "", len(candidatos)):
+            payload[candidatos[j]]["aplica"] = True
         return payload
 
     def redactar_parrafo(
@@ -531,7 +658,7 @@ class PasoFundamentacion:
             aplicables = [a for a in (problema.articulos or []) if a.get("aplica")]
             if aplicables:
                 arts = "\n".join(
-                    f"    [Art. {a.get('numeral') or a.get('article')}] {a.get('texto', '')}"
+                    f"    [{_cita(a.get('article'), a.get('numeral'), a.get('norma'))}] {a.get('texto', '')}"
                     for a in aplicables
                 )
             else:

@@ -19,9 +19,10 @@ logger = logging.getLogger("api.normativa.busqueda")
 # normativa_documentos.py y normativa_articulos.py.
 router = APIRouter(prefix="/normativa/busqueda", tags=["normativa-busqueda"])
 
-REGLAMENTO_COLLECTION = "sunass_reglamento"
+# Reglamento de Calidad + Reglamento General de Reclamos.
+REGLAMENTO_COLLECTIONS = ("sunass_reglamento", "sunass_reclamos")
 
-# Usa EmbeddingService (Ollama nomic-embed-text), el mismo modelo con el que
+# Usa EmbeddingService (OLLAMA_EMBEDDING_MODEL), el mismo modelo con el que
 # se indexó, para que el score coseno sea significativo.
 retriever = Retriever(store=QdrantAdapter())
 
@@ -42,7 +43,7 @@ def buscar(request: BuscarNormativaRequest) -> BuscarNormativaResponse:
         results = retriever.retrieve(
             query=texto,
             top_k=request.top_k,
-            collection_name=REGLAMENTO_COLLECTION,
+            collections=REGLAMENTO_COLLECTIONS,
         )
     except Exception as e:
         logger.exception("Error en la búsqueda vectorial")

@@ -13,13 +13,18 @@ Original file is located at
 
 import pymupdf as fitz
 import re
+import unicodedata
 
 
+# Encabezados/pies de página de El Peruano. ANCLADOS al inicio del bloque: sin
+# el ancla, un párrafo normativo que mencione "el diario oficial El Peruano"
+# se descartaba entero.
 HEADER_PATTERNS = [
-    r"NORMAS LEGALES",
-    r"El Peruano",
-    r"Martes.*20\d\d",
-    r"^\d+$"
+    r"^\d*\s*NORMAS\s+LEGALES",
+    r"^/?\s*El Peruano\b",
+    r"^(Lunes|Martes|Mi[eé]rcoles|Jueves|Viernes|S[aá]bado|Domingo)\s+\d{1,2}\s+de\s+\w+\s+de\s+20\d\d",
+    r"^\d+$",
+    r"^/$",
 ]
 
 FOOTER_PATTERNS = [
@@ -40,9 +45,20 @@ def is_header_or_footer(text, is_el_peruano=True):
     return False
 
 
+# Ligaduras tipográficas del PDF: "Veriﬁ cación" -> "Verificación". El PDF las
+# trae como un único carácter seguido de un espacio espurio, que parte la
+# palabra en dos tokens y degrada el embedding.
+LIGADURAS = {"ﬁ": "fi", "ﬂ": "fl", "ﬀ": "ff", "ﬃ": "ffi", "ﬄ": "ffl"}
+LIGADURA_RE = re.compile("(" + "|".join(LIGADURAS) + r")\s?")
+
+
 def clean_text(text):
 
     text = text.replace("\xa0", " ")
+
+    text = LIGADURA_RE.sub(lambda m: LIGADURAS[m.group(1)], text)
+
+    text = unicodedata.normalize("NFKC", text)
 
     text = re.sub(r"\s+", " ", text)
 
@@ -194,6 +210,12 @@ def parse_document(blocks):
 
         if DISPOSICIONES_RE.match(text):
 
+            # Si todavía no apareció ningún artículo, esto es el ÍNDICE del
+            # documento (el TUO de Reclamos lista "DISPOSICIONES TRANSITORIAS"
+            # en su tabla de contenido antes del articulado): se ignora.
+            if current is None and not articles:
+                continue
+
             # Fin del articulado: cerramos el último artículo y dejamos de
             # acumular (las disposiciones no son artículos).
             if current is not None:
@@ -247,6 +269,13 @@ def parse_document(blocks):
 import re
 
 
+ANOTACION_RE = re.compile(
+    r"\(\s*(?:Texto|Disposici[oó]n|Numeral|Literal|Art[ií]culo|P[aá]rrafo)"
+    r"[^()]*?(?:seg[uú]n|modificad|incorporad|sustituid|derogad)[^()]*\)",
+    re.IGNORECASE,
+)
+
+
 def clean_article(article):
 
     txt = article["texto"]
@@ -255,12 +284,13 @@ def clean_article(article):
     # mismo bloque), las recortamos aquí.
     txt = DISPOSICIONES_RE.split(txt)[0]
 
-    txt = re.sub(
-        r"\(Texto según.*?\)",
-        "",
-        txt,
-        flags=re.DOTALL
-    )
+    # Notas de vigencia: "(Texto según el artículo 1 de la RCD ...)",
+    # "(Texto modificado por ...)", "(Disposición incorporada por ...)". Son
+    # trazabilidad, no contenido normativo: meten ruido en el embedding.
+    txt = ANOTACION_RE.sub("", txt)
+
+    # Notas editoriales del TUO ("NOTA: La denominación ... hace referencia a").
+    txt = re.sub(r"(?m)^NOTA:.*$", "", txt)
 
     txt = re.sub(
         r"NORMAS LEGALES",

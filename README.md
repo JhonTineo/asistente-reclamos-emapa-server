@@ -45,7 +45,7 @@ app/
 | **FastAPI** | Expone la API REST (sync y streaming NDJSON). |
 | **API comercial EMAPA** | Fuente de datos del reclamo: lecturas, facturación, inspecciones, cortes, saldos. |
 | **LLM** | Inferencia: externa (OpenRouter, Cerebras, Groq, OpenCode, Cloudflare) o local (Ollama). |
-| **Embeddings** | Ollama `nomic-embed-text` (768 dimensiones). |
+| **Embeddings** | Ollama `qwen3-embedding:0.6b` (1024 dimensiones, multilingüe). |
 | **Qdrant** | Vector store del RAG normativo (colección `sunass_reglamento`). |
 
 ### Pasos del workflow (`app/src/application/usecase/pasos/`)
@@ -115,7 +115,7 @@ Descargar los modelos que use Ollama (generación + embeddings):
 
 ```bash
 docker exec ollama ollama pull qwen2.5:3b
-docker exec ollama ollama pull nomic-embed-text
+docker exec ollama ollama pull qwen3-embedding:0.6b
 ```
 
 ### 4. Indexar la normativa SUNASS en Qdrant

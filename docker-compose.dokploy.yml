@@ -43,7 +43,7 @@ services:
       OLLAMA_MAX_LOADED_MODELS: "1"
       OLLAMA_NUM_PARALLEL: "1"
     cpus: 1.50
-    # Solo carga el modelo de embeddings (nomic-embed-text, ~300 MB).
+    # Solo carga el modelo de embeddings (qwen3-embedding:0.6b: ~1.2 GB cargado, ver ollama ps).
     mem_limit: 1g
     pids_limit: 512
     cap_drop:

@@ -28,7 +28,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.src.application.services.llm.llm_router_service import LlmRouterService
 from app.src.application.services.informe.informe_store import informe_store
-from app.src.application.usecase.pasos.fundamentacion import PasoFundamentacion
+from app.src.application.usecase.pasos.fundamentacion import PasoFundamentacion, situacion_del_caso
 from app.src.infrastructure.adapters.qdrant_adapter import QdrantAdapter
 from app.src.infrastructure.api_rest.schemas.investigacion import InformeRequest
 
@@ -107,11 +107,14 @@ def _aplicar_seleccion_manual(informe, seleccion) -> list[tuple]:
     return pares
 
 
-def _rag_y_marcar(fundamentador: PasoFundamentacion, problema, clasificacion: str, motivo: str) -> list[dict]:
+def _rag_y_marcar(fundamentador: PasoFundamentacion, problema, clasificacion: str, motivo: str,
+                  situacion: dict | None = None) -> list[dict]:
     """RAG de los artículos + relevancia (`marcar_aplica`) en un solo paso
-    bloqueante (para un único run_in_threadpool)."""
-    raw = fundamentador.buscar_articulos(problema, motivo)
-    return fundamentador.marcar_aplica(problema, raw, clasificacion, motivo)
+    bloqueante (para un único run_in_threadpool). `situacion` (ver
+    situacion_del_caso) ajusta la query y descarta los artículos cuya premisa
+    no se cumple en el caso."""
+    raw = fundamentador.buscar_articulos(problema, motivo, situacion)
+    return fundamentador.marcar_aplica(problema, raw, clasificacion, motivo, situacion)
 
 
 async def _resolver_seleccion(informe, request, fundamentador) -> list[tuple]:
@@ -200,6 +203,7 @@ def fundamentar_normativa_stream(
                 if needs_rag:
                     problema.articulos = await run_in_threadpool(
                         _rag_y_marcar, fundamentador, problema, clasificacion, motivo,
+                        situacion_del_caso(informe),
                     )
                 yield json.dumps({
                     "evento": "articulos",
@@ -273,6 +277,7 @@ async def fundamentar_normativa_sync(
         if needs_rag:
             problema.articulos = await run_in_threadpool(
                 _rag_y_marcar, fundamentador, problema, clasificacion, motivo,
+                situacion_del_caso(informe),
             )
     parrafo = await run_in_threadpool(
         fundamentador.redactar_parrafo, seleccionados, motivo, clasificacion,

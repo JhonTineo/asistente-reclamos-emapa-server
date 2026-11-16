@@ -10,9 +10,10 @@ parte sale vacía y `disponible` lo indica.
 """
 
 import re
+from dataclasses import asdict
 from datetime import date
 
-from app.src.core.model.informe_atencion import InformeAtencion
+from app.src.core.model.informe_atencion import InformeAtencion, ProblemaNormado
 from app.src.core.model.indicadores.inspeccion_externa_indicadores import INDICADORES_INSPECCION_EXTERNA
 from app.src.core.model.indicadores.inspeccion_interna_indicadores import INDICADORES_INSPECCION_INTERNA
 from app.src.application.services.pre_proces.pre_targeta_lecturas_service import FACTOR_ELEVADO, FACTOR_NORMAL
@@ -130,6 +131,8 @@ def construir_serie(informe: InformeAtencion) -> list[dict]:
             f["consumo_medido"] = _num(r.get("consumo"))
         rebaja = _num(r.get("c_impmesrebaja"))
         f["refacturado"] = bool(rebaja and rebaja > 0)
+        f["importe_rebaja"] = rebaja if rebaja and rebaja > 0 else None
+        f["fecha_rebaja"] = _fecha_corta(r.get("c_diarebaja")) if f["importe_rebaja"] else None
 
     serie = []
     for (anio, mes) in sorted(filas):
@@ -151,6 +154,8 @@ def construir_serie(informe: InformeAtencion) -> list[dict]:
             "fecha_lectura": f.get("fecha_lectura"),
             "estado_lectura": f.get("estado_lectura"),
             "refacturado": f.get("refacturado", False),
+            "importe_rebaja": f.get("importe_rebaja"),
+            "fecha_rebaja": f.get("fecha_rebaja"),
             "reclamado": (anio, mes) in reclamados,
         })
     return serie
@@ -312,6 +317,86 @@ def construir_verificaciones(informe: InformeAtencion) -> list[dict]:
     } for o in informe.objetivos if o.determinante]
 
 
+# Medios que se muestran tal como quedaron en su modelo (entidad + hechos).
+MEDIOS_MODELO = ("corte_reapertura", "saldo_detalle", "tecnico_operacional")
+_MAX_TEXTO_EXTRAIDO = 20000
+
+
+def _hecho(h: ProblemaNormado, medio_id: str | None = None) -> dict:
+    return {
+        "id": h.id, "medio_id": medio_id, "tipo": h.tipo, "clase": h.clase,
+        "detalle": h.detalle, "periodo": h.periodo, "valor": h.valor,
+    }
+
+
+def construir_medios_modelo(informe: InformeAtencion) -> dict:
+    """Entidad de dominio y hechos (problemas y constataciones) de los medios
+    que no tienen una vista propia en el panel (corte, saldo, técnico)."""
+    out = {}
+    for medio_id in MEDIOS_MODELO:
+        bloque = next((b for b in informe.bloques if b.medio_id == medio_id), None)
+        if not bloque:
+            continue
+        entidad = dict(bloque.entidad or {})
+        texto = entidad.get("texto_extraido")
+        if isinstance(texto, str) and len(texto) > _MAX_TEXTO_EXTRAIDO:
+            entidad["texto_extraido"] = texto[:_MAX_TEXTO_EXTRAIDO] + "…"
+        out[medio_id] = {
+            "entidad": entidad,
+            "problemas": [_hecho(h, medio_id) for h in bloque.problemas],
+            "constataciones": [_hecho(h, medio_id) for h in bloque.constataciones],
+        }
+    return out
+
+
+def construir_fundamentacion(informe: InformeAtencion) -> dict:
+    """Problemas determinantes elegidos y la normativa con que se sustentan."""
+    problemas = []
+    for b in informe.bloques:
+        for h in b.problemas:
+            if not h.seleccionado:
+                continue
+            problemas.append({
+                **_hecho(h, b.medio_id),
+                "medio_nombre": b.medio_nombre,
+                "accion": h.accion,
+                "responsable": h.responsable,
+                "base_legal": h.base_legal,
+                "articulos": [{
+                    "article": a.get("article"), "numeral": a.get("numeral"),
+                    "texto": a.get("texto"), "aplica": a.get("aplica"),
+                } for a in (h.articulos or []) if a.get("aplica") is not False],
+            })
+    return {"texto": informe.fundamentacion_normativa, "problemas": problemas}
+
+
+def construir_conclusion(informe: InformeAtencion) -> dict:
+    """Veredicto, dictamen (factores por criterio) y estado de la evaluación."""
+    hechos = {h.id: {"detalle": h.detalle, "medio_id": b.medio_id}
+              for b in informe.bloques for h in b.hechos if h.id}
+    d = informe.dictamen or None
+    dictamen = None
+    if d:
+        for h in d.get("hechos_caso") or []:
+            if isinstance(h, dict) and h.get("id"):
+                hechos.setdefault(h["id"], {"detalle": h.get("detalle"), "medio_id": None})
+        dictamen = {k: d.get(k) for k in (
+            "veredicto", "estado", "factores", "conflictos", "pruebas_faltantes",
+            "veredicto_propuesto", "razonamiento", "regla",
+        )}
+    return {
+        "veredicto": informe.veredicto,
+        "texto": informe.conclusion,
+        "estado_evaluacion": informe.estado_evaluacion,
+        "mensaje_evaluacion": informe.mensaje_evaluacion,
+        "origen_decision": informe.origen_decision,
+        "motivos": [asdict(m) for m in informe.motivos_evaluacion],
+        "objetivos": [asdict(o) for o in informe.objetivos],
+        "dictamen": dictamen,
+        "hechos": hechos,
+    }
+
+
 def construir_evidencias(informe: InformeAtencion) -> dict:
     serie = construir_serie(informe)
     indicadores = calcular_indicadores(serie)
@@ -333,6 +418,9 @@ def construir_evidencias(informe: InformeAtencion) -> dict:
         "inspeccion_externa": externa,
         "inspeccion_interna": interna,
         "linea_tiempo": construir_linea_tiempo(informe, indicadores, externa, interna),
+        "medios": construir_medios_modelo(informe),
+        "fundamentacion": construir_fundamentacion(informe),
+        "conclusion": construir_conclusion(informe),
         "disponible": {
             "consumo": bool(serie),
             "inspeccion_externa": externa is not None,

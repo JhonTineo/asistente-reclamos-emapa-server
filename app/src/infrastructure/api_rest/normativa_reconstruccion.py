@@ -43,8 +43,12 @@ def _numeral_sort_key(article: str, numeral: str | None) -> tuple:
     """El encabezado (numeral None) va primero; luego por orden numérico real."""
     if not numeral:
         return (-1,)
-    nums = re.findall(r"\d+", numeral)
-    return tuple(int(x) for x in nums) if nums else (0,)
+    nums = [int(x) for x in re.findall(r"\d+", numeral)]
+    # Literales ("91 f)", ver legal_chunker._agrupar_por_literal): por letra.
+    literal = re.search(r"\b([a-z])\)$", numeral)
+    if literal:
+        nums.append(ord(literal.group(1)))
+    return tuple(nums) if nums else (0,)
 
 
 @router.get("/reconstruccion", response_model=ReconstruccionResponse)
