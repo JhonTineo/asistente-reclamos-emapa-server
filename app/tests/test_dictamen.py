@@ -439,7 +439,8 @@ class ConclusionConDictamenTest(unittest.TestCase):
                 self.assertEqual(recargado.obtener("252396").dictamen["veredicto"], "FUNDADO")
             finally:
                 repo.cerrar_conexion()
-        self.assertEqual(citados, [informe.bloques[0].hechos[0].id])   # H-caso-* no se enlazan
+        tarjeta = next(b for b in informe.bloques if b.medio_id == "tarjeta_lectura")
+        self.assertEqual(citados, [tarjeta.hechos[0].id])   # H-caso-* no se enlazan
 
 
 if __name__ == "__main__":

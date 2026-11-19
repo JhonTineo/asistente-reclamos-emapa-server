@@ -98,6 +98,12 @@ class Settings(BaseSettings):
     # mem_limit >= 1.5g. Cambiarlo obliga a REINDEXAR
     # (python -m app.src.application.services.rag.chunk_and_index).
     ollama_embedding_model: str = "qwen3-embedding:0.6b"
+    # Cuánto mantiene Ollama el modelo de embeddings cargado tras su último uso.
+    # Su valor por defecto (5 min) lo descargaba entre casos y la primera
+    # búsqueda de cada fundamentación pagaba la recarga (~6 s medidos). "-1" lo
+    # deja cargado siempre: la memoria ya está reservada para él (mem_limit del
+    # contenedor de Ollama, que solo carga este modelo). Ej.: "-1", "30m", "0".
+    ollama_embedding_keep_alive: str = "-1"
 
 
     # --- Configuración de tiempo de espera y reintentos ---
@@ -108,6 +114,9 @@ class Settings(BaseSettings):
     # --- Configuración de la API de EMAPA ---
     emapa_api_base_url: str = "https://comercial.emapasanmartin.com:8889/sysco-comercial/backend"
     emapa_access_token: str = ""
+    # Exige sesión de EMAPA válida (JWT vigente y aceptado por SYSCO) en los
+    # endpoints con datos de reclamos. Solo desactivar en desarrollo/pruebas.
+    emapa_verificar_sesion: bool = True
 
 
     # --- Configuración de la API de Qdrant ---
@@ -132,6 +141,12 @@ class Settings(BaseSettings):
     # "dictamen": evalúa los criterios de las skills contra los hechos del caso.
     # "objetivos": método anterior (clasifica los objetivos determinantes).
     yumi_veredicto: str = "dictamen"
+
+    # --- Logs ---
+    # false: la consola muestra solo las líneas [TIEMPOS] (tiempo y tokens por
+    # llamada y por fase). true: además el prompt y la respuesta cruda de cada
+    # llamada (que de todos modos quedan en llamadas_llm).
+    yumi_log_detalle: bool = False
 
 
 

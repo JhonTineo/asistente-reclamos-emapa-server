@@ -35,7 +35,7 @@ usuario final: son configuración por-petición.
 
 | Header / parámetro | Para qué sirve | Obligatorio |
 |---|---|---|
-| `Authorization: Bearer <token-emapa>` | Token del sistema EMAPA con el que el backend consulta reclamos, tarjetas de lectura, etc. | **Sí**, solo en `GET /reclamos/reclamo/...` (es el punto de entrada del flujo). En el resto de endpoints es opcional: si no llega, el backend reutiliza el token guardado al buscar el reclamo (o el de `.env` en desarrollo). |
+| `Authorization: Bearer <token-emapa>` | Token del sistema EMAPA con el que el backend consulta reclamos, tarjetas de lectura, etc. | **Sí**, en todos los endpoints de `/reclamos`, `/investigacion`, `/conciliacion`, `/resolucion`, `/normativa` y `/modelos`. Debe ser un JWT vigente que SYSCO acepte (se verifica con `seleccionar-sistema` y se cachea 15 min); si no, `401`. Sin sesión no se expone nada de la memoria de reclamos. Se desactiva con `EMAPA_VERIFICAR_SESION=false` (solo desarrollo). |
 | `X-LLM-Provider` | Proveedor de inferencia a usar (`local`, `openrouter`, `openai`, `gemini`). Ver `GET /modelos/proveedores`. | No — si no llega, se infiere del id del modelo. |
 | `X-LLM-Api-Key` | API key del proveedor externo elegido. El backend nunca expone sus propias keys; el frontend manda la del usuario. | No — hay un fallback de key en el servidor para desarrollo. |
 | `sesion_id` (query param en `GET /reclamos/reclamo/...`) | Identificador de la pestaña/sesión del frontend que abre el reclamo (ver [sección 3](#3-ciclo-de-vida-del-informe-en-memoria)). | No, pero sin él no hay protección contra doble atención simultánea. |
@@ -403,10 +403,11 @@ línea JSON por evento (no un solo JSON al final). Léelos con un lector de
 stream (`response.body.getReader()` en fetch, o `EventSource`-like manual
 parsing por `\n`), no con `response.json()`.
 
-**`POST /investigacion/{medio}/stream`** emite 2 eventos:
+**`POST /investigacion/{medio}/stream`** (y `/tecnico-operacional/stream`) emite 3 eventos:
 ```jsonl
 {"evento": "preprocesamiento", "medio_id": "...", "datos": {...}, "problemas": [...], "tiempo": 0.8}
 {"evento": "resumen", "medio_id": "...", "resumen": "texto del LLM", "tiempo": 3.1}
+{"evento": "evidencias", "paso": "<medio_id>", "evidencias": {...}}
 ```
 
 **`POST /investigacion/fundamentar-normativa/stream`** emite, a medida que se
@@ -417,16 +418,27 @@ final de fundamentación:
 {"evento": "articulos", "medio_id": "...", "detalle": "...", "articulos": [...]}
 ... (se repite por cada hallazgo seleccionado)
 {"evento": "fundamentacion", "codreclamo": "...", "fundamentacion": "párrafo...", "tiempo": 4.7}
+{"evento": "evidencias", "paso": "fundamentacion", "evidencias": {...}}
 ```
 
 **`POST /investigacion/conclusion/stream`** consume la fundamentación ya
-generada (no vuelve a fundamentar por problema) y emite 2 eventos:
+generada (no vuelve a fundamentar por problema) y emite 3 eventos:
 ```jsonl
 {"evento": "conclusion", "veredicto": "FUNDADO", "conclusion": "..."}
+{"evento": "evidencias", "paso": "conclusion", "evidencias": {...}}
 {"evento": "informe", "codreclamo": "...", "informe": "texto final", "problemas": [...], "tiempo": 5.2}
 ```
 
-Ambos pueden emitir `{"evento": "error", "error": "..."}` en cualquier punto
+**Evento `evidencias`**: al terminar cada paso, el stream envía la parte de
+`GET /reclamos/{codreclamo}/evidencias` que ese paso cambió (mismo formato, solo
+esas claves): siempre `veredicto`, `verificaciones`, `linea_tiempo` y
+`disponible`, más `serie` + `indicadores` (tarjeta de lectura y récord de
+facturación), `inspeccion_externa` / `inspeccion_interna`, `medios` (corte,
+saldo, técnico), `fundamentacion` o `conclusion`. El cliente la mezcla con lo
+que ya tiene; `GET .../evidencias` solo hace falta al abrir el reclamo y tras
+pasos sin stream (objetivos, ediciones manuales).
+
+Todos pueden emitir `{"evento": "error", "error": "..."}` en cualquier punto
 del stream si algo falla a mitad de camino (la conexión HTTP sigue en 200; el
 error viene en el payload, no en el status code).
 

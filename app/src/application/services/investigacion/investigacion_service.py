@@ -22,7 +22,7 @@ from app.src.application.services.llm.llm_router_service import LlmRouterService
 from app.src.application.ports.emapa_api_port import PuertoEmapaAPI
 from app.src.application.services.informe.informe_store import informe_store
 from app.src.application.services.informe.artefactos import ORIGEN_SYSCO
-from app.src.application.services.informe.evidencias import periodos_reclamados
+from app.src.application.services.informe.evidencias import evento_evidencias, periodos_reclamados
 from app.src.application.services.pre_proces.constataciones import constatar
 from app.src.core.model.informe_atencion import BloqueMedio
 
@@ -330,8 +330,7 @@ def stream_analisis_medio(
         # reclamo. Debe fijarse aquí, antes de las llamadas en threadpool, para
         # que el ContextVar se propague al hilo que consulta EMAPA.
         await asegurar_token_emapa(request.codreclamo)
-        logger.info("=" * 60)
-        logger.info(
+        logger.debug(
             "[API /investigacion/%s/stream] codsuc=%s | codcliente=%s | codreclamo=%s",
             medio_id, request.codsuc, request.codcliente, request.codreclamo,
         )
@@ -368,6 +367,7 @@ def stream_analisis_medio(
                 medio_id, medio_nombre, request.codsuc, request.codcliente,
                 request.meses, fecha_ref, codinspeccion,
             )
+            t_emapa = time.perf_counter() - t_inicio
             problemas_schema = [ProblemaNormadoSchema(**vars(p)) for p in problemas]
             constataciones = constatar(medio_id, datos, periodos_del_reclamo(informe))
             evento_pre = {
@@ -416,12 +416,18 @@ def stream_analisis_medio(
                 "tiempo": tiempo_total,
             }
             yield json.dumps(evento_res, ensure_ascii=False) + "\n"
+            # Evidencias que este medio aporta (gráficos, inspección, hechos…):
+            # el panel de evidencias las aplica sin volver a pedirlas.
+            ev = evento_evidencias(informe, medio_id)
+            if ev:
+                yield json.dumps(ev, ensure_ascii=False) + "\n"
 
             logger.info(
-                "[API /investigacion/%s/stream] COMPLETADO | problemas=%d | tiempo=%.2fs",
-                medio_id, len(problemas), tiempo_total,
+                "[TIEMPOS] medio | reclamo=%s | medio=%s | emapa+reglas=%.2fs | resumen=%.2fs | "
+                "total=%.2fs | hechos=%d",
+                request.codreclamo, medio_id, t_emapa, tiempo_total - t_emapa, tiempo_total,
+                len(problemas) + len(constataciones),
             )
-            logger.info("=" * 60)
         except Exception as e:  # noqa: BLE001
             logger.exception("[API /investigacion/%s/stream] ERROR", medio_id)
             evento_err = {

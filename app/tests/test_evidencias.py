@@ -2,10 +2,14 @@ import base64
 import io
 import unittest
 from datetime import date, datetime
+import json
+import time
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from PIL import Image
+
+from app.src.infrastructure.api_rest import sesion
 
 from app.src.application.services.informe.evidencias import (
     construir_evidencias, periodos_reclamados,
@@ -170,39 +174,93 @@ class TestFotos(unittest.TestCase):
         self.assertEqual(len(api.llamadas), n)
 
 
+def jwt_prueba(segundos: int = 3600) -> str:
+    """JWT con forma válida y `exp` (la firma la verificaría SYSCO, que se simula)."""
+    b64 = lambda d: base64.urlsafe_b64encode(json.dumps(d).encode()).decode().rstrip("=")
+    return f"{b64({'alg': 'HS256'})}.{b64({'sub': 'prueba', 'exp': int(time.time()) + segundos})}.firma"
+
+
+async def _sysco_acepta_prueba(token):
+    return True
+
+
 class TestEndpoints(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from app.src.main import app
         cls.client = TestClient(app)
+        cls.auth = {"Authorization": f"Bearer {jwt_prueba()}"}
 
     def setUp(self):
         FotosEvidenciaService.limpiar_cache()
+        sesion._cache.clear()
         informe_store._data["900001"] = informe_ejemplo()
+        self._sysco = patch.object(sesion, "_sysco_acepta", new=_sysco_acepta_prueba)
+        self._sysco.start()
 
     def tearDown(self):
+        self._sysco.stop()
         informe_store._data.pop("900001", None)
 
     def test_evidencias(self):
-        r = self.client.get("/reclamos/900001/evidencias")
+        r = self.client.get("/reclamos/900001/evidencias", headers=self.auth)
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["indicadores"]["veces_promedio"], 1.26)
-        self.assertEqual(self.client.get("/reclamos/000000/evidencias").status_code, 404)
+        self.assertEqual(self.client.get("/reclamos/000000/evidencias", headers=self.auth).status_code, 404)
+
+    def test_exige_sesion(self):
+        # Sin sesión no se expone nada de la memoria de reclamos.
+        for ruta in ("/reclamos/900001/evidencias", "/reclamos/en-memoria", "/reclamos/900001/informe"):
+            self.assertEqual(self.client.get(ruta).status_code, 401, ruta)
+        self.assertEqual(self.client.get("/reclamos/en-memoria", headers={"Authorization": "abc"}).status_code, 401)
+        vencido = {"Authorization": jwt_prueba(-60)}
+        self.assertEqual(self.client.get("/reclamos/en-memoria", headers=vencido).status_code, 401)
+
+    def test_token_rechazado_por_sysco(self):
+        async def rechaza(token):
+            return False
+        with patch.object(sesion, "_sysco_acepta", new=rechaza):
+            r = self.client.get("/reclamos/en-memoria", headers={"Authorization": jwt_prueba()})
+        self.assertEqual(r.status_code, 401)
 
     def test_fotos_exige_token(self):
         r = self.client.get("/reclamos/900001/evidencias/fotos", params={"codsuc": "001"})
-        # Sin header Authorization y sin token en .env de pruebas -> 401
-        if r.status_code != 401:
-            self.skipTest("Hay un EMAPA_ACCESS_TOKEN en el entorno; no se puede probar el 401")
+        self.assertEqual(r.status_code, 401)
 
     def test_fotos_con_token(self):
         items = [{"pathimage": "LECT-1.jpg", "observacion": "LECTURAS 2026 09", "fechareg": "2026-09-19 08:23:11", "img64": jpeg()}]
         with patch("app.src.infrastructure.adapters.emapa_http_adapter.EmapaHttpAdapter.obtener_imagenes_cliente",
                    new=lambda self, *a: ApiFalsa(items).obtener_imagenes_cliente(*a)):
             r = self.client.get("/reclamos/900001/evidencias/fotos", params={"codsuc": "001"},
-                                headers={"Authorization": "token-de-prueba"})
+                                headers=self.auth)
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["resumen"]["lectura"], 1)
+
+
+
+class TestEvidenciasDePaso(unittest.TestCase):
+    """Cada stream emite solo la parte de las evidencias que su paso cambia."""
+
+    def test_claves_por_medio(self):
+        from app.src.application.services.informe.evidencias import evidencias_de_paso, evento_evidencias
+        inf = informe_ejemplo()
+        completas = construir_evidencias(inf)
+        lectura = evidencias_de_paso(inf, "tarjeta_lectura")
+        self.assertEqual(set(lectura), {"veredicto", "verificaciones", "linea_tiempo", "disponible", "serie", "indicadores"})
+        self.assertEqual(lectura["serie"], completas["serie"])
+        self.assertEqual(set(evidencias_de_paso(inf, "inspeccion_externa")) - {"veredicto", "verificaciones", "linea_tiempo", "disponible"},
+                         {"inspeccion_externa"})
+        self.assertIn("medios", evidencias_de_paso(inf, "corte_reapertura"))
+        self.assertIn("conclusion", evidencias_de_paso(inf, "conclusion"))
+        self.assertIn("fundamentacion", evidencias_de_paso(inf, "fundamentacion"))
+        ev = evento_evidencias(inf, "tarjeta_lectura")
+        self.assertEqual((ev["evento"], ev["paso"]), ("evidencias", "tarjeta_lectura"))
+        self.assertIsNone(evento_evidencias(None, "tarjeta_lectura"))
+
+    def test_error_no_rompe_el_stream(self):
+        from app.src.application.services.informe import evidencias as mod
+        with patch.object(mod, "construir_evidencias", side_effect=RuntimeError("x")):
+            self.assertIsNone(mod.evento_evidencias(informe_ejemplo(), "tarjeta_lectura"))
 
 
 if __name__ == "__main__":

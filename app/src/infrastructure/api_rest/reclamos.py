@@ -43,8 +43,9 @@ from app.src.infrastructure.api_rest.deps import usar_token_emapa, requerir_toke
 from app.src.application.services.llm.llm_router_service import LlmRouterService
 
 logger = logging.getLogger("api.clasificador")
+from app.src.infrastructure.api_rest.sesion import requerir_sesion_emapa
 
-router = APIRouter(prefix="/reclamos", tags=["reclamos"], dependencies=[Depends(usar_token_emapa), Depends(usar_config_llm)])
+router = APIRouter(prefix="/reclamos", tags=["reclamos"], dependencies=[Depends(requerir_sesion_emapa), Depends(usar_config_llm)])
 
 #Mapa de los medios para el flujo completo de informe de atencion
 _MEDIOS_ANALIZABLES: list[tuple[str, str]] = [

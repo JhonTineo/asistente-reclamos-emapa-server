@@ -1,4 +1,5 @@
 import logging
+import threading
 
 import openai
 from fastapi import FastAPI, Request
@@ -21,6 +22,7 @@ from app.src.infrastructure.config.settings import settings
 from app.src.application.services.informe.informe_store import informe_store
 from app.src.application.services.contexto.constructor import constructor_contexto
 from app.src.infrastructure.adapters.skills.skill_file_repository import repositorio_skills
+from app.src.application.services.rag.embeddings import precalentar as precalentar_embeddings
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -35,20 +37,15 @@ logging.basicConfig(
 # de Qdrant al arrancar). Es ruido, no error: se sube a WARNING.
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-# Ver el prompt completo enviado en cada paso (nivel DEBUG solo en estos loggers).
-logging.getLogger("paso.analisis_medio").setLevel(logging.DEBUG)
-logging.getLogger("paso.fundamentacion").setLevel(logging.DEBUG)
-logging.getLogger("paso.objetivos").setLevel(logging.DEBUG)
-logging.getLogger("paso.conclusion").setLevel(logging.DEBUG)
-logging.getLogger("paso.conciliacion").setLevel(logging.DEBUG)
-logging.getLogger("paso.resolucion").setLevel(logging.DEBUG)
-# Contexto completo de los pasos que ya usan el constructor de contexto.
-logging.getLogger("contexto").setLevel(logging.DEBUG)
-
-# Ver el texto crudo que devuelve el modelo antes de que el paso lo parsee.
-# Es lo que permite diagnosticar un parseo fallido: sin esto solo queda el error.
-logging.getLogger("tools.llm.openai_compat").setLevel(logging.DEBUG)
-logging.getLogger("tools.llm.ollama").setLevel(logging.DEBUG)
+# Por defecto la consola muestra una línea [TIEMPOS] por llamada al LLM y por
+# fase (tiempo, tokens reales y cacheados): lo necesario para optimizar. El
+# prompt completo y la respuesta cruda ya se guardan en llamadas_llm (yumi.db);
+# para verlos también en consola: YUMI_LOG_DETALLE=true.
+if settings.yumi_log_detalle:
+    for _nombre in ("paso.analisis_medio", "paso.fundamentacion", "paso.objetivos",
+                    "paso.conclusion", "paso.conciliacion", "paso.resolucion", "contexto",
+                    "tools.llm.openai_compat", "tools.llm.ollama"):
+        logging.getLogger(_nombre).setLevel(logging.DEBUG)
 
 _RUTA_DB_POR_DEFECTO = Path(__file__).resolve().parents[2] / "volumes" / "yumi_db" / "yumi.db"
 
@@ -74,6 +71,10 @@ async def lifespan(_app: FastAPI):
         )
     # Sin base de datos no se registran las llamadas (registro=None).
     constructor_contexto.configurar(skills=skills, registro=repo)
+    # Carga el modelo de embeddings en Ollama sin bloquear el arranque: la
+    # primera fundamentación ya no paga la carga del modelo.
+    threading.Thread(target=precalentar_embeddings, name="precalentar-embeddings",
+                     daemon=True).start()
     try:
         yield
     finally:

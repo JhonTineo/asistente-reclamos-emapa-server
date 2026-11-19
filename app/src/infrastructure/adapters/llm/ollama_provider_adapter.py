@@ -6,6 +6,7 @@ from langchain_ollama import ChatOllama
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, BaseMessage
 
 from app.src.application.ports.provider_port import PuertoProveedorLLM, MensajeLLM
+from app.src.application.services.llm import uso_tokens
 from app.src.infrastructure.system.hardware import hardware_apto_para_local
 
 logger = logging.getLogger("tools.llm.ollama")
@@ -42,7 +43,8 @@ def _log_respuesta_cruda(etiqueta: str, modelo_id: str, response: BaseMessage) -
     se sabe qué escribió realmente el modelo."""
     contenido = str(response.content)
     meta = response.response_metadata or {}
-    logger.info(
+    uso_tokens.desde_respuesta(response)
+    logger.debug(
         "[Ollama] Respuesta %s | modelo=%s | chars=%d | done_reason=%s",
         etiqueta, modelo_id, len(contenido), meta.get("done_reason", "?"),
     )
@@ -103,7 +105,7 @@ class OllamaProviderAdapter(PuertoProveedorLLM):
         llm = self._crear_cliente(modelo_id, temperatura, max_tokens)
         lc_mensajes = _convertir_mensajes(mensajes)
 
-        logger.info(f"[Ollama] Generando texto con modelo: {modelo_id}")
+        logger.debug(f"[Ollama] Generando texto con modelo: {modelo_id}")
         response = llm.invoke(lc_mensajes)
         _log_respuesta_cruda("texto", modelo_id, response)
         return str(response.content)
@@ -118,7 +120,7 @@ class OllamaProviderAdapter(PuertoProveedorLLM):
         llm = self._crear_cliente(modelo_id, temperatura, max_tokens)
         lc_mensajes = _convertir_mensajes(mensajes)
 
-        logger.info(f"[Ollama] Generando JSON con modelo: {modelo_id}")
+        logger.debug(f"[Ollama] Generando JSON con modelo: {modelo_id}")
         response = llm.invoke(lc_mensajes)
         _log_respuesta_cruda("json", modelo_id, response)
         return str(response.content)

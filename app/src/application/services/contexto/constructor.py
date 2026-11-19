@@ -24,6 +24,7 @@ from app.src.application.ports.registro_llamadas_port import PuertoRegistroLlama
 from app.src.application.ports.skill_repository_port import PuertoRepositorioSkills
 from app.src.application.services.contexto import capas as render
 from app.src.application.services.contexto.capas import CATALOGO, Capa
+from app.src.application.services.llm import uso_tokens
 from app.src.application.services.contexto.especificaciones import (
     ContextSpec, obtener_especificacion,
 )
@@ -71,9 +72,10 @@ class Contexto:
     def versiones_skills(self) -> list[str]:
         return [s.version_completa for s in self.skills]
 
-    def resumen_capas(self) -> dict:
-        """Lo que se guarda en llamadas_llm.capas: tamaño de cada capa."""
-        return {
+    def resumen_capas(self, uso: dict | None = None) -> dict:
+        """Lo que se guarda en llamadas_llm.capas: tamaño de cada capa y, si el
+        proveedor lo informó, los tokens reales (entrada, cacheados, salida)."""
+        resumen = {
             "capas": {
                 c.nombre: {"caracteres": c.caracteres, "recortada": c.recortada}
                 for c in self.capas
@@ -81,6 +83,9 @@ class Contexto:
             "tokens_aprox": self.tokens_estimados,
             "presupuesto": self.presupuesto_tokens,
         }
+        if uso:
+            resumen["uso"] = uso
+        return resumen
 
     # -------------------------------------------------------------- #
     def _extras(self) -> dict:
@@ -109,7 +114,7 @@ class Contexto:
         )
 
     def _ejecutar(self, llamar, modelo_id: str, llm_router=None) -> str:
-        logger.info(
+        logger.debug(
             "[CONTEXTO] paso=%s | reclamo=%s | tokens≈%d/%d | skills=%s",
             self.paso, self.codreclamo, self.tokens_estimados, self.presupuesto_tokens,
             ", ".join(self.versiones_skills) or "ninguna",
@@ -117,6 +122,7 @@ class Contexto:
         logger.debug("[CONTEXTO %s][SYSTEM]\n%s", self.paso, self.system)
         logger.debug("[CONTEXTO %s][USER]\n%s", self.paso, self.usuario)
         inicio = time.perf_counter()
+        uso_tokens.limpiar()
         respuesta, error = None, None
         try:
             respuesta = llamar(mensajes=self.mensajes, modelo_id=modelo_id)
@@ -128,11 +134,28 @@ class Contexto:
             # Con modelo "auto" (o con respaldo entre proveedores) el id pedido
             # no dice quién respondió: el router lo informa tras la llamada.
             proveedor, modelo_real = getattr(llm_router, "ultimo_uso", None) or (None, None)
-            self._registrar(modelo_real or modelo_id, respuesta, error,
-                            time.perf_counter() - inicio, proveedor)
+            segundos = time.perf_counter() - inicio
+            uso = uso_tokens.ultimo()
+            self._log_llamada(modelo_real or modelo_id, proveedor, segundos, uso, respuesta, error)
+            self._registrar(modelo_real or modelo_id, respuesta, error, segundos, proveedor, uso)
+
+    def _log_llamada(self, modelo_id: str, proveedor, segundos: float, uso: dict | None,
+                     respuesta, error) -> None:
+        """La línea que sirve para optimizar: una por llamada, con el tiempo y
+        los tokens reales (cacheados incluidos). El prompt completo queda en
+        llamadas_llm; en consola solo con el nivel DEBUG."""
+        uso = uso or {}
+        logger.info(
+            "[TIEMPOS] llm | paso=%s | reclamo=%s | %.2fs | entrada=%s (cache=%s) | salida=%s | "
+            "proveedor=%s | modelo=%s%s",
+            self.paso, self.codreclamo, segundos,
+            uso.get("entrada", f"≈{self.tokens_estimados}"), uso.get("cacheados", "?"),
+            uso.get("salida", "?"), proveedor or "?", modelo_id,
+            f" | ERROR={error}" if error else "",
+        )
 
     def _registrar(self, modelo_id: str, respuesta, error, segundos: float,
-                   proveedor: str | None = None) -> None:
+                   proveedor: str | None = None, uso: dict | None = None) -> None:
         if self.registro is None:
             return
         try:
@@ -143,7 +166,7 @@ class Contexto:
                 skill=", ".join(s.id for s in self.skills) or None,
                 skill_version=", ".join(self.versiones_skills) or None,
                 modelo=modelo_id,
-                capas=self.resumen_capas(),
+                capas=self.resumen_capas(uso),
                 system=self.system,
                 usuario=self.usuario,
                 respuesta=respuesta if isinstance(respuesta, str) else None,

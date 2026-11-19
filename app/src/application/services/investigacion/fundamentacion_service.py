@@ -18,6 +18,7 @@ Al front se le envía la lista COMPLETA de problemas de los medios determinantes
 seleccionados. El párrafo se guarda en `informe.fundamentacion_normativa`.
 """
 
+import asyncio
 import time
 import json
 import logging
@@ -27,6 +28,7 @@ from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from app.src.application.services.llm.llm_router_service import LlmRouterService
+from app.src.application.services.informe.evidencias import evento_evidencias
 from app.src.application.services.informe.informe_store import informe_store
 from app.src.application.usecase.pasos.fundamentacion import PasoFundamentacion, situacion_del_caso
 from app.src.infrastructure.adapters.qdrant_adapter import QdrantAdapter
@@ -108,13 +110,61 @@ def _aplicar_seleccion_manual(informe, seleccion) -> list[tuple]:
 
 
 def _rag_y_marcar(fundamentador: PasoFundamentacion, problema, clasificacion: str, motivo: str,
-                  situacion: dict | None = None) -> list[dict]:
+                  situacion: dict | None = None, codreclamo: str | None = None) -> list[dict]:
     """RAG de los artículos + relevancia (`marcar_aplica`) en un solo paso
     bloqueante (para un único run_in_threadpool). `situacion` (ver
     situacion_del_caso) ajusta la query y descarta los artículos cuya premisa
-    no se cumple en el caso."""
+    no se cumple en el caso. No modifica `problema`: quien llama asigna el
+    resultado, así varias llamadas pueden correr a la vez."""
+    t0 = time.perf_counter()
     raw = fundamentador.buscar_articulos(problema, motivo, situacion)
-    return fundamentador.marcar_aplica(problema, raw, clasificacion, motivo, situacion)
+    t_rag = time.perf_counter() - t0
+    payload = fundamentador.marcar_aplica(problema, raw, clasificacion, motivo, situacion,
+                                          codreclamo=codreclamo)
+    logger.info(
+        "[TIEMPOS] fundamentacion.articulos | reclamo=%s | hecho=%s | rag=%.2fs | llm=%.2fs | "
+        "recuperados=%d | aplican=%d",
+        codreclamo, problema.id or problema.tipo, t_rag, time.perf_counter() - t0 - t_rag,
+        len(raw), sum(1 for a in payload if a.get("aplica")),
+    )
+    return payload
+
+
+def _lanzar_articulos(pares, fundamentador, informe, clasificacion: str, motivo: str) -> list:
+    """Lanza a la vez la búsqueda + relevancia de cada hecho que la necesita.
+    Devuelve, EN EL ORDEN DE `pares`, una tarea (o None si el hecho ya trae sus
+    artículos curados). Cada hecho es independiente: usa solo su propio texto y
+    la situación del caso, que se calcula una vez y no cambia durante el paso;
+    por eso el resultado es el mismo que en serie, solo que en menos tiempo."""
+    situacion = situacion_del_caso(informe)
+    return [
+        asyncio.ensure_future(run_in_threadpool(
+            _rag_y_marcar, fundamentador, problema, clasificacion, motivo, situacion,
+            informe.reclamo,
+        )) if needs_rag else None
+        for problema, needs_rag in pares
+    ]
+
+
+async def _cancelar(tareas: list) -> None:
+    """Si el paso falla a medias, no deja búsquedas huérfanas corriendo."""
+    pendientes = [t for t in tareas if t is not None and not t.done()]
+    for t in pendientes:
+        t.cancel()
+    if pendientes:
+        await asyncio.gather(*pendientes, return_exceptions=True)
+
+
+def _log_tiempos(codreclamo, modo: str, n: int, t_inicio: float,
+                 t_articulos: float, t_parrafo: float) -> None:
+    """Una línea por fundamentación con el reparto del tiempo: es la que
+    permite ver qué parte conviene optimizar."""
+    total = time.perf_counter() - t_inicio
+    logger.info(
+        "[TIEMPOS] fundamentacion | reclamo=%s | modo=%s | hechos=%d | seleccion=%.2fs | "
+        "articulos=%.2fs | parrafo=%.2fs | total=%.2fs",
+        codreclamo, modo, n, total - t_articulos - t_parrafo, t_articulos, t_parrafo, total,
+    )
 
 
 async def _resolver_seleccion(informe, request, fundamentador) -> list[tuple]:
@@ -189,6 +239,9 @@ def fundamentar_normativa_stream(
                     "fundamentacion": None,
                     "tiempo": tiempo,
                 }, ensure_ascii=False) + "\n"
+                ev = evento_evidencias(informe, "fundamentacion")
+                if ev:
+                    yield json.dumps(ev, ensure_ascii=False) + "\n"
                 logger.info(
                     "[API /investigacion/fundamentar-normativa/stream] Sin problemas determinantes | tiempo=%.2fs",
                     tiempo,
@@ -198,25 +251,33 @@ def fundamentar_normativa_stream(
 
             # --- Paso 2: artículos por seleccionado ---------------------------
             # needs_rag=True → RAG + relevancia; False → ya vienen curados del front.
+            # Todos se buscan a la vez; los eventos salen en el orden de siempre.
             medio_por_prob = _medio_por_problema(informe)
-            for problema, needs_rag in pares:
-                if needs_rag:
-                    problema.articulos = await run_in_threadpool(
-                        _rag_y_marcar, fundamentador, problema, clasificacion, motivo,
-                        situacion_del_caso(informe),
-                    )
-                yield json.dumps({
-                    "evento": "articulos",
-                    "medio_id": medio_por_prob.get(id(problema)),
-                    "detalle": problema.detalle,
-                    "articulos": problema.articulos,
-                }, ensure_ascii=False) + "\n"
+            t_articulos = time.perf_counter()
+            tareas = _lanzar_articulos(pares, fundamentador, informe, clasificacion, motivo)
+            try:
+                for (problema, _), tarea in zip(pares, tareas):
+                    if tarea is not None:
+                        problema.articulos = await tarea
+                    yield json.dumps({
+                        "evento": "articulos",
+                        "medio_id": medio_por_prob.get(id(problema)),
+                        "detalle": problema.detalle,
+                        "articulos": problema.articulos,
+                    }, ensure_ascii=False) + "\n"
+            finally:
+                await _cancelar(tareas)
+            t_articulos = time.perf_counter() - t_articulos
 
             # --- Paso 3: redacción del párrafo (solo artículos que aplican) ---
+            t_parrafo = time.perf_counter()
             parrafo = await run_in_threadpool(
                 fundamentador.redactar_parrafo, seleccionados, motivo, clasificacion,
+                informe.reclamo,
             )
             informe.fundamentacion_normativa = parrafo or None
+            _log_tiempos(request.codreclamo, modo, len(seleccionados), t_inicio,
+                         t_articulos, time.perf_counter() - t_parrafo)
 
             tiempo = time.perf_counter() - t_inicio
             yield json.dumps({
@@ -225,6 +286,9 @@ def fundamentar_normativa_stream(
                 "fundamentacion": parrafo,
                 "tiempo": tiempo,
             }, ensure_ascii=False) + "\n"
+            ev = evento_evidencias(informe, "fundamentacion")
+            if ev:
+                yield json.dumps(ev, ensure_ascii=False) + "\n"
 
             logger.info(
                 "[API /investigacion/fundamentar-normativa/stream] COMPLETADO | modo=%s | seleccionados=%d | tiempo=%.2fs",
@@ -273,16 +337,22 @@ async def fundamentar_normativa_sync(
         logger.info("=" * 60)
         return {"codreclamo": request.codreclamo, "fundamentacion": None, "tiempo": tiempo}
 
-    for problema, needs_rag in pares:
-        if needs_rag:
-            problema.articulos = await run_in_threadpool(
-                _rag_y_marcar, fundamentador, problema, clasificacion, motivo,
-                situacion_del_caso(informe),
-            )
+    t_articulos = time.perf_counter()
+    tareas = _lanzar_articulos(pares, fundamentador, informe, clasificacion, motivo)
+    try:
+        for (problema, _), tarea in zip(pares, tareas):
+            if tarea is not None:
+                problema.articulos = await tarea
+    finally:
+        await _cancelar(tareas)
+    t_articulos = time.perf_counter() - t_articulos
+    t_parrafo = time.perf_counter()
     parrafo = await run_in_threadpool(
-        fundamentador.redactar_parrafo, seleccionados, motivo, clasificacion,
+        fundamentador.redactar_parrafo, seleccionados, motivo, clasificacion, informe.reclamo,
     )
     informe.fundamentacion_normativa = parrafo or None
+    _log_tiempos(request.codreclamo, "auto" if request.seleccion is None else "manual",
+                 len(seleccionados), t_inicio, t_articulos, time.perf_counter() - t_parrafo)
 
     tiempo = time.perf_counter() - t_inicio
     logger.info(

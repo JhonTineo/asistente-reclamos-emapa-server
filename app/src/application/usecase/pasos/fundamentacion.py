@@ -545,7 +545,7 @@ class PasoFundamentacion:
                 "fundamentacion_seleccion", self.llm_router, self.model_id,
                 entrada=human, codreclamo=informe.reclamo,
             )
-            logger.info("RESPUESTA LLM seleccion (raw): %s", response_text)
+            logger.debug("RESPUESTA LLM seleccion (raw): %s", response_text)
             indices = [i for i in self._parse_indices(response_text or "", len(pool))
                        if i not in fijos][:MAX_ADICIONALES]
 
@@ -591,6 +591,7 @@ class PasoFundamentacion:
         clasificacion: str = "",
         contexto: str = "",
         situacion: dict | None = None,
+        codreclamo: str | None = None,
     ) -> list[dict]:
         """De los artículos recuperados por RAG, pide al LLM cuáles REGULAN el
         problema y devuelve el payload de artículos con un flag `aplica` por cada
@@ -632,13 +633,11 @@ class PasoFundamentacion:
             + f"\nArtículos:\n{listado}\n\n"
             "Devuelve SOLO el JSON con los índices de los artículos que aplican."
         )
-        logger.info(
-            "PROMPT LLM marcar_aplica | hallazgo=%s | articulos=%d", problema.detalle, len(payload),
-        )
         response_text = constructor_contexto.llamar(
             "fundamentacion_aplicabilidad", self.llm_router, self.model_id, entrada=human,
+            codreclamo=codreclamo,
         )
-        logger.info("RESPUESTA LLM marcar_aplica (raw): %s", response_text)
+        logger.debug("RESPUESTA LLM marcar_aplica (raw): %s", response_text)
         for j in self._parse_indices(response_text or "", len(candidatos)):
             payload[candidatos[j]]["aplica"] = True
         return payload
@@ -648,6 +647,7 @@ class PasoFundamentacion:
         problemas: list[ProblemaNormado],
         motivo: str = "",
         clasificacion: str = "",
+        codreclamo: str | None = None,
     ) -> str:
         """Fase final: UN párrafo de fundamentación normativa para los problemas
         determinantes seleccionados. Cita SOLO los artículos marcados `aplica`
@@ -677,5 +677,6 @@ class PasoFundamentacion:
 
         texto = constructor_contexto.llamar(
             "fundamentacion_parrafo", self.llm_router, self.model_id, entrada=human,
+            codreclamo=codreclamo,
         )
         return (texto or "").strip()

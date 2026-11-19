@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.src.application.services.rag.retriever import Retriever
 from app.src.infrastructure.adapters.qdrant_adapter import QdrantAdapter
@@ -17,7 +17,8 @@ logger = logging.getLogger("api.normativa.busqueda")
 # Consulta de normativa ya indexada, usada por el frontend y por los pasos
 # (fundamentación normativa). Para cargar/mantener normativas, ver
 # normativa_documentos.py y normativa_articulos.py.
-router = APIRouter(prefix="/normativa/busqueda", tags=["normativa-busqueda"])
+from app.src.infrastructure.api_rest.sesion import requerir_sesion_emapa
+router = APIRouter(prefix="/normativa/busqueda", tags=["normativa-busqueda"], dependencies=[Depends(requerir_sesion_emapa)])
 
 # Reglamento de Calidad + Reglamento General de Reclamos.
 REGLAMENTO_COLLECTIONS = ("sunass_reglamento", "sunass_reclamos")

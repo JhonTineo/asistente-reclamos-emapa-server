@@ -4,7 +4,7 @@ import re
 import uuid
 import tempfile
 
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 
 from app.src.application.services.rag.md_embedding_service import (
     parse_md_to_chunks,
@@ -24,7 +24,8 @@ logger = logging.getLogger("api.normativa.documentos")
 # Ingesta de normativas completas (un documento -> una colección en Qdrant).
 # Para mantenimiento de un artículo puntual dentro de una colección ya
 # cargada, ver normativa_articulos.py.
-router = APIRouter(prefix="/normativa/documentos", tags=["normativa-documentos"])
+from app.src.infrastructure.api_rest.sesion import requerir_sesion_emapa
+router = APIRouter(prefix="/normativa/documentos", tags=["normativa-documentos"], dependencies=[Depends(requerir_sesion_emapa)])
 
 
 def sanitize_filename(filename: str) -> str:

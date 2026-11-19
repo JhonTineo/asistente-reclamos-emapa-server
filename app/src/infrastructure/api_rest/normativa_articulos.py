@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.src.application.services.rag.legal_chunker import (
     normalizar_numero_articulo,
@@ -24,7 +24,8 @@ logger = logging.getLogger("api.normativa.articulos")
 
 # Mantenimiento manual de artículos puntuales dentro de una colección ya
 # cargada. Para subir una normativa completa, ver normativa_documentos.py.
-router = APIRouter(prefix="/normativa/articulos", tags=["normativa-articulos"])
+from app.src.infrastructure.api_rest.sesion import requerir_sesion_emapa
+router = APIRouter(prefix="/normativa/articulos", tags=["normativa-articulos"], dependencies=[Depends(requerir_sesion_emapa)])
 
 
 @router.get("", response_model=ListarArticulosResponse)

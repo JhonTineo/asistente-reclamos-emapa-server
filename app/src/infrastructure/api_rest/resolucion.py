@@ -14,11 +14,12 @@ from app.src.application.services.investigacion.resolucion_service import (
 )
 
 logger = logging.getLogger("api.resolucion")
+from app.src.infrastructure.api_rest.sesion import requerir_sesion_emapa
 
 router = APIRouter(
     prefix="/resolucion",
     tags=["resolucion"],
-    dependencies=[Depends(usar_token_emapa), Depends(usar_config_llm)],
+    dependencies=[Depends(requerir_sesion_emapa), Depends(usar_config_llm)],
 )
 
 

@@ -39,16 +39,18 @@ from app.src.infrastructure.api_rest.schemas.investigacion import (
 from app.src.infrastructure.adapters.emapa_http_adapter import EmapaHttpAdapter
 from app.src.application.usecase.pasos.conclusion import PasoConclusion
 from app.src.application.usecase.pasos.analisis_medio import PasoAnalisisMedio
+from app.src.application.services.informe.evidencias import evento_evidencias
 from app.src.application.services.informe.informe_store import informe_store
 from app.src.application.services.informe.render import construir_texto_informe
 from app.src.core.model.informe_atencion import BloqueMedio
 
 logger = logging.getLogger("api.investigacion_stream")
+from app.src.infrastructure.api_rest.sesion import requerir_sesion_emapa
 
 router = APIRouter(
     prefix="/investigacion",
     tags=["investigacion"],
-    dependencies=[Depends(usar_token_emapa), Depends(usar_config_llm)],
+    dependencies=[Depends(requerir_sesion_emapa), Depends(usar_config_llm)],
 )
 
 _DIRECTORIO_TECNICO_OPERACIONAL = Path(__file__).resolve().parents[4] / "volumes" / "operacional_data"
@@ -161,6 +163,9 @@ async def tecnico_operacional_stream(
                 "resumen": resumen,
                 "tiempo": time.perf_counter() - t_inicio,
             }, ensure_ascii=False) + "\n"
+            ev = evento_evidencias(informe_store.obtener(codreclamo), medio_id)
+            if ev:
+                yield json.dumps(ev, ensure_ascii=False) + "\n"
         except Exception as exc:  # noqa: BLE001
             logger.exception("[API tecnico-operacional] ERROR")
             yield json.dumps({"evento": "error", "medio_id": medio_id, "error": str(exc)}, ensure_ascii=False) + "\n"
@@ -277,6 +282,10 @@ async def generar_conclusion_stream(request: InformeRequest, llm_router: LlmRout
                 "motivos_evaluacion": [vars(m) for m in informe.motivos_evaluacion],
                 "mensaje_evaluacion": informe.mensaje_evaluacion,
             }, ensure_ascii=False) + "\n"
+            # Veredicto, dictamen y verificaciones para el panel de evidencias.
+            ev = evento_evidencias(informe, "conclusion")
+            if ev:
+                yield json.dumps(ev, ensure_ascii=False) + "\n"
 
             # --- Cierre: texto final del informe ------------------------------
             texto = construir_texto_informe(informe)

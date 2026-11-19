@@ -24,8 +24,9 @@ from app.src.infrastructure.api_rest.deps import usar_token_emapa, requerir_toke
 from app.src.infrastructure.api_rest.schemas.evidencias import EvidenciasResponse, FotosEvidenciaResponse
 
 logger = logging.getLogger("api.evidencias")
+from app.src.infrastructure.api_rest.sesion import requerir_sesion_emapa
 
-router = APIRouter(prefix="/reclamos", tags=["evidencias"], dependencies=[Depends(usar_token_emapa)])
+router = APIRouter(prefix="/reclamos", tags=["evidencias"], dependencies=[Depends(requerir_sesion_emapa)])
 
 
 def _informe_o_404(codreclamo: str):

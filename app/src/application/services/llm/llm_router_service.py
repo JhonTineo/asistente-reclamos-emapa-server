@@ -3,6 +3,7 @@ import threading
 from typing import Any
 from app.src.application.ports.model_port import PuertoCatalogoModelos
 from app.src.application.ports.provider_port import PuertoProveedorLLM, MensajeLLM
+from app.src.application.services.llm import uso_tokens
 
 logger = logging.getLogger("services.llm_router")
 
@@ -79,6 +80,7 @@ class LlmRouterService:
         max_tokens: int | None = None,
     ) -> str:
         self._local.ultimo_uso = None
+        uso_tokens.limpiar()
         if modelo_id == MODELO_AUTO:
             return self._ejecutar_auto(operacion, mensajes, esquema, temperatura, max_tokens)
 

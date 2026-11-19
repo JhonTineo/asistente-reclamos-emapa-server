@@ -37,6 +37,25 @@ from app.src.core.model.conciliacion import Conciliacion
 
 logger = logging.getLogger("services.informe_store")
 
+# Orden fijo de los bloques del informe: el mismo en que el asistente analizaba
+# los medios uno tras otro (MEDIOS_PROBATORIOS del front) y, al final, el
+# informe técnico operacional, que se sube después. Los medios se analizan en
+# paralelo y terminan en cualquier orden; sin este orden fijo, la lista de
+# hechos y de resúmenes que reciben la fundamentación y el dictamen cambiaría
+# de una corrida a otra.
+ORDEN_MEDIOS = (
+    "inspeccion_externa", "inspeccion_interna", "record_facturacion",
+    "tarjeta_lectura", "corte_reapertura", "saldo_detalle", "saldo_actual",
+    "tecnico_operacional",
+)
+
+
+def ordenar_bloques(bloques: list[BloqueMedio]) -> list[BloqueMedio]:
+    """Ordena por ORDEN_MEDIOS; un medio desconocido va al final, en el orden
+    en que llegó (sort estable)."""
+    posicion = {m: i for i, m in enumerate(ORDEN_MEDIOS)}
+    return sorted(bloques, key=lambda b: posicion.get(b.medio_id, len(ORDEN_MEDIOS)))
+
 DESTINATARIO_DEFAULT = "Jefe de la Oficina de Atención al Cliente"
 ASUNTO_DEFAULT = "RESULTADOS DE LA EVALUACIÓN DE RECLAMO PRESENTADO"
 
@@ -443,10 +462,9 @@ class InformeAtencionStore:
             # problemas que se repiten conservan su ID de hecho.
             anterior = next((b for b in informe.bloques if b.medio_id == bloque.medio_id), None)
             asignar_ids_bloque(informe, bloque, anterior)
-            informe.bloques = [
-                b for b in informe.bloques if b.medio_id != bloque.medio_id
-            ]
-            informe.bloques.append(bloque)
+            informe.bloques = ordenar_bloques([
+                *(b for b in informe.bloques if b.medio_id != bloque.medio_id), bloque,
+            ])
             if origen_resumen:
                 marcar_origen(informe, tipo_resumen(bloque.medio_id), origen_resumen)
             self._persistir_locked(informe)

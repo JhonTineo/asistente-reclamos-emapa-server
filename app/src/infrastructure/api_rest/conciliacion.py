@@ -17,11 +17,12 @@ from app.src.application.services.investigacion.conciliacion_service import (
 )
 
 logger = logging.getLogger("api.conciliacion")
+from app.src.infrastructure.api_rest.sesion import requerir_sesion_emapa
 
 router = APIRouter(
     prefix="/conciliacion",
     tags=["conciliacion"],
-    dependencies=[Depends(usar_token_emapa), Depends(usar_config_llm)],
+    dependencies=[Depends(requerir_sesion_emapa), Depends(usar_config_llm)],
 )
 
 

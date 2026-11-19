@@ -9,6 +9,7 @@ fijando la puerta lógica de la conclusión. Si un medio aún no se analizó, su
 parte sale vacía y `disponible` lo indica.
 """
 
+import logging
 import re
 from dataclasses import asdict
 from datetime import date
@@ -17,6 +18,8 @@ from app.src.core.model.informe_atencion import InformeAtencion, ProblemaNormado
 from app.src.core.model.indicadores.inspeccion_externa_indicadores import INDICADORES_INSPECCION_EXTERNA
 from app.src.core.model.indicadores.inspeccion_interna_indicadores import INDICADORES_INSPECCION_INTERNA
 from app.src.application.services.pre_proces.pre_targeta_lecturas_service import FACTOR_ELEVADO, FACTOR_NORMAL
+
+logger = logging.getLogger("informe.evidencias")
 
 MESES_NUM = {
     "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
@@ -428,3 +431,46 @@ def construir_evidencias(informe: InformeAtencion) -> dict:
         },
         "generado": date.today().isoformat(),
     }
+
+
+# ---------------------------------------------------------------------------
+# Evidencias por paso (para los streams)
+# ---------------------------------------------------------------------------
+# Cada stream (medio, fundamentación, conclusión) emite, al terminar, solo la
+# parte de las evidencias que su paso pudo cambiar; el front la mezcla con lo
+# que ya tiene y no necesita volver a pedir GET /reclamos/{cod}/evidencias.
+# Las claves "comunes" son baratas y dependen de varios medios a la vez (la
+# línea de tiempo junta fechas de todos; las verificaciones, los objetivos).
+_CLAVES_COMUNES = ("veredicto", "verificaciones", "linea_tiempo", "disponible")
+_CLAVES_POR_PASO = {
+    "tarjeta_lectura": ("serie", "indicadores"),
+    "record_facturacion": ("serie", "indicadores"),
+    "inspeccion_externa": ("inspeccion_externa",),
+    "inspeccion_interna": ("inspeccion_interna",),
+    "corte_reapertura": ("medios",),
+    "saldo_detalle": ("medios",),
+    "tecnico_operacional": ("medios",),
+    "fundamentacion": ("fundamentacion",),
+    "conclusion": ("conclusion", "fundamentacion"),
+}
+
+
+def evidencias_de_paso(informe: InformeAtencion, paso: str) -> dict:
+    """Parte de las evidencias que cambia al terminar ``paso`` (un medio,
+    "fundamentacion" o "conclusion"). Mismo formato que ``construir_evidencias``
+    pero solo con esas claves (más las comunes)."""
+    completas = construir_evidencias(informe)
+    claves = _CLAVES_COMUNES + _CLAVES_POR_PASO.get(paso, ())
+    return {k: completas[k] for k in claves if k in completas}
+
+
+def evento_evidencias(informe: InformeAtencion | None, paso: str) -> dict | None:
+    """Evento NDJSON ``evidencias`` para un stream, o None si no se pudo armar
+    (las evidencias nunca deben romper el stream del paso)."""
+    if informe is None:
+        return None
+    try:
+        return {"evento": "evidencias", "paso": paso, "evidencias": evidencias_de_paso(informe, paso)}
+    except Exception:  # noqa: BLE001
+        logger.exception("[EVIDENCIAS] No se pudieron armar las evidencias del paso %s", paso)
+        return None

@@ -5,6 +5,7 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, Base
 from pydantic import SecretStr
 
 from app.src.application.ports.provider_port import PuertoProveedorLLM, MensajeLLM
+from app.src.application.services.llm import uso_tokens
 
 logger = logging.getLogger("tools.llm.openai_compat")
 
@@ -17,7 +18,8 @@ def _log_respuesta_cruda(etiqueta: str, modelo_id: str, response: BaseMessage) -
     se sabe qué escribió realmente el modelo."""
     contenido = str(response.content)
     meta = response.response_metadata or {}
-    logger.info(
+    uso_tokens.desde_respuesta(response)
+    logger.debug(
         "[OpenAI Compat] Respuesta %s | modelo=%s | chars=%d | finish_reason=%s | uso=%s",
         etiqueta, modelo_id, len(contenido),
         meta.get("finish_reason", "?"), meta.get("token_usage", {}),
@@ -68,10 +70,11 @@ class OpenAiCompatProviderAdapter(PuertoProveedorLLM):
         key_del_header = ctx.get("api_key") if ctx_proveedor == self.provider_id else None
         api_key = key_del_header or self.api_key
 
-        logger.info(
-            "[OpenAI Compat] _crear_cliente | base_url=%s | modelo=%s | api_key=%s",
+        # Nunca se registra la key (ni su prefijo): solo si viene del header o del entorno.
+        logger.debug(
+            "[OpenAI Compat] _crear_cliente | base_url=%s | modelo=%s | key=%s",
             self.base_url, modelo_id,
-            f"{api_key[:8]}…" if api_key else "(vacía)",
+            "header" if key_del_header else ("entorno" if api_key else "(vacía)"),
         )
         
         return ChatOpenAI(
@@ -94,7 +97,7 @@ class OpenAiCompatProviderAdapter(PuertoProveedorLLM):
         llm = self._crear_cliente(modelo_id, temperatura, max_tokens)
         lc_mensajes = _convertir_mensajes(mensajes)
         
-        logger.info(f"[OpenAI Compat] Generando texto con modelo: {modelo_id}")
+        logger.debug(f"[OpenAI Compat] Generando texto con modelo: {modelo_id}")
         response = llm.invoke(lc_mensajes)
         _log_respuesta_cruda("texto", modelo_id, response)
 
@@ -113,7 +116,7 @@ class OpenAiCompatProviderAdapter(PuertoProveedorLLM):
         llm = self._crear_cliente(modelo_id, temperatura, max_tokens)
         lc_mensajes = _convertir_mensajes(mensajes)
 
-        logger.info(f"[OpenAI Compat] Generando JSON con modelo: {modelo_id}")
+        logger.debug(f"[OpenAI Compat] Generando JSON con modelo: {modelo_id}")
         response = llm.invoke(lc_mensajes)
         _log_respuesta_cruda("json", modelo_id, response)
 

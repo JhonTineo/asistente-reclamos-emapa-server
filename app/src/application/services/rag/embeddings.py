@@ -45,6 +45,34 @@ def _perfil(modelo: str) -> tuple[str, str]:
     return ("", "")
 
 
+def _keep_alive(valor: str | None) -> int | str | None:
+    """Ollama acepta segundos (int, -1 = siempre) o una duración ("30m").
+    Vacío = el valor por defecto de Ollama."""
+    valor = (valor or "").strip()
+    if not valor:
+        return None
+    try:
+        return int(valor)
+    except ValueError:
+        return valor
+
+
+def precalentar() -> None:
+    """Carga el modelo de embeddings en Ollama antes de la primera búsqueda
+    (se llama al arrancar, en segundo plano). Nunca falla: si Ollama no está,
+    la primera búsqueda lo cargará como siempre."""
+    import logging
+    import time
+    log = logging.getLogger("rag.embeddings")
+    inicio = time.perf_counter()
+    try:
+        EmbeddingService().encode_query("precalentado")
+        log.info("[EMBEDDINGS] Modelo %s cargado en Ollama (%.1fs)",
+                 settings.ollama_embedding_model, time.perf_counter() - inicio)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[EMBEDDINGS] No se pudo precalentar %s: %s", settings.ollama_embedding_model, exc)
+
+
 class EmbeddingService:
 
     _dimension_cache: dict[str, int] = {}
@@ -55,6 +83,7 @@ class EmbeddingService:
         self.model = OllamaEmbeddings(
             model=self.model_name,
             base_url=settings.ollama_base_url,
+            keep_alive=_keep_alive(settings.ollama_embedding_keep_alive),
         )
 
     def encode(self, text: str) -> list[float]:

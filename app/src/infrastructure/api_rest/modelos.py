@@ -35,7 +35,11 @@ from app.src.infrastructure.api_rest.schemas.modelo import (
 
 logger = logging.getLogger("api.modelos")
 
-router = APIRouter(prefix="/modelos", tags=["modelos"])
+from app.src.infrastructure.api_rest.sesion import requerir_sesion_emapa
+
+# Exige sesión de EMAPA: /creditos usa la API key del servidor si el navegador
+# no manda una, y /cargar y /descargar mueven modelos en Ollama.
+router = APIRouter(prefix="/modelos", tags=["modelos"], dependencies=[Depends(requerir_sesion_emapa)])
 
 TOKENS_POR_RECLAMO_DEFAULT = 10_000
 

@@ -2,7 +2,7 @@ import logging
 import re
 from collections import defaultdict
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
 from app.src.application.services.rag.legal_chunker import normalizar_numero_articulo
 from app.src.infrastructure.adapters.qdrant_adapter import QdrantAdapter
@@ -18,7 +18,8 @@ logger = logging.getLogger("api.normativa.reconstruccion")
 # Rearma el reglamento completo desde Qdrant (fuente de verdad tras las
 # modificaciones manuales) y reporta inconsistencias, para auditar que las
 # altas/bajas/ediciones de artículos quedaron consistentes.
-router = APIRouter(prefix="/normativa/reglamento", tags=["normativa-reconstruccion"])
+from app.src.infrastructure.api_rest.sesion import requerir_sesion_emapa
+router = APIRouter(prefix="/normativa/reglamento", tags=["normativa-reconstruccion"], dependencies=[Depends(requerir_sesion_emapa)])
 
 
 def _article_sort_key(article: str) -> tuple:
