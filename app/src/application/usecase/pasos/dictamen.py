@@ -165,6 +165,37 @@ def cumple_requisito(criterio: Criterio, citados: list[ProblemaNormado]) -> bool
     )
 
 
+def completar_citas(criterio: Criterio, citados: list[ProblemaNormado],
+                    todos: list[ProblemaNormado]) -> list[ProblemaNormado] | None:
+    """Hechos que faltan citar para que ``citados`` cumpla la condición del
+    criterio, tomados de ``todos`` los hechos del caso. Devuelve ``[]`` si ya
+    se cumple, la lista más corta de hechos a agregar si alguna alternativa (|)
+    se puede completar, o ``None`` si ningún hecho del caso la cumple.
+
+    Existe porque el filtro previo (``criterios_sin_requisito``) evalúa la
+    condición sobre TODOS los hechos, pero el modelo suele citar solo el hecho
+    principal: en «vpaZona.operativa=false & horarioAbastecimiento.continuo=false»
+    cita la VPA y omite el horario. La condición es objetiva y ya se sabe que el
+    caso la cumple; completar la cita es más fiable que pedirle al modelo que
+    adivine qué faltó, y evita que el caso termine en error de evaluación."""
+    if cumple_requisito(criterio, citados):
+        return []
+    mejor: list[ProblemaNormado] | None = None
+    for alternativa in criterio.requiere:
+        agregar: list[ProblemaNormado] = []
+        for parte in alternativa.split("&"):
+            if any(_cumple_parte(h, parte) for h in citados + agregar):
+                continue
+            candidato = next((h for h in todos if _cumple_parte(h, parte)), None)
+            if candidato is None:
+                break
+            agregar.append(candidato)
+        else:
+            if mejor is None or len(agregar) < len(mejor):
+                mejor = agregar
+    return mejor
+
+
 def criterios_sin_requisito(criterios: dict[str, Criterio],
                             hechos: list[ProblemaNormado]) -> set[str]:
     """IDs de los criterios cuya condición («Requiere») no cumple NINGÚN hecho
@@ -220,12 +251,22 @@ def verificar(data: dict, criterios: dict[str, Criterio],
             validos = [hechos[h] for h in citados if h in hechos]
             if not validos:
                 errores.append(f"{cid}: aplica, pero no cita ningún hecho que lo sustente.")
-            elif not cumple_requisito(criterio, validos):
-                errores.append(
-                    f"{cid}: marcado como aplica, pero ningún hecho citado cumple su condición "
-                    f"({' o '.join(criterio.requiere)}). Revisa el valor de los hechos: si la "
-                    "condición no se cumple, el criterio no aplica."
-                )
+            else:
+                faltantes = completar_citas(criterio, validos, list(hechos.values()))
+                if faltantes is None:
+                    errores.append(
+                        f"{cid}: marcado como aplica, pero ningún hecho del caso cumple su "
+                        f"condición ({' o '.join(criterio.requiere)}). Revisa el valor de los "
+                        "hechos: si la condición no se cumple, el criterio no aplica."
+                    )
+                elif faltantes:
+                    # La condición se cumple con hechos del caso que el modelo no
+                    # citó: se agregan a la cita en vez de rechazar la respuesta.
+                    citados = citados + [h.id for h in faltantes if h.id not in citados]
+                    logger.info(
+                        "[DICTAMEN] %s: se completan las citas con %s para cumplir su condición",
+                        cid, [h.id for h in faltantes],
+                    )
             if favorece not in FAVORECE_VALIDOS:
                 errores.append(f"{cid}: aplica, pero \"favorece\" debe ser usuario, empresa o revision.")
         factores[cid] = Factor(

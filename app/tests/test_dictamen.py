@@ -334,8 +334,27 @@ class Caso252629Test(unittest.TestCase):
         _, errores = verificar({"factores": [
             {"criterio": "ATI-01", "aplica": "aplica", "hechos": ["H-tl-01"], "favorece": "usuario"},
         ]}, criterios, hechos)
-        self.assertTrue(any("ATI-01: marcado como aplica, pero ningún hecho citado cumple su condición" in e
+        self.assertTrue(any("ATI-01: marcado como aplica, pero ningún hecho del caso cumple su condición" in e
                             for e in errores))
+
+    def test_completa_las_citas_cuando_el_caso_cumple_la_condicion(self):
+        """252607: VPA inoperativa y servicio discontinuo. El modelo marcaba
+        VPA-02 citando solo el hecho de la VPA; la condición exige también el
+        horario, así que el verificador lo rechazaba dos veces y el caso
+        terminaba en error_evaluacion aunque el caso SÍ cumplía la condición."""
+        informe = _caso_252629()
+        hechos = {h.id: h for b in informe.bloques for h in b.hechos}
+        hechos["H-to-03"].valor = {"existe": True, "operativa": False}
+        criterios = {"VPA-02": Criterio(
+            "VPA-02", "VPA inoperativa", "por_confirmar", "Art. 75", "…", fuerza="decisivo",
+            requiere=("vpaZona.operativa=false & horarioAbastecimiento.continuo=false",
+                      "vpaZona.operativa=false & interrupcionesPeriodo.hubo=true"),
+        )}
+        factores, errores = verificar({"factores": [
+            {"criterio": "VPA-02", "aplica": "aplica", "hechos": ["H-to-03"], "favorece": "usuario"},
+        ]}, criterios, hechos)
+        self.assertEqual(errores, [])
+        self.assertEqual(factores[0].hechos, ["H-to-03", "H-to-01"])
 
     def test_un_criterio_sin_su_condicion_se_descarta_sin_preguntar_al_modelo(self):
         """252629: el consumo tiene atipico=false. ATI-01 y ATI-02 no se envían

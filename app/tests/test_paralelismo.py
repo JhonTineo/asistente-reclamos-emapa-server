@@ -60,19 +60,25 @@ class OrdenDeBloquesTest(unittest.TestCase):
 class _FundamentadorLento:
     """Simula el RAG: el primer hecho es el más lento, así terminan al revés."""
 
-    def __init__(self, n: int):
+    def __init__(self, n: int, demora_seleccion: float = 0.0):
         self.n = n
         self.hilos = set()
         self.concurrentes = 0
         self.max_concurrentes = 0
         self._lock = threading.Lock()
         self.parrafo_recibido = None
+        self.demora_seleccion = demora_seleccion
+        self.fin_seleccion = None
+        self.inicio_busqueda: dict[str, float] = {}
 
     def seleccionar_determinantes(self, informe):
+        time.sleep(self.demora_seleccion)
+        self.fin_seleccion = time.perf_counter()
         return list(informe.hechos)
 
     def buscar_articulos(self, problema, motivo, situacion):
         with self._lock:
+            self.inicio_busqueda[problema.id] = time.perf_counter()
             self.concurrentes += 1
             self.max_concurrentes = max(self.max_concurrentes, self.concurrentes)
             self.hilos.add(threading.get_ident())
@@ -91,22 +97,31 @@ class _FundamentadorLento:
 
 class FundamentacionEnParaleloTest(unittest.TestCase):
 
-    def test_articulos_en_paralelo_conservan_orden_y_asignacion(self):
-        n = 4
-        hechos = [ProblemaNormado(tipo="errorConsumo", detalle=f"h{i}", id=f"H-tl-0{i}")
-                  for i in range(n)]
+    def _correr(self, fake, hechos, fijos):
         informe = SimpleNamespace(reclamo="R-9", objetivos=[object()], bloques=[], hechos=hechos,
                                   clasificacion="A1", motivo="consumo alto",
                                   fundamentacion_normativa=None)
         store = SimpleNamespace(obtener=lambda _c: informe, invalidar_decision=lambda *_a: None)
-        fake = _FundamentadorLento(n)
         request = SimpleNamespace(codreclamo="R-9", seleccion=None, clasificacion=None, modelo=None)
-
         with patch.object(fundamentacion_service, "informe_store", store), \
-             patch.object(fundamentacion_service, "_crear_paso", lambda *_a: fake):
+             patch.object(fundamentacion_service, "_crear_paso", lambda *_a: fake), \
+             patch.object(fundamentacion_service, "_limpiar_seleccion", lambda _i: None), \
+             patch.object(fundamentacion_service.PasoFundamentacion, "hechos_fijos",
+                          staticmethod(lambda _i: fijos)):
             inicio = time.perf_counter()
             res = asyncio.run(fundamentacion_service.fundamentar_normativa_sync(request, None))
-            duracion = time.perf_counter() - inicio
+            return res, time.perf_counter() - inicio
+
+    @staticmethod
+    def _hechos(n):
+        return [ProblemaNormado(tipo="errorConsumo", detalle=f"h{i}", id=f"H-tl-0{i}")
+                for i in range(n)]
+
+    def test_articulos_en_paralelo_conservan_orden_y_asignacion(self):
+        n = 4
+        hechos = self._hechos(n)
+        fake = _FundamentadorLento(n)
+        res, duracion = self._correr(fake, hechos, fijos=[])
 
         # Mismo resultado que en serie: cada hecho con SUS artículos y en su orden.
         self.assertEqual(fake.parrafo_recibido, [(h.id, h.id) for h in hechos])
@@ -115,6 +130,47 @@ class FundamentacionEnParaleloTest(unittest.TestCase):
         # Y en paralelo: en serie serían 0.05·(4+3+2+1) = 0.5 s.
         self.assertGreater(fake.max_concurrentes, 1)
         self.assertLess(duracion, 0.4)
+
+    def test_los_fijos_se_buscan_durante_la_seleccion_sin_cambiar_el_resultado(self):
+        n = 4
+        hechos = self._hechos(n)
+        fake = _FundamentadorLento(n, demora_seleccion=0.15)
+        fijos = hechos[:2]
+        _, _ = self._correr(fake, hechos, fijos=fijos)
+
+        # Los fijos arrancaron ANTES de que terminara la selección del LLM...
+        for h in fijos:
+            self.assertLess(fake.inicio_busqueda[h.id], fake.fin_seleccion, h.id)
+        # ...los elegidos por el modelo, después (antes no se conocían)...
+        for h in hechos[2:]:
+            self.assertGreaterEqual(fake.inicio_busqueda[h.id], fake.fin_seleccion, h.id)
+        # ...y nada se buscó dos veces ni cambió el resultado ni su orden.
+        self.assertEqual(len(fake.inicio_busqueda), n)
+        self.assertEqual(fake.parrafo_recibido, [(h.id, h.id) for h in hechos])
+
+
+class CacheEmbeddingsTest(unittest.TestCase):
+
+    def test_misma_consulta_no_vuelve_a_calcularse_y_da_el_mismo_vector(self):
+        from app.src.application.services.rag.embeddings import EmbeddingService
+        llamadas = []
+
+        class Modelo:
+            def embed_query(self, texto):
+                llamadas.append(texto)
+                return [float(len(texto)), 1.0]
+
+        servicio = EmbeddingService.__new__(EmbeddingService)
+        servicio.model_name, servicio.prefijo_query, servicio.model = "prueba-cache", "Q: ", Modelo()
+        EmbeddingService._cache_consultas.clear()
+
+        primero = servicio.encode_query("consumo atípico")
+        segundo = servicio.encode_query("consumo atípico")
+        servicio.encode_query("otra consulta")
+        self.assertEqual(primero, segundo)
+        self.assertEqual(llamadas, ["Q: consumo atípico", "Q: otra consulta"])
+        segundo.append(9.9)   # modificar lo devuelto no altera lo guardado
+        self.assertEqual(servicio.encode_query("consumo atípico"), primero[:2])
 
 
 class UsoTokensTest(unittest.TestCase):

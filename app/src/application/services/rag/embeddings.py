@@ -15,6 +15,9 @@ IMPORTANTE: al cambiar de modelo hay que REINDEXAR (recrear) las colecciones;
 vectores de modelos distintos no son comparables.
 """
 
+import threading
+from collections import OrderedDict
+
 from langchain_ollama import OllamaEmbeddings
 
 from app.src.infrastructure.config.settings import settings
@@ -73,9 +76,15 @@ def precalentar() -> None:
         log.warning("[EMBEDDINGS] No se pudo precalentar %s: %s", settings.ollama_embedding_model, exc)
 
 
+MAX_CACHE_CONSULTAS = 512   # ~1024 floats c/u: unos 4 MB como máximo
+
+
 class EmbeddingService:
 
     _dimension_cache: dict[str, int] = {}
+    # Compartido por todas las instancias (cada fundamentación crea la suya).
+    _cache_consultas: "OrderedDict[tuple[str, str], tuple[float, ...]]" = OrderedDict()
+    _lock_cache = threading.Lock()
 
     def __init__(self, model: str | None = None):
         self.model_name = model or settings.ollama_embedding_model
@@ -99,8 +108,22 @@ class EmbeddingService:
         )
 
     def encode_query(self, text: str) -> list[float]:
-        """Vector de CONSULTA (para buscar)."""
-        return self.model.embed_query(self.prefijo_query + text)
+        """Vector de CONSULTA (para buscar). El mismo texto con el mismo modelo
+        da siempre el mismo vector, así que se guarda en memoria: regenerar la
+        fundamentación de un caso no vuelve a pagar sus embeddings (~4 s cada
+        uno con 1.5 CPUs)."""
+        clave = (self.model_name, self.prefijo_query + text)
+        with self._lock_cache:
+            vector = self._cache_consultas.get(clave)
+            if vector is not None:
+                self._cache_consultas.move_to_end(clave)
+                return list(vector)
+        vector = self.model.embed_query(self.prefijo_query + text)
+        with self._lock_cache:
+            self._cache_consultas[clave] = tuple(vector)
+            while len(self._cache_consultas) > MAX_CACHE_CONSULTAS:
+                self._cache_consultas.popitem(last=False)
+        return vector
 
     @property
     def dimension(self) -> int:

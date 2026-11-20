@@ -473,6 +473,25 @@ class PasoFundamentacion:
         ve el front; la selección marca `seleccionado` sobre estos mismos objetos."""
         return [h for _, h in PasoFundamentacion.candidatos(informe)]
 
+    @staticmethod
+    def indices_fijos(pool: list[ProblemaNormado]) -> list[int]:
+        """Índices de los hechos que entran SIEMPRE (por regla, sin el LLM).
+        Primero los del mes reclamado y después las demás limitaciones: en ese
+        orden llegan a la redacción, que empieza por el mes en disputa."""
+        return ([i for i, p in enumerate(pool) if p.tipo in HECHOS_MES_RECLAMADO]
+                + [i for i, p in enumerate(pool)
+                   if p.tipo in SIEMPRE_INCLUIDOS and p.tipo not in HECHOS_MES_RECLAMADO])
+
+    @classmethod
+    def hechos_fijos(cls, informe) -> list[ProblemaNormado]:
+        """Los hechos que ``seleccionar_determinantes`` incluirá sí o sí. Se
+        conocen ANTES de la selección por LLM, así que sus artículos pueden
+        buscarse mientras el modelo elige los adicionales."""
+        if not cls._medios_determinantes(informe):
+            return []
+        pool = cls.pool_determinante(informe)
+        return [pool[i] for i in cls.indices_fijos(pool)]
+
     def seleccionar_determinantes(self, informe) -> list[ProblemaNormado]:
         """Hechos que sustentan la fundamentación: los SIEMPRE_INCLUIDOS (por
         regla) más los que el LLM elija, de la lista de hechos de los medios
@@ -497,11 +516,7 @@ class PasoFundamentacion:
         for i, mid in enumerate(medio_de_pool):
             idxs_por_medio.setdefault(mid, []).append(i)
 
-        # Primero los del mes reclamado y después las demás limitaciones: en ese
-        # orden llegan a la redacción, que empieza por el mes en disputa.
-        fijos = ([i for i, p in enumerate(pool) if p.tipo in HECHOS_MES_RECLAMADO]
-                 + [i for i, p in enumerate(pool)
-                    if p.tipo in SIEMPRE_INCLUIDOS and p.tipo not in HECHOS_MES_RECLAMADO])
+        fijos = self.indices_fijos(pool)
 
         def linea(i: int) -> str:
             clase = "hecho verificado" if pool[i].clase == "constatacion" else "problema"

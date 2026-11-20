@@ -130,20 +130,19 @@ def _rag_y_marcar(fundamentador: PasoFundamentacion, problema, clasificacion: st
     return payload
 
 
-def _lanzar_articulos(pares, fundamentador, informe, clasificacion: str, motivo: str) -> list:
-    """Lanza a la vez la búsqueda + relevancia de cada hecho que la necesita.
-    Devuelve, EN EL ORDEN DE `pares`, una tarea (o None si el hecho ya trae sus
-    artículos curados). Cada hecho es independiente: usa solo su propio texto y
-    la situación del caso, que se calcula una vez y no cambia durante el paso;
-    por eso el resultado es el mismo que en serie, solo que en menos tiempo."""
+def _lanzador(fundamentador, informe, clasificacion: str, motivo: str):
+    """Devuelve una función que lanza, en segundo plano, la búsqueda +
+    relevancia de UN hecho. Cada hecho es independiente: usa solo su propio
+    texto y la situación del caso, que se calcula una vez y no cambia durante
+    el paso; por eso el resultado es el mismo que en serie, solo antes."""
     situacion = situacion_del_caso(informe)
-    return [
-        asyncio.ensure_future(run_in_threadpool(
+
+    def lanzar(problema) -> asyncio.Future:
+        return asyncio.ensure_future(run_in_threadpool(
             _rag_y_marcar, fundamentador, problema, clasificacion, motivo, situacion,
             informe.reclamo,
-        )) if needs_rag else None
-        for problema, needs_rag in pares
-    ]
+        ))
+    return lanzar
 
 
 async def _cancelar(tareas: list) -> None:
@@ -167,15 +166,30 @@ def _log_tiempos(codreclamo, modo: str, n: int, t_inicio: float,
     )
 
 
-async def _resolver_seleccion(informe, request, fundamentador) -> list[tuple]:
-    """Devuelve [(problema, needs_rag)] según el modo:
-    - manual (request.seleccion presente): usa la selección del usuario.
-    - automático: el LLM elige y todos requieren RAG."""
+async def _seleccionar_y_lanzar(informe, request, fundamentador, clasificacion: str,
+                                motivo: str, tareas: list) -> list:
+    """Resuelve los hechos a fundamentar y lanza la búsqueda de sus artículos.
+    Devuelve los hechos seleccionados y deja en ``tareas`` (que recibe vacía)
+    una tarea por hecho, en el mismo orden (None si ya trae artículos curados).
+    - manual (request.seleccion presente): la selección del usuario.
+    - automático: los hechos que entran por regla se empiezan a buscar YA,
+      mientras el LLM elige los adicionales; estos se lanzan al terminar."""
+    lanzar = _lanzador(fundamentador, informe, clasificacion, motivo)
     if request.seleccion is not None:
-        return _aplicar_seleccion_manual(informe, request.seleccion)
+        pares = _aplicar_seleccion_manual(informe, request.seleccion)
+        tareas.extend(lanzar(p) if needs_rag else None for p, needs_rag in pares)
+        return [p for p, _ in pares]
+
     _limpiar_seleccion(informe)
+    adelantadas = {id(p): lanzar(p) for p in PasoFundamentacion.hechos_fijos(informe)}
+    tareas.extend(adelantadas.values())   # para cancelarlas si la selección falla
     seleccionados = await run_in_threadpool(fundamentador.seleccionar_determinantes, informe)
-    return [(p, True) for p in seleccionados]
+    tareas.clear()
+    tareas.extend(adelantadas.pop(id(p), None) or lanzar(p) for p in seleccionados)
+    # No debería quedar ninguna (los fijos siempre se seleccionan); por si acaso.
+    for sobrante in adelantadas.values():
+        sobrante.cancel()
+    return seleccionados
 
 
 def fundamentar_normativa_stream(
@@ -219,10 +233,15 @@ def fundamentar_normativa_stream(
         motivo = informe.motivo or ""
         fundamentador = _crear_paso(llm_router, request.modelo)
 
+        tareas: list = []
         try:
             # --- Paso 1: selección (auto por LLM o manual del front) ----------
-            pares = await _resolver_seleccion(informe, request, fundamentador)
-            seleccionados = [p for p, _ in pares]
+            # La búsqueda de artículos de cada hecho arranca en cuanto se sabe
+            # que entra (los fijos, durante la selección del LLM).
+            seleccionados = await _seleccionar_y_lanzar(
+                informe, request, fundamentador, clasificacion, motivo, tareas,
+            )
+            t_seleccion = time.perf_counter()
 
             # Lista completa de tarjetas (con seleccionado ya resuelto).
             yield json.dumps({
@@ -250,24 +269,20 @@ def fundamentar_normativa_stream(
                 return
 
             # --- Paso 2: artículos por seleccionado ---------------------------
-            # needs_rag=True → RAG + relevancia; False → ya vienen curados del front.
-            # Todos se buscan a la vez; los eventos salen en el orden de siempre.
+            # Tarea None → ya vienen curados del front. Las búsquedas ya están
+            # en marcha; los eventos salen en el orden de siempre.
             medio_por_prob = _medio_por_problema(informe)
-            t_articulos = time.perf_counter()
-            tareas = _lanzar_articulos(pares, fundamentador, informe, clasificacion, motivo)
-            try:
-                for (problema, _), tarea in zip(pares, tareas):
-                    if tarea is not None:
-                        problema.articulos = await tarea
-                    yield json.dumps({
-                        "evento": "articulos",
-                        "medio_id": medio_por_prob.get(id(problema)),
-                        "detalle": problema.detalle,
-                        "articulos": problema.articulos,
-                    }, ensure_ascii=False) + "\n"
-            finally:
-                await _cancelar(tareas)
-            t_articulos = time.perf_counter() - t_articulos
+            for problema, tarea in zip(seleccionados, tareas):
+                if tarea is not None:
+                    problema.articulos = await tarea
+                yield json.dumps({
+                    "evento": "articulos",
+                    "medio_id": medio_por_prob.get(id(problema)),
+                    "detalle": problema.detalle,
+                    "articulos": problema.articulos,
+                }, ensure_ascii=False) + "\n"
+            # Lo que se esperó DESPUÉS de la selección (lo adelantado no cuenta).
+            t_articulos = time.perf_counter() - t_seleccion
 
             # --- Paso 3: redacción del párrafo (solo artículos que aplican) ---
             t_parrafo = time.perf_counter()
@@ -298,6 +313,9 @@ def fundamentar_normativa_stream(
         except Exception as e:  # noqa: BLE001
             logger.exception("[API /investigacion/fundamentar-normativa/stream] ERROR")
             yield json.dumps({"evento": "error", "error": str(e)}, ensure_ascii=False) + "\n"
+        finally:
+            # Error o cliente desconectado: no deja búsquedas huérfanas.
+            await _cancelar(tareas)
 
     return StreamingResponse(generador(), media_type="application/x-ndjson")
 
@@ -328,24 +346,25 @@ async def fundamentar_normativa_sync(
     motivo = informe.motivo or ""
     fundamentador = _crear_paso(llm_router, request.modelo)
 
-    pares = await _resolver_seleccion(informe, request, fundamentador)
-    seleccionados = [p for p, _ in pares]
-    if not seleccionados:
-        informe.fundamentacion_normativa = None
-        tiempo = time.perf_counter() - t_inicio
-        logger.info("[API /investigacion/fundamentar-normativa] Sin problemas determinantes | tiempo=%.2fs", tiempo)
-        logger.info("=" * 60)
-        return {"codreclamo": request.codreclamo, "fundamentacion": None, "tiempo": tiempo}
-
-    t_articulos = time.perf_counter()
-    tareas = _lanzar_articulos(pares, fundamentador, informe, clasificacion, motivo)
+    tareas: list = []
     try:
-        for (problema, _), tarea in zip(pares, tareas):
+        seleccionados = await _seleccionar_y_lanzar(
+            informe, request, fundamentador, clasificacion, motivo, tareas,
+        )
+        if not seleccionados:
+            informe.fundamentacion_normativa = None
+            tiempo = time.perf_counter() - t_inicio
+            logger.info("[API /investigacion/fundamentar-normativa] Sin problemas determinantes | tiempo=%.2fs", tiempo)
+            logger.info("=" * 60)
+            return {"codreclamo": request.codreclamo, "fundamentacion": None, "tiempo": tiempo}
+
+        t_seleccion = time.perf_counter()
+        for problema, tarea in zip(seleccionados, tareas):
             if tarea is not None:
                 problema.articulos = await tarea
     finally:
         await _cancelar(tareas)
-    t_articulos = time.perf_counter() - t_articulos
+    t_articulos = time.perf_counter() - t_seleccion
     t_parrafo = time.perf_counter()
     parrafo = await run_in_threadpool(
         fundamentador.redactar_parrafo, seleccionados, motivo, clasificacion, informe.reclamo,
