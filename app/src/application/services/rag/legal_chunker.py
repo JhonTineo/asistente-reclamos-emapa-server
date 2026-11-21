@@ -121,7 +121,8 @@ def _empaquetar(parrafos: list[str], objetivo: int, max_chars: int) -> list[str]
 _LITERAL_RE = re.compile(r"^([a-z])\)\s")
 
 
-def _agrupar_por_literal(art: str, parrafos: list[str]) -> list[tuple[str | None, list[str]]] | None:
+def _agrupar_por_literal(art: str, parrafos: list[str],
+                         juntar_cortos: bool = True) -> list[tuple[str | None, list[str]]] | None:
     """Agrupa los párrafos por literal a), b), c)… Solo acepta la letra que
     sigue en la secuencia: así "i)" o "v)" (numeración romana dentro de un
     literal) no abren un grupo nuevo. El numeral queda como "91 f)", que se
@@ -139,7 +140,7 @@ def _agrupar_por_literal(art: str, parrafos: list[str]) -> list[tuple[str | None
             grupos.append((None, [p]))
     if siguiente <= "b":
         return None
-    return _juntar_literales_cortos(art, grupos)
+    return _juntar_literales_cortos(art, grupos) if juntar_cortos else grupos
 
 
 LITERAL_CORTO = 300
@@ -174,6 +175,40 @@ def _juntar_literales_cortos(art, grupos):
     return resultado
 
 
+def agrupar_unidades(art: str, article_text: str, *, juntar_literales: bool = False,
+                     max_chars: int = MAX_CHARS) -> list[tuple[str | None, list[str]]]:
+    """Divide el cuerpo de un artículo en sus unidades: [(numeral, párrafos)].
+    Un primer grupo con numeral None es la parte introductoria (si la hay).
+
+    - Numerales de 2º nivel ("92.3").
+    - Sin numerales, un artículo largo se divide en LITERALES ("a) …"): el
+      Art. 91 de Calidad va de a) a f) y, sin esto, el literal f) (diferencia de
+      lecturas válida) quedaba pegado a la cola del e) (medidores instalados por
+      primera vez) y nunca salía primero.
+
+    La usan el troceado para Qdrant (juntar_literales=True: junta los literales
+    cortos para no tener chunks de 50 caracteres) y la base normativa
+    (juntar_literales=False: cada literal es su propia unidad versionable)."""
+    numeral_re = re.compile(rf"^({re.escape(art)}\.\d+)(?!\.\d)\.?")
+    parrafos = [p.strip() for p in (article_text or "").split("\n") if p.strip()]
+    if not parrafos:
+        return []
+    grupos: list[tuple[str | None, list[str]]] = []
+    for p in parrafos:
+        m = numeral_re.match(p)
+        if m:
+            grupos.append((m.group(1), [p]))
+        elif grupos:
+            grupos[-1][1].append(p)
+        else:
+            grupos.append((None, [p]))
+    if not any(num for num, _ in grupos) and sum(len(p) for p in parrafos) > max_chars:
+        por_literal = _agrupar_por_literal(art, parrafos, juntar_cortos=juntar_literales)
+        if por_literal:
+            grupos = por_literal
+    return grupos
+
+
 def trocear_articulo(
     article_number: str,
     article_text: str,
@@ -187,35 +222,11 @@ def trocear_articulo(
     EMBEBER (no se duplica en lo que ve el LLM).
     """
     art = normalizar_numero_articulo(article_number)
-    art_re = re.escape(art)
-    numeral_re = re.compile(rf"^({art_re}\.\d+)(?!\.\d)\.?")
-
-    parrafos = [p.strip() for p in (article_text or "").split("\n") if p.strip()]
-    if not parrafos:
+    # 1) Agrupar por numeral de 2º nivel, o por literal (ver agrupar_unidades).
+    grupos = agrupar_unidades(art, article_text, juntar_literales=True, max_chars=max_chars)
+    if not grupos:
         return []
-
-    # 1) Agrupar por numeral de 2º nivel.
-    grupos: list[tuple[str | None, list[str]]] = []
-    for p in parrafos:
-        m = numeral_re.match(p)
-        if m:
-            grupos.append((m.group(1), [p]))
-        elif grupos:
-            grupos[-1][1].append(p)
-        else:
-            grupos.append((None, [p]))
-
     tiene_numerales = any(num for num, _ in grupos)
-
-    # 1b) Sin numerales, un artículo largo puede dividirse en LITERALES
-    # ("a) …", "b) …"): el Art. 91 de Calidad va de a) a f) y, empaquetado por
-    # tamaño, el literal f) (diferencia de lecturas válida) quedaba pegado a la
-    # cola del e) (medidores instalados por primera vez) y nunca salía primero.
-    if not tiene_numerales and sum(len(p) for p in parrafos) > max_chars:
-        por_literal = _agrupar_por_literal(art, parrafos)
-        if por_literal:
-            grupos = por_literal
-            tiene_numerales = True
 
     # 2) Encabezado introductorio corto como contexto de los numerales.
     contexto_intro = ""

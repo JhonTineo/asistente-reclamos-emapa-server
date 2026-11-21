@@ -3,9 +3,9 @@ id: medio.tecnico_operacional
 tipo: medio
 medio: tecnico_operacional
 titulo: Informe técnico operacional
-version: 3
+version: 4
 estado: borrador
-actualizado: 2026-11-13
+actualizado: 2026-11-20
 validado_por: pendiente
 ---
 
@@ -60,6 +60,16 @@ solo a agua consumida.
 **Pesa poco cuando:** el servicio es continuo las 24 horas y no hubo
 interrupciones en el periodo reclamado: sin vaciado de la red, la falta de VPA
 no explica por sí sola el consumo registrado.
+
+**NO lo neutralizan:** una lectura «normal», un medidor en buen estado o que
+funciona correctamente, la ausencia de fugas en las inspecciones, ni que el
+consumo no llegue a ser atípico. El aire pasa por un medidor sano y queda
+registrado como una lectura normal: esos hechos son justamente lo que produce
+el aire, no lo descartan. La carga de acreditar que el medidor reflejó solo
+agua es de la empresa (RGR, Anexo 3, B.1.1), y sin VPA en un sector con
+discontinuidad no puede acreditarlo. Si este criterio aplica, el reclamo es
+FUNDADO aunque el resto de la evidencia sea regular; solo lo cambia un hecho de
+«Pesa poco cuando» o un conflicto de «Si choca con otro hallazgo».
 
 **Si choca con otro hallazgo:** por ejemplo, una fuga visible comprobada en el
 interior del predio. La fuga explica el consumo por una causa del usuario, pero

@@ -147,6 +147,27 @@ class RepositorioSqliteTest(BaseSqlite):
         self.assertEqual(len(recuperados), 1)
         self.assertEqual(asdict(recuperados[0]), asdict(original))
 
+    def test_conserva_la_relevancia_de_los_articulos(self):
+        # Sin "aplica", tras un reinicio todos los artículos del RAG parecían
+        # aplicar y el panel de fundamentación los mostraba todos.
+        original = _informe_completo()
+        hecho = original.bloques[0].hechos[0]
+        hecho.articulos = [
+            {"article": "91", "numeral": "91 f)", "score": 1.0, "texto": "f) ...", "aplica": True,
+             "manual": False, "unidad_id": "RC.91.f", "norma": "Reglamento de Calidad"},
+            {"article": "91", "numeral": "91 a)", "score": 1.0, "texto": "a) ...", "aplica": False,
+             "manual": False, "unidad_id": "RC.91.a", "norma": "Reglamento de Calidad"},
+        ]
+        self.repo.guardar(original)
+        otro = SqliteCasoRepository(self.ruta)
+        try:
+            recuperado = otro.cargar_abiertos()[0]
+        finally:
+            otro.cerrar_conexion()
+        articulos = recuperado.bloques[0].hechos[0].articulos
+        self.assertEqual([a["aplica"] for a in articulos], [True, False])
+        self.assertEqual(articulos, hecho.articulos)
+
     def test_guardar_es_idempotente_y_versiona_artefactos(self):
         informe = _informe_completo()
         self.repo.guardar(informe)

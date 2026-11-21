@@ -142,6 +142,17 @@ class Settings(BaseSettings):
     # "objetivos": método anterior (clasifica los objetivos determinantes).
     yumi_veredicto: str = "dictamen"
 
+    # --- Base normativa (fuente de verdad del texto de los reglamentos) ---
+    # Vacío = <repo>/volumes/yumi_db/normativa.db (en Docker,
+    # /code/volumes/yumi_db/normativa.db). Si está vacía, se carga sola desde
+    # los PDFs de app/src/storage/files al primer uso.
+    yumi_normativa_db_path: str = ""
+    # Cómo encuentra la fundamentación los artículos:
+    # "indice": el LLM elige desde el índice de títulos + búsqueda léxica (BM25)
+    #           sobre la base normativa. No usa Ollama ni Qdrant.
+    # "vectorial": búsqueda en Qdrant con embeddings (método anterior).
+    yumi_busqueda_normativa: str = "indice"
+
     # --- Logs ---
     # false: la consola muestra solo las líneas [TIEMPOS] (tiempo y tokens por
     # llamada y por fase). true: además el prompt y la respuesta cruda de cada

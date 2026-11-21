@@ -18,6 +18,7 @@ Opcional: --json salida.json para guardar los resultados crudos.
 """
 
 import argparse
+import time
 import json
 import os
 import statistics
@@ -61,26 +62,98 @@ def pct(valores, q):
     return v[min(len(v) - 1, int(q * len(v)))]
 
 
+def evaluar_punta_a_punta(data: dict, metodo: str, proveedor: str | None, salida: str | None) -> None:
+    """Lo que de verdad llega al párrafo: búsqueda de producción
+    (PasoFundamentacion.buscar_articulos, con TOP_K y umbral en el vectorial)
+    + marcar_aplica (LLM). Un caso ACIERTA si al menos un artículo esperado
+    queda con aplica=true; RUIDO = artículos con aplica=true que no son esperados."""
+    from types import SimpleNamespace
+    from app.src.infrastructure.api_rest.deps import get_llm_router
+    router = get_llm_router(SimpleNamespace(headers={"X-LLM-Provider": proveedor} if proveedor else {}))
+    paso = PasoFundamentacion(qdrant=QdrantAdapter() if metodo == "vectorial" else None,
+                              llm_router=router, metodo=metodo)
+    print(f"PUNTA A PUNTA | método={metodo} | proveedor={proveedor or 'auto'}\n")
+    filas = []
+    for caso in data["casos"]:
+        problema = ProblemaNormado(tipo=caso["tipo"], detalle=caso["detalle"], valor=caso.get("valor"))
+        situacion, motivo = caso.get("situacion"), caso.get("motivo", "")
+        t0 = time.perf_counter()
+        raw = paso.buscar_articulos(problema, motivo, situacion)
+        t_busqueda = time.perf_counter() - t0
+        payload = paso.marcar_aplica(problema, raw, "A1. CONSUMO MEDIDO", motivo, situacion)
+        t_total = time.perf_counter() - t0
+        aplican = [(etiqueta(r), es_esperado(r, caso["esperados"]))
+                   for r, a in zip(raw, payload) if a.get("aplica")]
+        filas.append({"id": caso["id"], "candidatos": len(raw), "aplican": aplican,
+                      "acierta": any(ok for _, ok in aplican),
+                      "ruido": sum(1 for _, ok in aplican if not ok),
+                      "t_busqueda": t_busqueda, "t_total": t_total})
+        marcas = "  ".join(f"{'*' if ok else '-'}{e}" for e, ok in aplican) or "(ninguno)"
+        print(f"{caso['id']:<30} {'OK ' if filas[-1]['acierta'] else 'MAL'} cand={len(raw):<3} "
+              f"t={t_total:4.1f}s | {marcas}")
+    n = len(filas)
+    print("\n" + "=" * 100)
+    print(f"   aciertos  = {sum(f['acierta'] for f in filas)}/{n} = {sum(f['acierta'] for f in filas) / n:.0%}")
+    print(f"   ruido     = {sum(f['ruido'] for f in filas)} artículos marcados que no son esperados "
+          f"({sum(f['ruido'] for f in filas) / n:.2f} por caso)")
+    print(f"   candidatos: mediana {statistics.median(f['candidatos'] for f in filas):.0f}")
+    print(f"   tiempo búsqueda: mediana {statistics.median(f['t_busqueda'] for f in filas):.2f}s | "
+          f"búsqueda+aplica: mediana {statistics.median(f['t_total'] for f in filas):.2f}s, "
+          f"máx {max(f['t_total'] for f in filas):.2f}s")
+    print(f"   fallan: {', '.join(f['id'] for f in filas if not f['acierta']) or '(ninguno)'}")
+    if salida:
+        with open(salida, "w", encoding="utf-8") as fh:
+            json.dump(filas, fh, ensure_ascii=False, indent=1)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--casos", default=os.path.join(os.path.dirname(__file__), "casos.json"))
     ap.add_argument("--json", help="guardar resultados crudos")
+    ap.add_argument("--metodo", choices=("vectorial", "indice"), default="vectorial",
+                    help="indice: el LLM elige artículos desde el índice de títulos + BM25 "
+                         "sobre la base normativa (necesita API keys de LLM en .env)")
+    ap.add_argument("--proveedor", help="con --metodo indice: proveedor de LLM a usar primero "
+                                        "(cerebras, groq, gemini, ...); por defecto el orden automático")
+    ap.add_argument("--aplica", action="store_true",
+                    help="punta a punta como producción: búsqueda (con su TOP_K/umbral) + "
+                         "marcar_aplica con el LLM; mide acierto, ruido y tiempo")
     args = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
 
     with open(args.casos, encoding="utf-8") as f:
         data = json.load(f)
 
-    retriever = Retriever(QdrantAdapter())
-    print(f"Modelo: {retriever.embedder.model_name} | colecciones: {', '.join(COLECCIONES)} "
-          f"| TOP_K={TOP_K} | UMBRAL_SCORE actual={UMBRAL_SCORE}\n")
+    if args.aplica:
+        evaluar_punta_a_punta(data, args.metodo, args.proveedor, args.json)
+        return
+
+    paso = None
+    if args.metodo == "indice":
+        from types import SimpleNamespace
+        from app.src.infrastructure.api_rest.deps import get_llm_router
+        router = get_llm_router(SimpleNamespace(
+            headers={"X-LLM-Provider": args.proveedor} if args.proveedor else {}))
+        paso = PasoFundamentacion(qdrant=None, llm_router=router, metodo="indice")
+        print(f"Método: índice ({len(paso.catalogo.unidades)} unidades, índice ≈"
+              f"{len(paso.catalogo.indice()) // 4} tokens) + BM25 | TOP_K={TOP_K}\n")
+    else:
+        retriever = Retriever(QdrantAdapter())
+        print(f"Modelo: {retriever.embedder.model_name} | colecciones: {', '.join(COLECCIONES)} "
+              f"| TOP_K={TOP_K} | UMBRAL_SCORE actual={UMBRAL_SCORE}\n")
+    tiempos = []
 
     resultados = []
     for caso in data["casos"]:
         problema = ProblemaNormado(tipo=caso["tipo"], detalle=caso["detalle"], valor=caso.get("valor"))
         situacion = caso.get("situacion")
         query = PasoFundamentacion.construir_query(problema, caso.get("motivo", ""), situacion)
-        res = retriever.retrieve(query, top_k=PROFUNDIDAD, collections=COLECCIONES)
+        t0 = time.perf_counter()
+        if paso is not None:
+            res = paso.buscar_articulos(problema, caso.get("motivo", ""), situacion)
+        else:
+            res = retriever.retrieve(query, top_k=PROFUNDIDAD, collections=COLECCIONES)
+        tiempos.append(time.perf_counter() - t0)
         # Igual que producción: marcar_aplica descarta los artículos cuya
         # premisa no se da en el caso (sin medidor, régimen atípico, etc.).
         res = [r for r in res if not premisa_no_cumplida(
@@ -94,7 +167,7 @@ def main():
         resultados.append({"caso": caso, "query": query, "res": marcados, "rank": primero})
 
     basura = []
-    for q in data.get("basura", []):
+    for q in (data.get("basura", []) if paso is None else []):
         res = retriever.retrieve(q, top_k=TOP_K, collections=COLECCIONES)
         basura.append({"query": q, "res": [{"etiqueta": etiqueta(r), "score": r["score"]} for r in res]})
 
@@ -120,6 +193,8 @@ def main():
         print(f"   recall@{k:<2} = {hits}/{n} = {hits / n:.0%}")
     mrr = sum(1 / r["rank"] for r in resultados if r["rank"]) / n
     print(f"   MRR      = {mrr:.3f}")
+    print(f"   candidatos por caso: mediana {statistics.median(len(r['res']) for r in resultados):.0f}"
+          f" | tiempo por caso: mediana {statistics.median(tiempos):.2f}s, máx {max(tiempos):.2f}s")
     fallan = [r["caso"]["id"] for r in resultados if not r["rank"] or r["rank"] > TOP_K]
     print(f"   Fuera del top {TOP_K}: {', '.join(fallan) or '(ninguno)'}")
 

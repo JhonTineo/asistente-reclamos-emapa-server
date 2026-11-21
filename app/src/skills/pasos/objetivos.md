@@ -3,9 +3,9 @@ id: paso.objetivos
 tipo: paso
 paso: objetivos
 titulo: Objetivos de investigación
-version: 2
+version: 3
 estado: activo
-actualizado: 2026-11-14
+actualizado: 2026-11-20
 validado_por: pendiente
 ---
 
@@ -22,6 +22,7 @@ Para objetivos de inspección, asigna el medio principal: el análisis también 
 DETERMINANTE:
 - Marca determinante=true SOLO el objetivo (uno; a lo sumo dos) cuyo resultado POR SÍ SOLO cambia el veredicto FUNDADO↔INFUNDADO (el que responde la pregunta decisiva).
 - Distingue SÍNTOMA de CAUSA: un objetivo que solo CONFIRMA el síntoma que reclama el cliente (p. ej. «¿el consumo del mes es más alto que el promedio?») NO es determinante por sí solo — confirmar que el consumo es alto no resuelve el reclamo, solo indica que hay algo que explicar. Son determinantes los objetivos que establecen la CAUSA o la legitimidad del cobro (inspección de fugas o del medidor, método/historial de facturación, error de medición): cada uno puede, por sí solo, inclinar el veredicto.
+- MEDIOS OBLIGATORIOS DEL TIPO DE RECLAMO: si recibes la sección «Qué debe probar la empresa» del tipo de reclamo, cada medio que esa sección exige y que esté en la lista de medios disponibles debe tener un objetivo con determinante=true, AUNQUE el motivo no lo mencione (p. ej. en consumo medido, el informe del área de control operacional: «¿El informe operacional acredita la continuidad del servicio y la ausencia de interrupciones en el mes reclamado y, si hubo discontinuidad, la existencia y operatividad de las válvulas de purga de aire?»). Si falta, el reclamo es FUNDADO (RGR, Art. 12.1). Esta regla se suma al límite de uno o dos determinantes de arriba.
 - Los objetivos de contexto o soporte van con determinante=false, aunque sean útiles.
 - En "porque_determinante" explica en una frase por qué ese objetivo decide (o no) el veredicto.
 
@@ -35,4 +36,4 @@ Responde SOLO con el JSON (lista de objetos con las claves "descripcion", "medio
 
 ## Notas
 
-El código añade la lista de medios probatorios disponibles (MEDIOS en pasos/objetivos.py).
+El código añade la lista de medios probatorios disponibles (MEDIOS en pasos/objetivos.py) y, según la clasificación del reclamo, la sección «Qué debe probar la empresa» de la skill del tipo (skills/tipos/). Los medios obligatorios se mantienen allí, no aquí.

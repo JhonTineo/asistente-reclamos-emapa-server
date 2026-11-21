@@ -353,10 +353,12 @@ def construir_medios_modelo(informe: InformeAtencion) -> dict:
 
 
 def construir_fundamentacion(informe: InformeAtencion) -> dict:
-    """Problemas determinantes elegidos y la normativa con que se sustentan."""
+    """Hechos determinantes elegidos y la normativa con que se sustentan. La
+    fundamentación elige entre TODOS los hechos del medio (problemas y
+    constataciones, ver PasoFundamentacion.candidatos), no solo problemas."""
     problemas = []
     for b in informe.bloques:
-        for h in b.problemas:
+        for h in b.hechos:
             if not h.seleccionado:
                 continue
             problemas.append({

@@ -185,14 +185,15 @@ def _sin_tarea(_datos: dict) -> str:
 
 def _paso(paso: str, *, rol_base: bool = True, salida: str = "texto",
           presupuesto: int = 12000,
-          secciones_base: tuple[str, ...] | None = None) -> ContextSpec:
+          secciones_base: tuple[str, ...] | None = None,
+          secciones_tipo: tuple[str, ...] = ()) -> ContextSpec:
     """Paso cuyo contexto es: rol base (opcional) + su skill de paso + sus
     instrucciones dependientes del caso + la entrada que prepara en código. La
     tarea va al final de la entrada (la escribe el propio paso)."""
     capas = (("rol_base",) if rol_base else ()) + ("skill", "instrucciones", "entrada")
     return ContextSpec(paso=paso, capas=capas, tarea=_sin_tarea, skill_paso=True,
                        presupuesto_tokens=presupuesto, salida=salida,
-                       secciones_base=secciones_base)
+                       secciones_base=secciones_base, secciones_tipo=secciones_tipo)
 
 
 # Pasos que preparan sus propios datos. El rol base solo acompaña a quien lo
@@ -204,10 +205,17 @@ def _paso(paso: str, *, rol_base: bool = True, salida: str = "texto",
 #   texto literal: ahí las reglas de redacción son ruido y sus ejemplos
 #   terminaban copiados en la respuesta.
 for _spec in (
-    _paso("objetivos", salida="json", secciones_base=SECCIONES_BASE_SIN_REDACCION),
+    # Objetivos lee «Qué debe probar la empresa» de la skill del tipo de
+    # reclamo: los medios que el RGR (Anexo 3) exige para ese tipo deben
+    # quedar como objetivos determinantes aunque el motivo no los mencione.
+    _paso("objetivos", salida="json", secciones_base=SECCIONES_BASE_SIN_REDACCION,
+          secciones_tipo=(SECCION_PRUEBAS,)),
     _paso("fundamentacion_seleccion", rol_base=False, salida="json"),
     _paso("fundamentacion_interpretacion", rol_base=False, salida="json"),
     _paso("fundamentacion_aplicabilidad", rol_base=False, salida="json"),
+    # Elige qué artículos leer desde el índice de títulos (~4k tokens) para
+    # todos los hechos seleccionados en una sola llamada.
+    _paso("fundamentacion_navegacion", rol_base=False, salida="json"),
     _paso("fundamentacion_parrafo"),
     _paso("evaluacion_objetivos", rol_base=False, salida="json"),
     _paso("conclusion_redaccion"),

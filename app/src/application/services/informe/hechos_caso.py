@@ -40,10 +40,16 @@ _PRUEBAS_CONSUMO_MEDIDO = [
     ("inspeccion_externa", "siempre",
      "la inspección externa, que el RGR (Anexo 3) exige en todo reclamo por "
      "consumo medido para detectar fugas que incrementen el consumo"),
-    ("tecnico_operacional", "discontinuidad",
-     "el informe técnico operacional, que el RGR (Anexo 3) exige en reclamos por "
-     "consumo medido cuando hay discontinuidad o interrupciones del servicio, para "
-     "acreditar la ubicación y operatividad de las válvulas de purga de aire"),
+    # Exigible SIEMPRE: el Anexo 3 pide en todo reclamo por consumo medido el
+    # informe del área de control operacional con el reporte de continuidad e
+    # interrupciones del mes reclamado; solo el plano y las válvulas de purga
+    # de aire dependen de que haya discontinuidad. Antes se exigía solo si el
+    # usuario alegaba falta de agua (corregido 2026-11-20).
+    ("tecnico_operacional", "siempre",
+     "el informe del área de control operacional, que el RGR (Anexo 3, B.1.1) exige en "
+     "todo reclamo por consumo medido para acreditar que el medidor refleja el consumo "
+     "efectuado (reporte de continuidad e interrupciones del mes reclamado y, si hay "
+     "discontinuidad, la ubicación y operatividad de las válvulas de purga de aire)"),
 ]
 
 

@@ -44,9 +44,9 @@ MEDIOS = {
     "tecnico_operacional": (
         "Informe del área operacional sobre el sector del predio: horario de abastecimiento "
         "(continuo o restringido), interrupciones o desabastecimiento en el periodo reclamado, "
-        "existencia y estado de las válvulas de purga de aire. Úsalo cuando el reclamo alegue "
-        "falta de servicio, horario restringido, cortes de agua o aire en la tubería: la "
-        "empresa debe acreditar con él que el medidor registró solo agua."
+        "existencia y estado de las válvulas de purga de aire. Con él la empresa acredita que "
+        "el medidor registró solo agua; en reclamos por consumo medido es obligatorio aunque "
+        "el usuario no alegue falta de servicio (RGR, Anexo 3)."
     ),
 }
 
@@ -78,6 +78,10 @@ class PasoObjetivos:
         response_text = constructor_contexto.llamar(
             "objetivos", self.llm_router, self.model_id,
             entrada=human, instrucciones=instrucciones, codreclamo=codreclamo,
+            # Con la clasificación se suma la sección «Qué debe probar la
+            # empresa» de la skill del tipo de reclamo: los medios obligatorios
+            # del tipo (p.ej. el informe operacional en consumo medido).
+            clasificacion=clasificacion,
         )
 
         objetivos = self._parse(response_text or "")

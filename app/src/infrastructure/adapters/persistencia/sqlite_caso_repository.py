@@ -189,7 +189,20 @@ MIGRACIONES: list[str] = [
     """
     ALTER TABLE llamadas_llm ADD COLUMN proveedor TEXT;
     """,
+    # 4: relevancia de cada artículo para su hecho. Sin "aplica", al rehidratar
+    # tras un reinicio todos los artículos recuperados por RAG parecían aplicar.
+    """
+    ALTER TABLE hecho_normativa ADD COLUMN aplica INTEGER;
+    ALTER TABLE hecho_normativa ADD COLUMN manual INTEGER;
+    ALTER TABLE hecho_normativa ADD COLUMN unidad_id TEXT;
+    ALTER TABLE hecho_normativa ADD COLUMN norma TEXT;
+    """,
 ]
+
+
+def _bool_o_nulo(valor) -> int | None:
+    """True/False -> 1/0; None (sin dato) -> NULL."""
+    return None if valor is None else int(bool(valor))
 
 
 def _json_default(valor):
@@ -414,10 +427,13 @@ class SqliteCasoRepository:
                 )
                 cur.executemany(
                     "INSERT INTO hecho_normativa (caso_id, hecho_id, orden, articulo, "
-                    "numeral, score, texto) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    "numeral, score, texto, aplica, manual, unidad_id, norma) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     [
                         (caso_id, p.id, i, _dumps(a.get("article")),
-                         _dumps(a.get("numeral")), a.get("score"), a.get("texto"))
+                         _dumps(a.get("numeral")), a.get("score"), a.get("texto"),
+                         _bool_o_nulo(a.get("aplica")), _bool_o_nulo(a.get("manual")),
+                         a.get("unidad_id"), a.get("norma"))
                         for i, a in enumerate(p.articulos or [])
                     ],
                 )
@@ -616,10 +632,21 @@ class SqliteCasoRepository:
         for a in con.execute(
             "SELECT * FROM hecho_normativa WHERE caso_id = ? ORDER BY hecho_id, orden", (caso_id,),
         ):
-            articulos.setdefault(a["hecho_id"], []).append({
+            articulo = {
                 "article": _loads(a["articulo"]), "numeral": _loads(a["numeral"]),
                 "score": a["score"], "texto": a["texto"],
-            })
+            }
+            # Filas anteriores a la migración 4 no tienen relevancia guardada:
+            # se omite la clave (desconocida) en vez de inventar un valor.
+            if a["aplica"] is not None:
+                articulo["aplica"] = bool(a["aplica"])
+            if a["manual"] is not None:
+                articulo["manual"] = bool(a["manual"])
+            if a["unidad_id"]:
+                articulo["unidad_id"] = a["unidad_id"]
+            if a["norma"]:
+                articulo["norma"] = a["norma"]
+            articulos.setdefault(a["hecho_id"], []).append(articulo)
 
         problemas: dict[str, list[ProblemaNormado]] = {}
         constataciones: dict[str, list[ProblemaNormado]] = {}

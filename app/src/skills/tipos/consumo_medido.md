@@ -4,9 +4,9 @@ tipo: tipo_reclamo
 codigos_tipo_reclamo: ["001"]
 clasificaciones: ["A1"]
 titulo: A1. Consumo medido
-version: 3
+version: 5
 estado: borrador
-actualizado: 2026-11-13
+actualizado: 2026-11-20
 validado_por: pendiente
 ---
 
@@ -31,7 +31,9 @@ RGR exige para este tipo de reclamo (Art. 12.1 y Anexo 3, B.1.1). Como mínimo:
 - Informe de incidencias durante la facturación reclamada (cierres,
   reaperturas, órdenes de servicio).
 - Informe del área de control operacional que acredite que el medidor refleja
-  el consumo efectuado, con:
+  el consumo efectuado. Es obligatorio en TODO reclamo por consumo medido,
+  aunque el usuario no alegue falta de servicio, y es un medio DETERMINANTE:
+  si no se actúa, el reclamo se declara fundado (Art. 12.1). Debe incluir:
   - reporte de continuidad (horario normal de abastecimiento) del sector y de
     las interrupciones del mes reclamado;
   - si hubo discontinuidad o interrupciones: plano con curvas de nivel del
@@ -64,7 +66,13 @@ Razona como lo haría un analista de reclamos, en este orden:
 5. **Ponderación.** Enumera los factores a favor del usuario y a favor de la
    empresa, cada uno con el hecho que lo sustenta y el criterio que aplicas. No
    decidas por el primer factor que encuentres: un hecho a favor de una parte
-   puede quedar sin efecto por otro hecho más directo.
+   puede quedar sin efecto por otro hecho más directo. Pero un criterio
+   DECISIVO que aplica solo queda sin efecto por los hechos que su propio
+   criterio indica en «Pesa poco cuando» o «Si choca con otro hallazgo». Los
+   hechos de los pasos 1 y 2 (lectura válida, medidor en buen estado, consumo no
+   atípico) prueban que la lectura se tomó bien, NO que el medidor registró
+   solo agua: no neutralizan un factor distorsionante del paso 3, porque ese
+   factor produce precisamente lecturas regulares.
 6. **Conflictos.** Si dos factores apuntan en direcciones opuestas y la norma no
    dice cuál prevalece, no elijas uno: expón ambos y marca el caso para
    revisión del especialista.

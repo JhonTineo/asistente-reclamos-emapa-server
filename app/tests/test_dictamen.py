@@ -136,10 +136,15 @@ class HechosDelCasoTest(unittest.TestCase):
         self.assertEqual(faltante.tipo, "pruebaFaltante")
         self.assertEqual(faltante.valor["medio"], "tecnico_operacional")
 
-    def test_sin_alegacion_no_se_exige_el_informe_operacional(self):
+    def test_sin_alegacion_el_informe_operacional_igual_es_exigible(self):
+        """RGR, Anexo 3, B.1.1: el informe del área de control operacional es
+        un medio mínimo de TODO reclamo por consumo medido; solo el plano y las
+        válvulas de purga de aire dependen de que haya discontinuidad."""
         informe = _caso_252396()
         informe.datos_reclamo.motivo_reclamo = "El consumo de setiembre es muy alto."
-        self.assertEqual(hechos_del_caso(informe), [])
+        hechos = hechos_del_caso(informe)
+        self.assertEqual([h.tipo for h in hechos], ["pruebaFaltante"])
+        self.assertEqual(hechos[0].valor, {"medio": "tecnico_operacional", "condicion": "siempre"})
 
     def test_otro_tipo_de_reclamo_no_exige_pruebas_de_consumo_medido(self):
         informe = _caso_252396()

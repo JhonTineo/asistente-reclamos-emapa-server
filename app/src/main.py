@@ -71,10 +71,16 @@ async def lifespan(_app: FastAPI):
         )
     # Sin base de datos no se registran las llamadas (registro=None).
     constructor_contexto.configurar(skills=skills, registro=repo)
-    # Carga el modelo de embeddings en Ollama sin bloquear el arranque: la
-    # primera fundamentación ya no paga la carga del modelo.
-    threading.Thread(target=precalentar_embeddings, name="precalentar-embeddings",
-                     daemon=True).start()
+    # Sin bloquear el arranque, deja lista la búsqueda normativa configurada:
+    # - "indice": carga la base normativa (la importa de los PDFs si está vacía);
+    # - "vectorial": carga el modelo de embeddings en Ollama.
+    # Así la primera fundamentación no paga esa carga.
+    if settings.yumi_busqueda_normativa.strip().lower() == "vectorial":
+        threading.Thread(target=precalentar_embeddings, name="precalentar-embeddings",
+                         daemon=True).start()
+    else:
+        from app.src.application.services.normativa.catalogo import catalogo_normativo
+        threading.Thread(target=catalogo_normativo, name="cargar-normativa", daemon=True).start()
     try:
         yield
     finally:

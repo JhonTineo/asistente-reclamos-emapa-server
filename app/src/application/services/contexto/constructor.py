@@ -319,12 +319,14 @@ class ContextBuilder:
     def llamar(self, paso: str, llm_router, modelo_id: str, *,
                informe: InformeAtencion | None = None, entrada: str = "",
                instrucciones: str | None = None, codreclamo: str | None = None,
-               esquema: dict | None = None) -> str:
+               esquema: dict | None = None, clasificacion: str | None = None) -> str:
         """Atajo para los pasos que preparan sus propios datos: arma el
         contexto del paso y ejecuta la llamada (texto o JSON según su
-        especificación), registrándola."""
+        especificación), registrándola. `clasificacion` elige la skill del tipo
+        de reclamo cuando el paso no tiene informe (p.ej. objetivos)."""
         contexto = self.construir(paso, informe, entrada=entrada,
-                                  instrucciones=instrucciones, codreclamo=codreclamo)
+                                  instrucciones=instrucciones, codreclamo=codreclamo,
+                                  clasificacion=clasificacion)
         if obtener_especificacion(paso).salida == "json":
             return contexto.ejecutar_json(llm_router, modelo_id, esquema)
         return contexto.ejecutar_texto(llm_router, modelo_id)

@@ -43,6 +43,8 @@ logger = logging.getLogger(__name__)
 # (colección, número), y ambos reglamentos tienen un "Artículo 14".
 NORMAS = [
     {
+        # id: prefijo de los IDs estables de la base normativa ("RC.91.f").
+        "id": "RC",
         "archivo": "RESOLUCIÓN N_º 058-2023-SUNASS-CD-5-36.pdf",
         "coleccion": "sunass_reglamento",
         "norma": "Reglamento de Calidad de la Prestación de los Servicios de Saneamiento",
@@ -50,6 +52,7 @@ NORMAS = [
         "is_el_peruano": True,
     },
     {
+        "id": "RGR",
         "archivo": "RESOLUCIÓN N 015-2023-SUNASS-CD.pdf",
         "coleccion": "sunass_reclamos",
         "norma": "Reglamento General de Reclamos de Usuarios de Servicios de Saneamiento",

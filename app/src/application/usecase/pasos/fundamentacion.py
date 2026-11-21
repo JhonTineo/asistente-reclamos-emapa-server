@@ -184,6 +184,14 @@ CONSULTA_MES_RECLAMADO = {
 TIPOS_SEGUN_ATIPICO = frozenset({"lecturaMesReclamado", "facturacionMesReclamado"})
 
 
+def _metodo_configurado() -> str:
+    try:
+        from app.src.infrastructure.config.settings import settings
+        return settings.yumi_busqueda_normativa or "indice"
+    except Exception:
+        return "indice"
+
+
 def situacion_del_caso(informe) -> dict:
     """Datos del caso que deciden qué normas PUEDEN aplicar:
     - atipico: el consumo del mes reclamado es atípico (True/False) o no se sabe (None);
@@ -226,6 +234,36 @@ def premisa_no_cumplida(articulo: dict, situacion: dict | None) -> str | None:
     return None
 
 
+_ARTICULO_CITADO_RE = re.compile(r"\bart(?:[íi]culo|\.)\s*(\d+)", re.IGNORECASE)
+_FRASE_CITADA_RE = re.compile(r"[«\"“]([^«»\"“”]{25,})[»\"”]")
+
+
+def _plano(texto: str) -> str:
+    import unicodedata
+    sin = "".join(c for c in unicodedata.normalize("NFD", texto or "") if unicodedata.category(c) != "Mn")
+    return " ".join(re.sub(r"[^\w\s]", " ", sin.lower()).split())
+
+
+def verificar_citas(parrafo: str, problemas: list[ProblemaNormado]) -> list[str]:
+    """Problemas de trazabilidad del párrafo (vacío = todo verificado):
+    - un artículo citado que no está entre los marcados `aplica`;
+    - una frase entre comillas que no aparece literalmente en esos artículos.
+    Es determinista: no depende de que el LLM "recuerde" bien la norma."""
+    aplicables = [a for p in problemas for a in (p.articulos or []) if a.get("aplica")]
+    numeros = {str(a.get("article")) for a in aplicables if a.get("article")}
+    textos = " || ".join(_plano(a.get("texto") or "") for a in aplicables)
+    errores = []
+    for num in dict.fromkeys(_ARTICULO_CITADO_RE.findall(parrafo or "")):
+        if num not in numeros:
+            errores.append(
+                f"cita el artículo {num}, que no está entre los artículos aplicables "
+                f"({', '.join(sorted(numeros)) or 'ninguno'})")
+    for frase in _FRASE_CITADA_RE.findall(parrafo or ""):
+        if _plano(frase) not in textos:
+            errores.append(f"la frase entre comillas «{frase[:80]}» no aparece literalmente en la norma")
+    return errores
+
+
 def _cita(article, numeral, norma) -> str:
     """'Art. 93.2 del Reglamento de Calidad de ...'. Con dos reglamentos
     indexados, el número solo es ambiguo (ambos tienen un artículo 14)."""
@@ -248,10 +286,26 @@ def _concepto(detalle: str) -> str:
 
 class PasoFundamentacion:
 
-    def __init__(self, qdrant: PuertoBaseVectorial, llm_router: LlmRouterService, model: str | None = None):
-        self.retriever = Retriever(qdrant)
+    def __init__(self, qdrant: PuertoBaseVectorial | None, llm_router: LlmRouterService,
+                 model: str | None = None, metodo: str | None = None, catalogo=None):
+        self.retriever = Retriever(qdrant) if qdrant is not None else None
         self.llm_router = llm_router
         self.model_id = model or MODELO_EXTERNO_DEFAULT
+        # "indice" (base normativa + índice de títulos + BM25) o "vectorial"
+        # (Qdrant). Configurable con YUMI_BUSQUEDA_NORMATIVA sin redesplegar.
+        self.metodo = (metodo or _metodo_configurado()).strip().lower()
+        if self.metodo == "vectorial" and self.retriever is None:
+            raise ValueError("La búsqueda vectorial necesita un almacén vectorial (qdrant)")
+        self._catalogo = catalogo
+        # id(problema) -> IDs de artículos elegidos desde el índice (navegar()).
+        self._navegacion: dict[int, list[str]] = {}
+
+    @property
+    def catalogo(self):
+        if self._catalogo is None:
+            from app.src.application.services.normativa.catalogo import catalogo_normativo
+            self._catalogo = catalogo_normativo()
+        return self._catalogo
 
     # ------------------------------------------------------------------ #
     # 1) Búsqueda vectorial
@@ -277,6 +331,8 @@ class PasoFundamentacion:
 
     def buscar_articulos(self, problema: ProblemaNormado, contexto: str = "",
                          situacion: dict | None = None) -> list[dict]:
+        if self.metodo == "indice":
+            return self._buscar_por_indice(problema, contexto, situacion)
         query = self.construir_query(problema, contexto, situacion)
         resultados = self.retriever.retrieve(
             query=query,
@@ -285,6 +341,100 @@ class PasoFundamentacion:
         )
         # Qdrant devuelve ordenado por score desc; filtramos por umbral.
         return [r for r in resultados if r.get("score", 0) >= UMBRAL_SCORE]
+
+    # ------------------------------------------------------------------ #
+    # 1b) Búsqueda por índice (como un agente de código: índice -> leer)
+    # ------------------------------------------------------------------ #
+    def navegar(self, problemas: list[ProblemaNormado], contexto: str = "",
+                situacion: dict | None = None) -> dict[int, list[str]]:
+        """UNA llamada al LLM para todos los hechos: con el índice de títulos
+        delante, elige qué artículos leer para cada uno. Guarda el resultado
+        para buscar_articulos. Si la llamada falla, los hechos quedan sin
+        elección y buscar_articulos se apoya solo en la búsqueda léxica."""
+        if self.metodo != "indice" or not problemas:
+            return {}
+        validos = self.catalogo.ids_articulos()
+        estado = []
+        if situacion and situacion.get("atipico") is not None:
+            estado.append("el consumo del mes reclamado ES atípico" if situacion["atipico"]
+                          else "el consumo del mes reclamado NO es atípico")
+        if situacion and situacion.get("con_medidor"):
+            estado.append("la conexión tiene medidor")
+        hechos = "\n".join(f"[{i}] {p.detalle}" for i, p in enumerate(problemas))
+        human = (
+            f"ÍNDICE DE LOS REGLAMENTOS:\n{self.catalogo.indice()}\n\n"
+            + (f"Motivo del reclamo (alegación del usuario): {contexto}\n" if contexto else "")
+            + (f"Situación verificada del caso: {'; '.join(estado)}.\n" if estado else "")
+            + f"\nHECHOS:\n{hechos}\n\nDevuelve SOLO el JSON."
+        )
+        try:
+            respuesta = constructor_contexto.llamar(
+                "fundamentacion_navegacion", self.llm_router, self.model_id, entrada=human,
+            )
+        except Exception as exc:
+            logger.warning("[FUNDAMENTACION] Falló la navegación por índice: %s", exc)
+            respuesta = ""
+        elegidos = self._parse_navegacion(respuesta or "", len(problemas), validos)
+        for i, p in enumerate(problemas):
+            self._navegacion[id(p)] = elegidos.get(i, [])
+            logger.info("[FUNDAMENTACION] Índice -> %s | %s", self._navegacion[id(p)], p.detalle[:80])
+        return {id(p): self._navegacion[id(p)] for p in problemas}
+
+    @staticmethod
+    def _parse_navegacion(texto: str, n: int, validos: set[str]) -> dict[int, list[str]]:
+        """{"hechos": [{"hecho": 0, "articulos": [...]}]} -> {0: [...]}. Descarta
+        IDs que no existen (el modelo no puede inventar artículos) y limita a 3."""
+        salida: dict[int, list[str]] = {}
+        match = re.search(r"\{.*\}", texto, re.DOTALL)
+        try:
+            datos = json.loads(match.group()) if match else {}
+        except json.JSONDecodeError:
+            datos = {}
+        entradas = datos.get("hechos") if isinstance(datos, dict) else None
+        for pos, e in enumerate(entradas or []):
+            if not isinstance(e, dict):
+                continue
+            try:
+                i = int(e.get("hecho", pos))
+            except (TypeError, ValueError):
+                i = pos
+            if not 0 <= i < n:
+                continue
+            ids = []
+            for a in e.get("articulos") or []:
+                a = str(a).strip()
+                if a in validos and a not in ids:
+                    ids.append(a)
+            salida[i] = ids[:3]
+        return salida
+
+    LEXICOS_POR_HECHO = 3
+
+    def _buscar_por_indice(self, problema: ProblemaNormado, contexto: str,
+                           situacion: dict | None) -> list[dict]:
+        """Candidatos de un hecho: las unidades de los artículos elegidos desde
+        el índice (texto literal, en orden) + las mejores coincidencias léxicas
+        de la query del hecho. Misma forma que los resultados de Qdrant."""
+        if id(problema) not in self._navegacion:
+            self.navegar([problema], contexto, situacion)
+        candidatos: list[dict] = []
+        vistos: set[str] = set()
+        for art_id in self._navegacion.get(id(problema), []):
+            for u in self.catalogo.leer(art_id):
+                if u.id not in vistos:
+                    vistos.add(u.id)
+                    candidatos.append(self.catalogo.a_resultado(u, 1.0, "indice"))
+        query = self.construir_query(problema, "", situacion)
+        lexicos = self.catalogo.buscar_texto(query, k=self.LEXICOS_POR_HECHO + len(vistos))
+        maximo = lexicos[0][1] if lexicos else 1.0
+        agregados = 0
+        for u, s in lexicos:
+            if u.id in vistos or agregados >= self.LEXICOS_POR_HECHO:
+                continue
+            vistos.add(u.id)
+            agregados += 1
+            candidatos.append(self.catalogo.a_resultado(u, round(s / maximo, 4), "lexica"))
+        return candidatos
 
     # ------------------------------------------------------------------ #
     # 2) Inferencia del LLM
@@ -342,6 +492,8 @@ class PasoFundamentacion:
         problema y se envía al frontend."""
         return [
             {
+                # ID estable en la base normativa ("RC.91.f"); None si viene de Qdrant.
+                "unidad_id": a["payload"].get("unidad_id"),
                 "article": a["payload"].get("article"),
                 "numeral": a["payload"].get("numeral"),
                 "norma": a["payload"].get("norma"),
@@ -694,4 +846,28 @@ class PasoFundamentacion:
             "fundamentacion_parrafo", self.llm_router, self.model_id, entrada=human,
             codreclamo=codreclamo,
         )
-        return (texto or "").strip()
+        texto = (texto or "").strip()
+
+        # Trazabilidad: toda cita debe salir del texto que se le entregó. Si
+        # cita un artículo que no estaba entre los aplicables o "cita" una
+        # frase que no existe en la norma, se le pide corregir UNA vez.
+        problemas_citas = verificar_citas(texto, problemas)
+        if problemas_citas:
+            logger.warning("[FUNDAMENTACION] Citas no verificadas: %s", problemas_citas)
+            correccion = (
+                human + "\n\nTu redacción anterior fue:\n" + texto
+                + "\n\nCORRIGE estos problemas de cita (cita SOLO los artículos aplicables "
+                "listados y, si usas comillas, copia el texto literal):\n- "
+                + "\n- ".join(problemas_citas)
+            )
+            try:
+                corregido = (constructor_contexto.llamar(
+                    "fundamentacion_parrafo", self.llm_router, self.model_id, entrada=correccion,
+                    codreclamo=codreclamo,
+                ) or "").strip()
+            except Exception as exc:
+                logger.warning("[FUNDAMENTACION] Falló la corrección de citas: %s", exc)
+                corregido = ""
+            if corregido and len(verificar_citas(corregido, problemas)) < len(problemas_citas):
+                texto = corregido
+        return texto

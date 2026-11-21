@@ -257,6 +257,22 @@ class TestEvidenciasDePaso(unittest.TestCase):
         self.assertEqual((ev["evento"], ev["paso"]), ("evidencias", "tarjeta_lectura"))
         self.assertIsNone(evento_evidencias(None, "tarjeta_lectura"))
 
+    def test_fundamentacion_incluye_constataciones(self):
+        # La fundamentación puede elegir constataciones (p.ej. la lectura del
+        # mes reclamado); el panel debe mostrarlas, no solo los problemas.
+        from app.src.application.services.informe.evidencias import construir_fundamentacion
+        from app.src.core.model.informe_atencion import ProblemaNormado
+        inf = informe_ejemplo()
+        h = ProblemaNormado(tipo="lecturaMesReclamado", detalle="Lectura normal de 64 m³", id="H-tl-03",
+                            clase="constatacion", seleccionado=True,
+                            articulos=[{"article": "91", "numeral": "91 f)", "texto": "...", "aplica": True},
+                                       {"article": "93", "numeral": None, "texto": "...", "aplica": False}])
+        inf.bloques[0].constataciones.append(h)
+        inf.fundamentacion_normativa = "Párrafo"
+        f = construir_fundamentacion(inf)
+        self.assertEqual([p["id"] for p in f["problemas"]], ["H-tl-03"])
+        self.assertEqual([a["article"] for a in f["problemas"][0]["articulos"]], ["91"])
+
     def test_error_no_rompe_el_stream(self):
         from app.src.application.services.informe import evidencias as mod
         with patch.object(mod, "construir_evidencias", side_effect=RuntimeError("x")):
